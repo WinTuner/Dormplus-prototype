@@ -9,7 +9,7 @@
 *{box-sizing:border-box;margin:0;padding:0}
 :root{
   --line:#06C755; --bg:#0B0F14; --card:#121A22; --card2:#182430; --ln:#24333F;
-  --text:#E6EDF3; --muted:#8B9AAB; --accent:#22C55E; --warn:#F59E0B; --info:#38BDF8;
+  --text:#E6EDF3; --muted:#8B9AAB; --accent:#22C55E; --warn:#F59E0B; --info:#38BDF8; --bad:#F87171;
   --font:'IBM Plex Sans Thai',sans-serif;
 }
 body{background:#05080B;font-family:var(--font);display:flex;align-items:center;justify-content:center;
@@ -32,6 +32,7 @@ body{background:#05080B;font-family:var(--font);display:flex;align-items:center;
 .billcard .body{padding:12px}
 .billcard .amt{font-size:26px;font-weight:700;color:#111}
 .billcard .rows{font-size:12px;color:#444;margin-top:6px;line-height:1.7}
+.billcard .top.alert{background:#991B1B}
 .billcard .cta{margin:10px 12px 12px;background:var(--accent);color:#062b14;text-align:center;padding:9px;border-radius:8px;font-weight:600;font-size:13px;cursor:pointer}
 .richmenu{background:#0B0F14;border-top:1px solid #1B2833;display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(2,58px)}
 .rm{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;border-right:1px solid #1B2833;border-bottom:1px solid #1B2833;cursor:pointer;transition:.15s}
@@ -64,8 +65,9 @@ body{background:#05080B;font-family:var(--font);display:flex;align-items:center;
 .calc{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
 .calc b{color:var(--text)}
 .pill{display:inline-block;font-size:10px;padding:3px 9px;border-radius:999px;border:1px solid rgba(34,197,94,.45);color:var(--accent)}
-.pill.warn{border-color:rgba(245,158,11,.5);color:var(--warn)}
+.pill.warn{border-color:rgba(245,158,11,.5);color:var(--warn);background:transparent}
 .pill.info{border-color:rgba(56,189,248,.5);color:var(--info)}
+.pill.bad{border-color:rgba(248,113,113,.5);color:var(--bad)}
 .hint{font-size:10px;color:#3E5464;line-height:1.5}
 .side{max-width:330px}
 .side h2{font-size:15px;margin-bottom:10px}
@@ -86,6 +88,7 @@ body{background:#05080B;font-family:var(--font);display:flex;align-items:center;
     <div class="chat">
       <div class="bubble">รอบบิล พ.ย. เริ่มแล้วครับ<br><span class="time">09:12</span></div>
       <div class="bubble" id="chatStatus">กำลังโหลดข้อมูล…<br><span class="time">09:12</span></div>
+      <div class="billcard" id="notifyCard" style="display:none"></div>
     </div>
     <div class="richmenu">
       <div class="rm hot" onclick="openList()">
@@ -181,6 +184,12 @@ body{background:#05080B;font-family:var(--font);display:flex;align-items:center;
     </div>
   </div>
 
+  <!-- tenant: own arrears -->
+  <div class="screen" id="s-tenant-arrears">
+    <div class="aheader"><div class="back" onclick="go('s-tenant-chat')">←</div><div><div class="kick" id="taKick">แจ้งเตือน</div><h1 id="taTitle">ยอดค้างชำระ</h1></div></div>
+    <div class="body" id="taBody"></div>
+  </div>
+
   <!-- pay -->
   <div class="screen" id="s-pay">
     <div class="aheader"><div class="back" onclick="go('s-tenant-chat')">←</div><div><div class="kick">ใบแจ้งหนี้</div><h1 id="payTitle">—</h1></div></div>
@@ -188,6 +197,7 @@ body{background:#05080B;font-family:var(--font);display:flex;align-items:center;
       <div class="card">
         <div style="display:flex;justify-content:space-between;margin-bottom:10px"><span class="m">ยอดที่ต้องชำระ</span><span class="pill warn" id="payDue">—</span></div>
         <div style="font-size:34px;font-weight:700;color:var(--accent)"><span id="payTotal">0</span> <span style="font-size:15px;color:var(--muted)">บาท</span></div>
+        <div id="payItems" style="margin-top:8px"></div>
         <div style="border-top:1px solid var(--ln);margin:12px 0"></div>
         <div style="display:flex;gap:14px;align-items:center">
           <div style="width:96px;height:96px;background:#fff;border-radius:10px;display:grid;place-items:center;color:#111;font-size:9px;text-align:center">QR<br>พร้อมเพย์</div>
@@ -221,6 +231,12 @@ body{background:#05080B;font-family:var(--font);display:flex;align-items:center;
     </div>
   </div>
 
+  <!-- notify: overdue rooms -->
+  <div class="screen" id="s-notify">
+    <div class="aheader"><div class="back" onclick="go('s-chat')">←</div><div><div class="kick" id="notifyKick">แจ้งเตือน</div><h1>ห้องค้างชำระ</h1></div></div>
+    <div class="body" id="notifyBody"></div>
+  </div>
+
   <!-- report -->
   <div class="screen" id="s-report">
     <div class="aheader"><div class="back" onclick="go('s-chat')">←</div><div><div class="kick" id="repKick">รอบบิล</div><h1>รายรับ</h1></div></div>
@@ -239,10 +255,64 @@ body{background:#05080B;font-family:var(--font);display:flex;align-items:center;
 
 <script>
 let S = null, cur = null;      // cur = room being edited
-let curInv = null;             // invoice in tenant flow
+let payIds = [];               // invoices the tenant's slip will cover
+let tenantRoomId = null;       // room shown in tenant view
 let offline = false;
 
 const money = n => (n || 0).toLocaleString('th-TH');
+const TH_MON = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+const thMonth = p => { const [y, m] = p.split('-'); return `${TH_MON[+m - 1]} ${+y + 543}`; };
+const thDate = (d, withYear) => {
+  if (!d) return '—';
+  const [y, m, dd] = d.split('-');
+  return `${+dd} ${TH_MON[+m - 1]}` + (withYear ? ` ${+y + 543}` : '');
+};
+
+// same mock arrears as server.py (MOCK_ARREARS), for when the page runs without the server
+function demoPast(rooms){
+  const units = { '2026-08': [5, 28], '2026-09': [6, 33], '2026-10': [4, 30] };
+  const arrears = { '203': ['2026-10'], '305': ['2026-08', '2026-09', '2026-10'],
+    '312': ['2026-09', '2026-10'], '407': ['2026-10'], '502': ['2026-09', '2026-10'] };
+  const out = [];
+  let id = 1000;
+  for (const [no, periods] of Object.entries(arrears)) {
+    const r = rooms.find(x => x.room_no === no);
+    for (const p of periods) {
+      out.push({ id: id++, room_id: r.id, room_no: no, tenant: r.tenant, period: p,
+        total: r.rent + units[p][0] * 25 + units[p][1] * 7, due_date: p + '-09', status: 'unpaid' });
+    }
+  }
+  return out;
+}
+
+// every invoice the page knows: this period's (on S.rooms) + earlier unsettled ones (S.past).
+// x.inv is the live object, so offline writes can change its status in place.
+function allInvoices(){
+  const cur = S.rooms.filter(r=>r.invoice).map(r=>({
+    inv: r.invoice, room_id: r.id, room_no: r.room_no, tenant: r.tenant, period: S.rates.period }));
+  const past = (S.past || []).map(p=>({
+    inv: p, room_id: p.room_id, room_no: p.room_no, tenant: p.tenant, period: p.period }));
+  return cur.concat(past).sort((a,b)=>a.period.localeCompare(b.period));
+}
+
+const daysLate = due => Math.round((Date.parse(S.rates.today) - Date.parse(due)) / 86400000);
+
+// rooms with unpaid invoices past due, longest overdue first; slips waiting for review don't count
+function computeOverdue(){
+  const today = S.rates.today;
+  const rooms = {};
+  for (const x of allInvoices()) {
+    if (x.inv.status !== 'unpaid' || x.inv.due_date >= today) continue;
+    const days = daysLate(x.inv.due_date);
+    const g = rooms[x.room_id] ||= { room_id: x.room_id, room_no: x.room_no, tenant: x.tenant,
+      periods: [], total: 0, days: 0 };
+    g.periods.push({ invoice_id: x.inv.id, period: x.period, total: x.inv.total, due_date: x.inv.due_date, days });
+    g.total += x.inv.total;
+    g.days = Math.max(g.days, days);
+  }
+  const list = Object.values(rooms).sort((a,b)=>b.days - a.days || a.room_no.localeCompare(b.room_no));
+  return { today, rooms: list };
+}
 
 function demoState(){
   const rooms = [];
@@ -257,7 +327,7 @@ function demoState(){
       id++;
     }
   }
-  return { rates: { water: 25, elec: 7, period: '2026-11' }, rooms };
+  return { rates: { water: 25, elec: 7, period: '2026-11', today: '2026-11-04' }, rooms, past: demoPast(rooms) };
 }
 
 // writes: to the API when the server is up, to memory when it is not
@@ -284,12 +354,11 @@ function offlineWrite(path, body){
         elec_units: uE, elec_rate: 7, total: r.rent + uW * 25 + uE * 7,
         due_date: due, status: 'unpaid' };
     }
-  } else if (path === '/api/pay') {
-    const r = S.rooms.find(x => x.invoice && x.invoice.id === body.invoice_id);
-    if (r) r.invoice.status = 'pending';
-  } else if (path === '/api/confirm') {
-    const r = S.rooms.find(x => x.invoice && x.invoice.id === body.invoice_id);
-    if (r) r.invoice.status = 'paid';
+  } else if (path === '/api/pay' || path === '/api/confirm') {
+    const [from, to] = path === '/api/pay' ? ['unpaid', 'pending'] : ['pending', 'paid'];
+    for (const x of allInvoices()) {
+      if (body.invoice_ids.includes(x.inv.id) && x.inv.status === from) x.inv.status = to;
+    }
   }
   return { ok: true };
 }
@@ -315,9 +384,10 @@ async function load(quiet){
     offline = true;
     if(!S) S = demoState();
   }
+  S.overdue = computeOverdue();
   const read = S.rooms.filter(r=>r.reading).length;
   const unpaid = S.rooms.filter(r=>r.invoice && r.invoice.status==='unpaid').length;
-  const pend = S.rooms.filter(r=>r.invoice && r.invoice.status==='pending').length;
+  const pend = allInvoices().filter(x=>x.inv.status==='pending').length;
   document.getElementById('periodLabel').textContent = 'รอบบิล ' + S.rates.period;
   document.getElementById('entryKick').textContent = 'รอบบิล ' + S.rates.period;
   document.getElementById('billKick').textContent = 'รอบบิล ' + S.rates.period;
@@ -328,10 +398,11 @@ async function load(quiet){
   document.getElementById('dbInfo').textContent =
     offline ? 'ไม่ได้ต่อฐานข้อมูล — กำลังเล่นด้วยข้อมูลในหน่วยความจำ (เปิดผ่าน http://127.0.0.1:8777 เพื่อใช้ SQLite)'
             : `DB: ${S.rooms.length} ห้อง · จดแล้ว ${read} · ออกบิลแล้ว ${S.rooms.filter(r=>r.invoice).length}`;
+  renderNotifyCard();
   if(document.getElementById('s-list').classList.contains('active')) renderList();
   if(document.getElementById('s-bill').classList.contains('active')) renderBill();
-  if(document.getElementById('s-report').classList.contains('active')) renderReport();
-  if(document.getElementById('s-confirm').classList.contains('active')) renderConfirm();
+  if(document.getElementById('s-report').classList.contains('active')) openReport();
+  if(document.getElementById('s-confirm').classList.contains('active')) openConfirm();
 }
 
 function renderList(){
@@ -429,52 +500,80 @@ function renderBill(){
 function openTenant(){
   const r = S.rooms.find(x=>x.invoice && x.invoice.status==='unpaid')
         || S.rooms.find(x=>x.invoice) || S.rooms.find(x=>x.reading) || S.rooms[0];
+  tenantRoomId = r ? r.id : null;
   const inv = r && r.invoice;
   const chat = document.getElementById('tenantChat');
+  const arrears = tenantArrearsCard(r);
   if(inv){
     const uW = inv.water_units, uE = inv.elec_units;
     chat.innerHTML = `<div class="bubble">สวัสดีครับ ห้อง ${r.room_no}<span class="time">10:02</span></div>
+      ${arrears}
       <div class="billcard"><div class="top"><span>ใบแจ้งหนี้ · พ.ย.</span><span>ห้อง ${r.room_no}</span></div>
       <div class="body"><div class="amt">${money(inv.total)} บาท</div>
       <div class="rows">ค่าเช่า ${money(inv.rent)}<br>ค่าน้ำ ${uW} หน่วย ${money(uW*inv.water_rate)}<br>ค่าไฟ ${uE} หน่วย ${money(uE*inv.elec_rate)}</div>
       <div class="m" style="margin-top:8px">ครบกำหนด ${inv.due_date} · ${inv.status==='paid'?'ชำระแล้ว':inv.status==='pending'?'รอตรวจสลิป':'ยังไม่ชำระ'}</div></div>
       <div class="cta" onclick="openPay()">ดูบิล / แจ้งชำระเงิน</div></div>`;
   }else{
-    chat.innerHTML = `<div class="bubble">ยังไม่มีใบแจ้งหนี้สำหรับรอบนี้ — กลับไปกด “ออกบิล” ก่อนครับ<span class="time">10:02</span></div>`;
+    chat.innerHTML = `<div class="bubble">ยังไม่มีใบแจ้งหนี้สำหรับรอบนี้ — กลับไปกด “ออกบิล” ก่อนครับ<span class="time">10:02</span></div>` + arrears;
   }
   go('s-tenant-chat');
 }
 
+// tenant pays everything still open on their room in one slip: overdue periods + this period
 function openPay(){
-  const r = S.rooms.find(x=>x.invoice && x.invoice.status==='unpaid') || S.rooms.find(x=>x.invoice);
-  if(!r || !r.invoice){ alert('ยังไม่มีใบแจ้งหนี้ — กด "ออกบิล" ก่อน'); return; }
-  curInv = { room: r, inv: r.invoice };
-  document.getElementById('payTitle').textContent = `ห้อง ${r.room_no} · พ.ย.`;
-  document.getElementById('payTotal').textContent = money(r.invoice.total);
-  document.getElementById('payDue').textContent = 'ครบกำหนด ' + r.invoice.due_date;
-  document.getElementById('payNote').textContent = r.invoice.status === 'pending'
-    ? 'แนบสลิปแล้ว — รอเจ้าของหอยืนยัน' : 'ยังไม่ได้แนบสลิป';
+  const r = S.rooms.find(x => x.id === tenantRoomId);
+  const mine = r ? allInvoices().filter(x => x.room_id === r.id) : [];
+  const unpaid = mine.filter(x => x.inv.status === 'unpaid');
+  const pending = mine.filter(x => x.inv.status === 'pending');
+  const show = unpaid.length ? unpaid : pending;
+  if(!show.length){ alert(mine.length ? 'ชำระครบแล้ว ไม่มียอดค้าง' : 'ยังไม่มีใบแจ้งหนี้ — กด "ออกบิล" ก่อน'); return; }
+  payIds = unpaid.map(x => x.inv.id);
+  const late = show.filter(x => x.inv.due_date < S.rates.today).length;
+  document.getElementById('payTitle').textContent = `ห้อง ${r.room_no} · ` +
+    (show.length > 1 ? `${show.length} งวด` : thMonth(show[0].period));
+  document.getElementById('payTotal').textContent = money(show.reduce((a,x)=>a+x.inv.total,0));
+  const due = document.getElementById('payDue');
+  due.className = 'pill ' + (late ? 'bad' : 'warn');
+  due.textContent = late ? `ค้าง ${late} งวด` : 'ครบกำหนด ' + thDate(show[0].inv.due_date, true);
+  document.getElementById('payItems').innerHTML = show.map(x=>`
+    <div class="calc" style="padding:4px 0">
+      <span><b>${thMonth(x.period)}</b> · ${x.inv.due_date < S.rates.today
+        ? `<span style="color:var(--bad)">เกินกำหนด ${daysLate(x.inv.due_date)} วัน</span>`
+        : 'ครบกำหนด ' + thDate(x.inv.due_date)}</span>
+      <b>${money(x.inv.total)}</b>
+    </div>`).join('');
+  document.getElementById('payNote').textContent = !unpaid.length ? 'แนบสลิปแล้ว — รอเจ้าของหอยืนยัน'
+    : pending.length ? `ยังไม่ได้แนบสลิป · อีก ${pending.length} งวดแนบสลิปแล้ว รอเจ้าของหอยืนยัน`
+    : 'ยังไม่ได้แนบสลิป';
   go('s-pay');
 }
 
 async function doPay(){
-  if(!curInv) return;
-  await post('/api/pay', { invoice_id: curInv.inv.id });
+  if(!payIds.length){ alert('แนบสลิปแล้ว — รอเจ้าของหอยืนยัน'); return; }
+  await post('/api/pay', { invoice_ids: payIds });
   await load(true);
   openConfirm();
 }
 
+// one card per room: a single slip may cover several periods, so it is confirmed as a group
+function pendingByRoom(){
+  const groups = {};
+  for (const x of allInvoices()) if (x.inv.status === 'pending') (groups[x.room_id] ||= []).push(x);
+  return Object.values(groups).sort((a,b)=>a[0].room_no.localeCompare(b[0].room_no));
+}
+
 function openConfirm(){
-  const pend = S.rooms.filter(r=>r.invoice && r.invoice.status==='pending');
+  const pend = pendingByRoom();
   const unpaid = S.rooms.filter(r=>r.invoice && r.invoice.status==='unpaid');
   document.getElementById('confirmKick').textContent = `รอตรวจ ${pend.length} · ยังไม่ชำระ ${unpaid.length}`;
-  const rows = pend.map(r=>`
+  const rows = pend.map(items=>`
     <div class="card">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <span style="font-size:14px;font-weight:600">ห้อง ${r.room_no}</span><span class="pill warn">รอตรวจสอบ</span></div>
-      <div class="m">โอน ${money(r.invoice.total)} บาท · ยอดตรงกับใบแจ้งหนี้</div>
+        <span style="font-size:14px;font-weight:600">ห้อง ${items[0].room_no}</span><span class="pill warn">รอตรวจสอบ</span></div>
+      <div class="m">โอน ${money(items.reduce((a,x)=>a+x.inv.total,0))} บาท · ยอดตรงกับใบแจ้งหนี้${items.length > 1 ? ` · ${items.length} งวด` : ''}</div>
+      ${items.map(x=>`<div class="calc" style="padding:3px 0"><span>${thMonth(x.period)}</span><span>${money(x.inv.total)}</span></div>`).join('')}
       <div style="display:flex;gap:8px;margin-top:12px">
-        <button class="btn" style="flex:1;padding:10px" onclick="doConfirm(${r.invoice.id})">ยืนยัน</button>
+        <button class="btn" style="flex:1;padding:10px" onclick="doConfirm([${items.map(x=>x.inv.id)}])">ยืนยัน</button>
         <button class="btn ghost" style="flex:1;padding:10px" onclick="alert('ส่งข้อความถามผู้เช่าแล้ว')">ไม่ตรง</button>
       </div>
     </div>`).join('');
@@ -489,17 +588,109 @@ function openConfirm(){
   go('s-confirm');
 }
 
-async function doConfirm(id){
-  await post('/api/confirm', { invoice_id: id });
+async function doConfirm(ids){
+  // look the invoices up first: once paid, earlier periods drop out of S.past
+  const items = allInvoices().filter(x => ids.includes(x.inv.id));
+  await post('/api/confirm', { invoice_ids: ids });
   await load(true);
-  const r = S.rooms.find(x=>x.invoice && x.invoice.id===id);
-  document.getElementById('recTitle').textContent = 'ใบเสร็จ ห้อง ' + (r ? r.room_no : '');
-  document.getElementById('recNo').textContent = 'REC-' + id;
-  document.getElementById('recTotal').textContent = money(r ? r.invoice.total : 0);
-  document.getElementById('recMeta').innerHTML = r
-    ? `ห้อง ${r.room_no} · พ.ย. 2569<br>ยืนยันโดยเจ้าของหอ · บันทึกในฐานข้อมูลแล้ว`
+  const room = items.length ? items[0].room_no : '';
+  document.getElementById('recTitle').textContent = 'ใบเสร็จ ห้อง ' + room;
+  document.getElementById('recNo').textContent = 'REC-' + ids.join('-');
+  document.getElementById('recTotal').textContent = money(items.reduce((a,x)=>a+x.inv.total,0));
+  document.getElementById('recMeta').innerHTML = items.length
+    ? `ห้อง ${room} · ${items.map(x=>thMonth(x.period)).join(', ')}<br>ยืนยันโดยเจ้าของหอ · บันทึกในฐานข้อมูลแล้ว`
     : '';
   go('s-receipt');
+}
+
+// one line per overdue period + the room's total; shared by the owner and tenant screens
+function arrearsRows(r){
+  return r.periods.map(p=>`
+    <div class="calc" style="padding:6px 0;align-items:baseline">
+      <span><b>${thMonth(p.period)}</b> · ครบกำหนด ${thDate(p.due_date)} · เกิน ${p.days} วัน</span>
+      <b>${money(p.total)}</b>
+    </div>`).join('') + `
+    <div style="display:flex;justify-content:space-between;font-size:13px;margin-top:6px">
+      <span class="m">รวมค้าง</span><span style="font-weight:700;color:var(--bad)">${money(r.total)} บาท</span>
+    </div>`;
+}
+
+const roomArrears = id => S.overdue.rooms.find(o => o.room_id === id) || null;
+
+// push-style card in the tenant's chat, only when their room is past due
+function tenantArrearsCard(r){
+  const o = r && roomArrears(r.id);
+  if(!o) return '';
+  const lines = o.periods.map(p=>`${thMonth(p.period)} · เกินกำหนด ${p.days} วัน`).join('<br>');
+  return `<div class="billcard"><div class="top alert"><span>แจ้งเตือน · ยอดค้างชำระ</span><span>ห้อง ${o.room_no}</span></div>
+    <div class="body"><div class="amt">${money(o.total)} บาท</div>
+    <div class="rows">ค้าง ${o.periods.length} งวด · เกินกำหนดนานสุด ${o.days} วัน<br>${lines}</div></div>
+    <div class="cta" onclick="openTenantArrears()">ดูรายละเอียดยอดค้าง</div></div>`;
+}
+
+function openTenantArrears(){
+  const o = roomArrears(tenantRoomId);
+  if(!o) return;
+  document.getElementById('taKick').textContent = 'แจ้งเตือน · ณ ' + thDate(S.overdue.today, true);
+  document.getElementById('taTitle').textContent = `ยอดค้าง · ห้อง ${o.room_no}`;
+  document.getElementById('taBody').innerHTML = `
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;margin-bottom:10px">
+        <span class="m">ยอดค้างชำระ</span>
+        <span class="pill ${o.days >= 30 ? 'bad' : 'warn'}">เกินกำหนด ${o.days} วัน</span>
+      </div>
+      <div style="font-size:34px;font-weight:700;color:var(--bad)">${money(o.total)} <span style="font-size:15px;color:var(--muted)">บาท</span></div>
+      <div class="m" style="margin-top:6px">ค้าง ${o.periods.length} งวด</div>
+    </div>
+    <div class="card">${arrearsRows(o)}</div>
+    <button class="btn" onclick="openPay()">แจ้งชำระยอดค้าง</button>
+    <div class="card2"><div class="m">ไม่มีค่าปรับล่าช้า · แนบสลิปครั้งเดียวได้ทุกงวดที่ค้าง รวมบิลรอบนี้</div></div>`;
+  go('s-tenant-arrears');
+}
+
+// push-style card in the owner's chat: summary of rooms past due
+function renderNotifyCard(){
+  const od = S.overdue || { rooms: [] };
+  const el = document.getElementById('notifyCard');
+  if(!od.rooms.length){ el.style.display = 'none'; return; }
+  const sum = od.rooms.reduce((a,r)=>a+r.total,0);
+  const top = od.rooms.slice(0,3)
+    .map(r=>`ห้อง ${r.room_no} · ค้าง ${r.periods.length} งวด · เกิน ${r.days} วัน`).join('<br>');
+  const more = od.rooms.length > 3 ? `<br>และอีก ${od.rooms.length-3} ห้อง` : '';
+  el.innerHTML = `<div class="top alert"><span>แจ้งเตือน · ค้างชำระ</span><span>${thDate(od.today)}</span></div>
+    <div class="body"><div class="amt">${od.rooms.length} ห้องค้างชำระ</div>
+    <div class="rows">ยอดค้างรวม ${money(sum)} บาท<br>${top}${more}</div></div>
+    <div class="cta" onclick="openNotify()">ดูห้องค้างทั้งหมด</div>`;
+  el.style.display = '';
+}
+
+function openNotify(){
+  const od = S.overdue || { today: '', rooms: [] };
+  const sum = od.rooms.reduce((a,r)=>a+r.total,0);
+  const bills = od.rooms.reduce((a,r)=>a+r.periods.length,0);
+  document.getElementById('notifyKick').textContent = 'แจ้งเตือน · ณ ' + thDate(od.today, true);
+  const cards = od.rooms.map(r=>`
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <span style="font-size:15px;font-weight:600">ห้อง ${r.room_no}</span>
+        <span style="display:flex;gap:6px">
+          <span class="pill ${r.periods.length > 1 ? 'bad' : 'warn'}">ค้าง ${r.periods.length} งวด</span>
+          <span class="pill ${r.days >= 30 ? 'bad' : 'warn'}">เกิน ${r.days} วัน</span>
+        </span>
+      </div>
+      <div class="m">${r.tenant || ''}</div>
+      <div style="border-top:1px solid var(--ln);margin:10px 0 2px"></div>
+      ${arrearsRows(r)}
+    </div>`).join('');
+  document.getElementById('notifyBody').innerHTML = `
+    <div class="card">
+      <div class="m">ยอดค้างชำระรวม</div>
+      <div style="font-size:30px;font-weight:700;color:var(--bad)">${money(sum)} <span style="font-size:14px;color:var(--muted)">บาท</span></div>
+      <div class="m" style="margin-top:6px">${od.rooms.length} ห้อง · ${bills} งวด · เรียงจากค้างนานสุด</div>
+    </div>`
+    + (cards || '<div class="card2"><div class="m">ไม่มีห้องค้างชำระเกินกำหนด</div></div>')
+    + '<div class="card2"><div class="m">นับเฉพาะบิลที่ยังไม่ชำระและเลยวันครบกำหนดแล้ว · บิลที่แนบสลิปรอตรวจไม่นับ · ไม่คิดค่าปรับ</div></div>';
+  go('s-notify');
 }
 
 function openReport(){

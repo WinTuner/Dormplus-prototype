@@ -13,8 +13,19 @@ from urllib.parse import urlparse
 BASE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(BASE, "pakdee.db")
 PERIOD = "2026-11"
+TODAY = date(2026, 11, 4)  # demo "today": bills are issued and arrears counted from here
 RENT_METER, RENT_FLAT = 3220, 3500
 WATER_RATE, ELEC_RATE = 25, 7
+
+# Mock arrears for the owner's notify screen: room_no -> past periods left unpaid.
+MOCK_ARREARS = {
+    "203": ["2026-10"],
+    "305": ["2026-08", "2026-09", "2026-10"],
+    "312": ["2026-09", "2026-10"],
+    "407": ["2026-10"],
+    "502": ["2026-09", "2026-10"],
+}
+MOCK_UNITS = {"2026-08": (5, 28), "2026-09": (6, 33), "2026-10": (4, 30)}  # (water, elec)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS rooms (
@@ -101,6 +112,44 @@ def seed():
     con.close()
 
 
+def seed_overdue():
+    """Insert the mock past-period unpaid invoices. UNIQUE(room_id, period) makes reruns no-ops."""
+    con = db()
+    for room_no, periods in MOCK_ARREARS.items():
+        room = con.execute("SELECT id, rent FROM rooms WHERE room_no=?", (room_no,)).fetchone()
+        if not room:
+            continue
+        for period in periods:
+            wu, eu = MOCK_UNITS[period]
+            total = room["rent"] + wu * WATER_RATE + eu * ELEC_RATE
+            con.execute(
+                """INSERT OR IGNORE INTO invoices (room_id, period, rent, water_units, water_rate,
+                                                   elec_units, elec_rate, total, due_date, status)
+                   VALUES (?,?,?,?,?,?,?,?,?, 'unpaid')""",
+                (room["id"], period, room["rent"], wu, WATER_RATE, eu, ELEC_RATE, total, f"{period}-09"),
+            )
+    con.commit()
+    con.close()
+
+
+def past_invoices():
+    """Earlier periods' invoices that are not settled yet (unpaid, or slip waiting for review).
+
+    The page groups these into the overdue lists and the owner's confirm queue.
+    """
+    con = db()
+    rows = con.execute(
+        """SELECT i.id, i.room_id, r.room_no, r.tenant_name AS tenant,
+                  i.period, i.total, i.due_date, i.status
+           FROM invoices i JOIN rooms r ON r.id = i.room_id
+           WHERE i.period <> ? AND i.status <> 'paid'
+           ORDER BY r.room_no, i.period""",
+        (PERIOD,),
+    ).fetchall()
+    con.close()
+    return [dict(x) for x in rows]
+
+
 def state():
     con = db()
     rooms = []
@@ -131,9 +180,9 @@ def state():
             },
             "payment": None if not pay else {"id": pay["id"], "amount": pay["amount"], "confirmed_at": pay["confirmed_at"]},
         })
-    rates = {"water": WATER_RATE, "elec": ELEC_RATE, "period": PERIOD}
+    rates = {"water": WATER_RATE, "elec": ELEC_RATE, "period": PERIOD, "today": TODAY.isoformat()}
     con.close()
-    return {"rates": rates, "rooms": rooms}
+    return {"rates": rates, "rooms": rooms, "past": past_invoices()}
 
 
 def save_reading(payload):
@@ -158,7 +207,7 @@ def save_reading(payload):
 
 def make_bills():
     con = db()
-    due = (date(2026, 11, 4) + timedelta(days=5)).isoformat()
+    due = (TODAY + timedelta(days=5)).isoformat()
     made = 0
     for r in con.execute("SELECT * FROM rooms").fetchall():
         rd = con.execute(
@@ -187,28 +236,40 @@ def make_bills():
 
 
 def pay(payload):
+    """Tenant sends one slip for one or more invoices: unpaid -> pending.
+
+    Invoices that are already pending or paid are skipped, so a repeat tap adds nothing.
+    """
     con = db()
-    inv = con.execute("SELECT * FROM invoices WHERE id=?", (payload["invoice_id"],)).fetchone()
-    if not inv:
-        con.close()
-        return {"ok": False, "error": "invoice not found"}
-    con.execute("UPDATE invoices SET status='pending' WHERE id=?", (inv["id"],))
-    con.execute("INSERT INTO payments (invoice_id, amount) VALUES (?,?)", (inv["id"], inv["total"]))
+    n = 0
+    for inv_id in payload["invoice_ids"]:
+        inv = con.execute("SELECT * FROM invoices WHERE id=? AND status='unpaid'", (inv_id,)).fetchone()
+        if not inv:
+            continue
+        con.execute("UPDATE invoices SET status='pending' WHERE id=?", (inv["id"],))
+        con.execute("INSERT INTO payments (invoice_id, amount) VALUES (?,?)", (inv["id"], inv["total"]))
+        n += 1
     con.commit()
     con.close()
-    return {"ok": True}
+    return {"ok": True, "pending": n}
 
 
 def confirm(payload):
+    """Owner accepts the slip: pending -> paid, for every invoice it covered."""
     con = db()
-    con.execute("UPDATE invoices SET status='paid' WHERE id=?", (payload["invoice_id"],))
-    con.execute(
-        "UPDATE payments SET confirmed_at=datetime('now') WHERE invoice_id=? AND confirmed_at IS NULL",
-        (payload["invoice_id"],),
-    )
+    n = 0
+    for inv_id in payload["invoice_ids"]:
+        cur = con.execute("UPDATE invoices SET status='paid' WHERE id=? AND status='pending'", (inv_id,))
+        if not cur.rowcount:
+            continue
+        con.execute(
+            "UPDATE payments SET confirmed_at=datetime('now') WHERE invoice_id=? AND confirmed_at IS NULL",
+            (inv_id,),
+        )
+        n += 1
     con.commit()
     con.close()
-    return {"ok": True}
+    return {"ok": True, "paid": n}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -251,5 +312,6 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     seed()
+    seed_overdue()
     print("PAKDEE demo on http://127.0.0.1:8777  (db:", DB, ")")
     ThreadingHTTPServer(("127.0.0.1", 8777), Handler).serve_forever()
