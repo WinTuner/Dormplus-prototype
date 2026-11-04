@@ -179,7 +179,7 @@ body{background:#05080B;font-family:var(--font);display:flex;align-items:center;
     <div class="richmenu">
       <div class="rm hot" onclick="openTenant()"><svg viewBox="0 0 100 100"><rect x="20" y="14" width="60" height="72" rx="8"/><line x1="32" y1="34" x2="68" y2="34"/><line x1="32" y1="48" x2="68" y2="48"/></svg><span>บิลของฉัน</span></div>
       <div class="rm" onclick="openPay()"><svg viewBox="0 0 100 100"><path d="M50 14v40"/><path d="M34 34l16 16 16-16"/><path d="M20 66v12a6 6 0 0 0 6 6h48a6 6 0 0 0 6-6V66"/></svg><span>แจ้งชำระ</span></div>
-      <div class="rm" onclick="openPay()"><svg viewBox="0 0 100 100"><path d="M26 12h48v76l-8-6-8 6-8-6-8 6-8-6-8 6z"/><path d="M40 44l7 7 14-15"/></svg><span>ใบเสร็จ</span></div>
+      <div class="rm" onclick="openTenantReceipts()"><svg viewBox="0 0 100 100"><path d="M26 12h48v76l-8-6-8 6-8-6-8 6-8-6-8 6z"/><path d="M40 44l7 7 14-15"/></svg><span>ใบเสร็จ</span></div>
       <div class="rm" onclick="go('s-chat')" style="grid-column:1/3"><svg viewBox="0 0 100 100"><path d="M18 30h64v38H44L28 82V68H18z"/></svg><span>สลับเป็นเจ้าของ</span></div>
     </div>
   </div>
@@ -188,6 +188,12 @@ body{background:#05080B;font-family:var(--font);display:flex;align-items:center;
   <div class="screen" id="s-tenant-arrears">
     <div class="aheader"><div class="back" onclick="go('s-tenant-chat')">←</div><div><div class="kick" id="taKick">แจ้งเตือน</div><h1 id="taTitle">ยอดค้างชำระ</h1></div></div>
     <div class="body" id="taBody"></div>
+  </div>
+
+  <!-- tenant: receipts -->
+  <div class="screen" id="s-tenant-receipts">
+    <div class="aheader"><div class="back" onclick="go('s-tenant-chat')">←</div><div><div class="kick">ใบเสร็จของฉัน</div><h1 id="trTitle">ใบเสร็จ</h1></div></div>
+    <div class="body" id="trBody"></div>
   </div>
 
   <!-- pay -->
@@ -289,9 +295,10 @@ function demoPast(rooms){
 // x.inv is the live object, so offline writes can change its status in place.
 function allInvoices(){
   const cur = S.rooms.filter(r=>r.invoice).map(r=>({
-    inv: r.invoice, room_id: r.id, room_no: r.room_no, tenant: r.tenant, period: S.rates.period }));
+    inv: r.invoice, room_id: r.id, room_no: r.room_no, tenant: r.tenant, period: S.rates.period,
+    paid_at: r.invoice.paid_at || (r.payment && r.payment.confirmed_at) }));
   const past = (S.past || []).map(p=>({
-    inv: p, room_id: p.room_id, room_no: p.room_no, tenant: p.tenant, period: p.period }));
+    inv: p, room_id: p.room_id, room_no: p.room_no, tenant: p.tenant, period: p.period, paid_at: p.paid_at }));
   return cur.concat(past).sort((a,b)=>a.period.localeCompare(b.period));
 }
 
@@ -356,8 +363,11 @@ function offlineWrite(path, body){
     }
   } else if (path === '/api/pay' || path === '/api/confirm') {
     const [from, to] = path === '/api/pay' ? ['unpaid', 'pending'] : ['pending', 'paid'];
+    const now = new Date().toISOString().slice(0, 19).replace('T', ' ');  // UTC, same shape as SQLite datetime('now')
     for (const x of allInvoices()) {
-      if (body.invoice_ids.includes(x.inv.id) && x.inv.status === from) x.inv.status = to;
+      if (!body.invoice_ids.includes(x.inv.id) || x.inv.status !== from) continue;
+      x.inv.status = to;
+      if (to === 'paid') x.inv.paid_at = now;
     }
   }
   return { ok: true };
@@ -498,9 +508,14 @@ function renderBill(){
 }
 
 function openTenant(){
-  const r = S.rooms.find(x=>x.invoice && x.invoice.status==='unpaid')
-        || S.rooms.find(x=>x.invoice) || S.rooms.find(x=>x.reading) || S.rooms[0];
-  tenantRoomId = r ? r.id : null;
+  // the tenant stays the same room for the session, so after paying they can still find their receipt
+  if(!S.rooms.some(x => x.id === tenantRoomId)){
+    const pick = S.rooms.find(x=>x.invoice && x.invoice.status==='unpaid')
+          || S.rooms.find(x=>S.overdue.rooms.some(o=>o.room_id===x.id))
+          || S.rooms.find(x=>x.invoice) || S.rooms.find(x=>x.reading) || S.rooms[0];
+    tenantRoomId = pick ? pick.id : null;
+  }
+  const r = S.rooms.find(x => x.id === tenantRoomId);
   const inv = r && r.invoice;
   const chat = document.getElementById('tenantChat');
   const arrears = tenantArrearsCard(r);
@@ -512,7 +527,7 @@ function openTenant(){
       <div class="body"><div class="amt">${money(inv.total)} บาท</div>
       <div class="rows">ค่าเช่า ${money(inv.rent)}<br>ค่าน้ำ ${uW} หน่วย ${money(uW*inv.water_rate)}<br>ค่าไฟ ${uE} หน่วย ${money(uE*inv.elec_rate)}</div>
       <div class="m" style="margin-top:8px">ครบกำหนด ${inv.due_date} · ${inv.status==='paid'?'ชำระแล้ว':inv.status==='pending'?'รอตรวจสลิป':'ยังไม่ชำระ'}</div></div>
-      <div class="cta" onclick="openPay()">ดูบิล / แจ้งชำระเงิน</div></div>`;
+      <div class="cta" onclick="openPay()">${inv.status==='paid' ? 'ดูใบเสร็จ' : 'ดูบิล / แจ้งชำระเงิน'}</div></div>`;
   }else{
     chat.innerHTML = `<div class="bubble">ยังไม่มีใบแจ้งหนี้สำหรับรอบนี้ — กลับไปกด “ออกบิล” ก่อนครับ<span class="time">10:02</span></div>` + arrears;
   }
@@ -526,7 +541,11 @@ function openPay(){
   const unpaid = mine.filter(x => x.inv.status === 'unpaid');
   const pending = mine.filter(x => x.inv.status === 'pending');
   const show = unpaid.length ? unpaid : pending;
-  if(!show.length){ alert(mine.length ? 'ชำระครบแล้ว ไม่มียอดค้าง' : 'ยังไม่มีใบแจ้งหนี้ — กด "ออกบิล" ก่อน'); return; }
+  if(!show.length){
+    if(mine.length) openTenantReceipts();  // everything is paid: show the receipts instead
+    else alert('ยังไม่มีใบแจ้งหนี้ — กด "ออกบิล" ก่อน');
+    return;
+  }
   payIds = unpaid.map(x => x.inv.id);
   const late = show.filter(x => x.inv.due_date < S.rates.today).length;
   document.getElementById('payTitle').textContent = `ห้อง ${r.room_no} · ` +
@@ -589,7 +608,7 @@ function openConfirm(){
 }
 
 async function doConfirm(ids){
-  // look the invoices up first: once paid, earlier periods drop out of S.past
+  // look the invoices up before the reload replaces S
   const items = allInvoices().filter(x => ids.includes(x.inv.id));
   await post('/api/confirm', { invoice_ids: ids });
   await load(true);
@@ -601,6 +620,41 @@ async function doConfirm(ids){
     ? `ห้อง ${room} · ${items.map(x=>thMonth(x.period)).join(', ')}<br>ยืนยันโดยเจ้าของหอ · บันทึกในฐานข้อมูลแล้ว`
     : '';
   go('s-receipt');
+}
+
+// SQLite stores UTC ("2026-11-04 14:51:40"); show it in local Thai time
+const thDateTime = utc => new Date(utc.replace(' ', 'T') + 'Z').toLocaleString('th-TH',
+  { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+
+// tenant's receipts: invoices the owner confirmed together (same paid_at) form one receipt,
+// numbered the same way as the owner's receipt (REC-<invoice ids>)
+function openTenantReceipts(){
+  const r = S.rooms.find(x => x.id === tenantRoomId);
+  if(!r) return;
+  const mine = allInvoices().filter(x => x.room_id === r.id);
+  const groups = {};
+  for (const x of mine) if (x.inv.status === 'paid' && x.paid_at) (groups[x.paid_at] ||= []).push(x);
+  const receipts = Object.entries(groups).sort((a,b)=>b[0].localeCompare(a[0]));
+  const pending = mine.filter(x => x.inv.status === 'pending');
+  document.getElementById('trTitle').textContent = 'ห้อง ' + r.room_no;
+  const pendCard = pending.length ? `
+    <div class="card2">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span class="m">แนบสลิปแล้ว · รอเจ้าของหอยืนยัน</span><span class="pill warn">รอตรวจสอบ</span></div>
+      ${pending.map(x=>`<div class="calc" style="padding:3px 0"><span>${thMonth(x.period)}</span><span>${money(x.inv.total)}</span></div>`).join('')}
+    </div>` : '';
+  const cards = receipts.map(([at, items])=>`
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+        <span class="m">เลขที่ REC-${items.map(x=>x.inv.id).join('-')}</span><span class="pill info">ชำระแล้ว</span></div>
+      <div style="font-size:30px;font-weight:700;color:var(--accent)">${money(items.reduce((a,x)=>a+x.inv.total,0))} <span style="font-size:14px;color:var(--muted)">บาท</span></div>
+      <div style="border-top:1px solid var(--ln);margin:10px 0 4px"></div>
+      ${items.map(x=>`<div class="calc" style="padding:4px 0"><span><b>${thMonth(x.period)}</b></span><b>${money(x.inv.total)}</b></div>`).join('')}
+      <div class="m" style="margin-top:8px">ยืนยันโดยเจ้าของหอ · ${thDateTime(at)}</div>
+    </div>`).join('');
+  document.getElementById('trBody').innerHTML = pendCard + (cards
+    || '<div class="card2"><div class="m">ยังไม่มีใบเสร็จ — ใบเสร็จจะขึ้นหลังเจ้าของหอยืนยันการชำระ</div></div>');
+  go('s-tenant-receipts');
 }
 
 // one line per overdue period + the room's total; shared by the owner and tenant screens

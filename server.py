@@ -133,16 +133,18 @@ def seed_overdue():
 
 
 def past_invoices():
-    """Earlier periods' invoices that are not settled yet (unpaid, or slip waiting for review).
+    """Earlier periods' invoices, with paid_at = when the owner confirmed the slip (UTC, or None).
 
-    The page groups these into the overdue lists and the owner's confirm queue.
+    The page groups these into the overdue lists, the owner's confirm queue and the tenant's receipts.
     """
     con = db()
     rows = con.execute(
         """SELECT i.id, i.room_id, r.room_no, r.tenant_name AS tenant,
-                  i.period, i.total, i.due_date, i.status
+                  i.period, i.total, i.due_date, i.status,
+                  (SELECT p.confirmed_at FROM payments p WHERE p.invoice_id = i.id
+                   ORDER BY p.id DESC LIMIT 1) AS paid_at
            FROM invoices i JOIN rooms r ON r.id = i.room_id
-           WHERE i.period <> ? AND i.status <> 'paid'
+           WHERE i.period <> ?
            ORDER BY r.room_no, i.period""",
         (PERIOD,),
     ).fetchall()
