@@ -11,7 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse
 
 BASE = os.path.dirname(os.path.abspath(__file__))
-DB = os.path.join(BASE, "pakdee.db")
+DB = os.path.join(BASE, "domplus.db")
 PERIOD = "2026-11"
 TODAY = date(2026, 11, 4)  # demo "today": bills are issued and arrears counted from here
 RENT_METER, RENT_FLAT = 3220, 3500
