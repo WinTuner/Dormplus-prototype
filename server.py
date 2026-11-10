@@ -8,7 +8,7 @@ import os
 import sqlite3
 from datetime import date, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 DB = os.path.join(BASE, "domplus.db")
@@ -284,12 +284,51 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def do_GET(self):
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path in ("/", "/prototype.html"):
             with open(os.path.join(BASE, "prototype.html"), "rb") as f:
                 self._send(200, f.read(), "text/html; charset=utf-8")
+        elif path.startswith("/v1/"):
+            import api_v1
+            code, body = api_v1.handle("GET", path, parse_qs(parsed.query), {})
+            self._send(code, body)
+        elif path.startswith("/web/"):
+            self._serve_static(path)
+        elif path == "/owner":
+            self._serve_static("/web/owner.html")
+        elif path == "/tenant":
+            self._serve_static("/web/tenant.html")
         elif path == "/api/state":
             self._send(200, state())
+        else:
+            self._send(404, {"error": "not found"})
+
+    def _serve_static(self, path):
+        rel = path.lstrip("/")
+        full = os.path.normpath(os.path.join(BASE, rel))
+        if not full.startswith(BASE) or not os.path.isfile(full):
+            self._send(404, {"error": "not found"})
+            return
+        ctype = "text/html; charset=utf-8"
+        if full.endswith(".css"):
+            ctype = "text/css; charset=utf-8"
+        elif full.endswith(".js"):
+            ctype = "application/javascript; charset=utf-8"
+        with open(full, "rb") as f:
+            self._send(200, f.read(), ctype)
+
+    def _v1(self, method, payload):
+        import api_v1
+        parsed = urlparse(self.path)
+        code, body = api_v1.handle(method, parsed.path, parse_qs(parsed.query), payload)
+        self._send(code, body)
+
+    def do_PUT(self):
+        length = int(self.headers.get("Content-Length") or 0)
+        payload = json.loads(self.rfile.read(length) or b"{}")
+        if urlparse(self.path).path.startswith("/v1/"):
+            self._v1("PUT", payload)
         else:
             self._send(404, {"error": "not found"})
 
@@ -297,6 +336,9 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         payload = json.loads(self.rfile.read(length) or b"{}")
         path = urlparse(self.path).path
+        if path.startswith("/v1/"):
+            self._v1("POST", payload)
+            return
         routes = {"/api/reading": save_reading, "/api/bill": lambda p: make_bills(),
                   "/api/pay": pay, "/api/confirm": confirm}
         fn = routes.get(path)

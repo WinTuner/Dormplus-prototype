@@ -1,0 +1,33 @@
+/* DomPlus — shared styles for owner + tenant web (LIFF-ready) */
+:root{
+  --bg:#0B0F14; --card:#121A22; --card2:#16212B; --line:#24333F;
+  --text:#E6EDF3; --muted:#8B9AAB; --accent:#4FD8D2; --warn:#F59E0B; --ok:#22C55E;
+  --font:'IBM Plex Sans Thai',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:100vh;display:flex;justify-content:center}
+.app{width:100%;max-width:430px;padding:0 0 40px}
+header{padding:28px 20px 14px;border-bottom:1px solid var(--line)}
+.kick{font-size:11px;color:var(--accent);font-weight:600}
+h1{font-size:20px;font-weight:700;margin-top:2px}
+main{padding:16px 20px;display:flex;flex-direction:column;gap:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+.card2{background:var(--card2);border:1px solid var(--line);border-radius:14px;padding:14px}
+.m{font-size:11px;color:var(--muted);line-height:1.6}
+.row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.big{font-size:30px;font-weight:700;color:var(--accent)}
+.btn{background:var(--accent);color:#062B14;font-weight:600;font-size:14px;text-align:center;
+  padding:13px;border-radius:12px;cursor:pointer;border:none;width:100%;font-family:var(--font)}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--text);font-weight:500}
+.progress{height:6px;background:#1B2833;border-radius:4px;overflow:hidden;margin-top:8px}
+.progress i{display:block;height:100%;background:var(--accent)}
+.roomrow{display:flex;justify-content:space-between;align-items:center;padding:11px 0;border-bottom:1px solid #1a2530;font-size:13px;cursor:pointer}
+.roomrow:last-child{border-bottom:none}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+.dot.done{background:var(--ok)}.dot.todo{background:#3A4A57}.dot.warn{background:var(--warn)}
+.field{background:#0A1218;border:1px solid var(--line);border-radius:12px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center}
+.field input{background:transparent;border:none;outline:none;color:var(--text);font-size:22px;font-weight:600;width:120px;text-align:right;font-family:var(--font)}
+.pill{font-size:10px;padding:3px 10px;border-radius:999px;border:1px solid rgba(79,216,210,.5);color:var(--accent)}
+.pill.warn{border-color:rgba(245,158,11,.5);color:var(--warn)}
+.hint{font-size:11px;color:var(--muted)}
+.warnText{color:var(--warn)}

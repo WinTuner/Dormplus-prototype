@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DomPlus — เจ้าของหอ</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/web/app.css">
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="kick" id="kick">รอบบิล</div>
+    <h1 id="title">จดมิเตอร์</h1>
+  </header>
+
+  <main>
+    <div class="card">
+      <div class="row"><span class="m">จดแล้ว</span><b id="progText">—</b></div>
+      <div class="progress"><i id="progBar" style="width:0%"></i></div>
+    </div>
+
+    <button class="btn" id="nextBtn">เริ่มจากห้องแรกที่ยังไม่จด</button>
+
+    <div class="card" id="list"></div>
+
+    <div class="card2" id="entry" hidden>
+      <div class="row" style="margin-bottom:10px">
+        <b id="entryRoom">ห้อง —</b>
+        <button class="btn ghost" style="width:auto;padding:6px 12px;font-size:12px" id="closeEntry">ปิด</button>
+      </div>
+      <div class="m" id="prevLine">ครั้งก่อน —</div>
+      <div class="row" style="margin:10px 0 12px">
+        <div><div class="m">น้ำ</div><b id="prevW">—</b></div>
+        <div><div class="m">ไฟ</div><b id="prevE">—</b></div>
+      </div>
+      <div class="field" style="margin-bottom:10px">
+        <span class="m">ค่าน้ำครั้งนี้</span><input id="inW" inputmode="numeric" oninput="calc()">
+      </div>
+      <div class="field" style="margin-bottom:12px">
+        <span class="m">ค่าไฟครั้งนี้</span><input id="inE" inputmode="numeric" oninput="calc()">
+      </div>
+      <div class="row"><span class="m">น้ำ <b id="uW">0</b> × 25</span><span class="m"><b id="aW">0</b> บาท</span></div>
+      <div class="row" style="margin-top:6px"><span class="m">ไฟ <b id="uE">0</b> × 7</span><span class="m"><b id="aE">0</b> บาท</span></div>
+      <div class="row" style="margin-top:10px;border-top:1px solid var(--line);padding-top:10px">
+        <span class="m">รวมกับค่าเช่า <span id="rent">—</span></span><b class="big" id="total" style="font-size:20px">0</b>
+      </div>
+      <div class="hint warnText" id="hint" style="margin-top:8px"></div>
+      <button class="btn" style="margin-top:12px" onclick="save(false)">บันทึก แล้วไปห้องถัดไป</button>
+      <button class="btn ghost" style="margin-top:8px" onclick="save(true)">ข้ามห้องนี้ (ห้องว่าง)</button>
+    </div>
+
+    <button class="btn ghost" id="billBtn">ออกบิลทั้งหอ</button>
+
+    <div class="card" id="report"></div>
+  </main>
+</div>
+
+<script src="/web/api.js"></script>
+<script>
+let S = null, cur = null;
+
+async function load() {
+  S = await API.rooms();
+  document.getElementById('kick').textContent = 'รอบบิล ' + S.period;
+  const read = S.items.filter(r => r.reading).length;
+  document.getElementById('progText').textContent = read + ' / ' + S.items.length + ' ห้อง';
+  document.getElementById('progBar').style.width = (read / S.items.length * 100) + '%';
+
+  document.getElementById('list').innerHTML = S.items.map(r => {
+    const inv = r.invoice;
+    const cls = inv ? (inv.status === 'paid' ? 'done' : inv.status === 'pending' ? 'warn' : 'warn')
+                    : (r.reading ? 'done' : 'todo');
+    const right = inv ? fmt(inv.total) + ' · ' + (inv.status === 'paid' ? 'ชำระแล้ว' : inv.status === 'pending' ? 'รอตรวจ' : 'ยังไม่ชำระ')
+                      : (r.reading ? 'จดแล้ว' : '— ยังไม่จด');
+    return '<div class="roomrow" onclick="openEntry(' + r.id + ')">' +
+      '<span><span class="dot ' + cls + '"></span>ห้อง ' + r.room_no + '</span>' +
+      '<span class="m">' + right + '</span></div>';
+  }).join('');
+
+  const next = S.items.find(r => !r.reading);
+  const btn = document.getElementById('nextBtn');
+  btn.textContent = next ? 'เริ่มจากห้อง ' + next.room_no + ' (ยังไม่จด)' : 'จดครบทุกห้องแล้ว';
+  btn.onclick = next ? () => openEntry(next.id) : null;
+
+  const sum = await API.summary();
+  document.getElementById('report').innerHTML =
+    '<div class="row"><span class="m">ยอดออกบิล</span><b>' + fmt(sum.billed) + ' บาท</b></div>' +
+    '<div class="row" style="margin-top:8px"><span class="m">ชำระแล้ว</span><span>' + fmt(sum.paid) + '</span></div>' +
+    '<div class="row" style="margin-top:4px"><span class="m">รอตรวจสลิป</span><span>' + fmt(sum.pending) + '</span></div>' +
+    '<div class="row" style="margin-top:4px"><span class="m">ยังไม่ชำระ</span><span class="warnText">' + fmt(sum.unpaid) + '</span></div>';
+}
+
+function openEntry(id) {
+  cur = S.items.find(r => r.id === id);
+  const rd = cur.reading;
+  const pW = rd ? rd.water_prev : 0, pE = rd ? rd.elec_prev : 0;
+  document.getElementById('entry').hidden = false;
+  document.getElementById('entryRoom').textContent = 'ห้อง ' + cur.room_no;
+  document.getElementById('prevLine').textContent = 'ครั้งก่อน';
+  document.getElementById('prevW').textContent = pW;
+  document.getElementById('prevE').textContent = pE;
+  document.getElementById('rent').textContent = fmt(cur.rent);
+  document.getElementById('inW').value = rd ? rd.water_now : pW + 5;
+  document.getElementById('inE').value = rd ? rd.elec_now : pE + 31;
+  calc();
+  document.getElementById('entry').scrollIntoView({ behavior: 'smooth' });
+}
+
+function calc() {
+  if (!cur) return;
+  const pW = cur.reading ? cur.reading.water_prev : 0;
+  const pE = cur.reading ? cur.reading.elec_prev : 0;
+  const w = +(document.getElementById('inW').value || 0);
+  const e = +(document.getElementById('inE').value || 0);
+  const uW = Math.max(0, w - pW), uE = Math.max(0, e - pE);
+  document.getElementById('uW').textContent = uW;
+  document.getElementById('uE').textContent = uE;
+  document.getElementById('aW').textContent = fmt(uW * 25);
+  document.getElementById('aE').textContent = fmt(uE * 7);
+  document.getElementById('total').textContent = fmt(cur.rent + uW * 25 + uE * 7);
+  const bad = w < pW || e < pE;
+  document.getElementById('hint').textContent = bad ? 'ค่าน้อยกว่าครั้งก่อน — ตรวจสอบก่อนบันทึก' : '';
+}
+
+async function save(skip) {
+  if (!cur) return;
+  if (!skip) {
+    await API.saveReading(cur.id, {
+      period: S.period,
+      water_now: +(document.getElementById('inW').value || 0),
+      elec_now: +(document.getElementById('inE').value || 0),
+    });
+  }
+  await load();
+  const next = S.items.find(r => !r.reading);
+  document.getElementById('entry').hidden = true;
+  if (next) openEntry(next.id);
+}
+
+document.getElementById('closeEntry').onclick = () => { document.getElementById('entry').hidden = true; };
+
+document.getElementById('billBtn').onclick = async () => {
+  const res = await API.runBilling().catch(e => ({ error: e.message }));
+  if (res.error) { alert(res.error); return; }
+  await load();
+  alert('ออกบิลแล้ว ' + (res.billed ?? res.rooms_to_bill ?? 0) + ' ห้อง');
+};
+
+load().catch(e => {
+  document.getElementById('list').innerHTML = '<div class="m">ต่อ API ไม่ได้: ' + e.message + '</div>';
+});
+</script>
+</body>
+</html>
