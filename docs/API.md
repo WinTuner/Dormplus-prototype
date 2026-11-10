@@ -3,6 +3,23 @@
 สัญญาระหว่าง frontend (LIFF + เว็บเจ้าของ) กับ backend
 ทุก endpoint เป็น JSON · ทุก request ที่ไม่ใช่ public ต้องมี session cookie
 
+**สถานะ:** ✅ = adapter `api_v1.py` ตอบได้แล้ว (ใช้พัฒนา frontend ได้) · ⬜ = backend จริงต้องสร้าง
+
+| Endpoint | สถานะ |
+|---|---|
+| `GET /v1/rooms` | ✅ |
+| `PUT /v1/rooms/:id/reading` | ✅ |
+| `POST /v1/billing/run` | ✅ |
+| `GET /v1/invoices` | ✅ |
+| `POST /v1/invoices/:id/slip` | ✅ (ตรวจสลิปเป็น manual) |
+| `POST /v1/invoices/:id/confirm` | ✅ |
+| `GET /v1/reports/summary` | ✅ |
+| `POST /auth/line` · `POST /auth/logout` | ⬜ |
+| `GET /properties/:id` | ⬜ |
+| `GET /invoices/:id` (รายละเอียด + items) | ⬜ |
+| `POST /invoices/:id/reject` | ⬜ |
+| `POST /webhooks/line/:property_id` | ⬜ |
+
 ## กติกากลาง
 
 - Base: `https://api.domplus.app/v1`

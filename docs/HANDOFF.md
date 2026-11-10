@@ -6,13 +6,15 @@
 
 | ส่วน | สถานะ | ที่อยู่ |
 |---|---|---|
+| เว็บแอปเจ้าของ + ผู้เช่า | ใช้ได้ | `web/` (รันที่ `/owner`, `/tenant`) |
 | UI prototype (LINE-style) | ใช้ได้ | `prototype.html` |
 | Mock backend (SQLite, stdlib) | ใช้ได้ | `server.py` |
+| API `/v1/*` (adapter) | ใช้ได้ | `api_v1.py` |
 | Rich menu 2 ชุด | เสร็จ | `docs/richmenu-*.png` |
 | API contract | เสร็จ | `docs/API.md` |
 | Schema Postgres | เสร็จ | `db/schema.sql` |
 | Backend จริง (FastAPI) | **ยังไม่มี** | — |
-| LINE OA / LIFF | **ยังไม่มี** | — |
+| LINE OA / LIFF / auth | **ยังไม่มี** | — |
 
 **`server.py` คือ reference implementation** — พฤติกรรมที่ถูกต้องดูจากไฟล์นี้ (คำนวณบิล, สถานะ, กันบิลซ้ำ) ไม่ใช่จาก UI
 
