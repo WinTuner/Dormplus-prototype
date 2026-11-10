@@ -235,7 +235,10 @@ Show-Error { Invoke-RestMethod "$BASE/v1/nope" }
 
 ## 5. กับดักที่ทำให้ "ทดสอบผ่าน" ทั้งที่ระบบผิด
 
-ทั้ง 6 ข้อนี้ทดสอบยืนยันแล้วบน seed สด — เป็นจุดที่คนใหม่จะเข้าใจผิดบ่อยที่สุด
+> **อัปเดต (commit นี้):** กับดัก 5.1, 5.2, 5.3 (period ถูกเมิน) และ 5.7 (DB ถูกล็อกเมื่ออ่านห้องที่ไม่มีอยู่) **แก้แล้ว** — ตอนนี้ `billed` นับเฉพาะแถวที่ insert จริง, ออกบิลซ้ำตอบ `409 INVOICE_ALREADY_SENT`, `/v1/invoices` และ `/v1/reports/summary` รับ `?period=` แล้ว, และบันทึกมิเตอร์ของห้องที่ไม่มีอยู่ตอบ `404` โดยไม่รั่ว connection
+> กับดักที่เหลือ (5.4–5.6) ยังจริงอยู่ — ใช้เป็น checklist ต่อ
+
+ทั้ง 7 ข้อนี้ทดสอบยืนยันแล้วบน seed สด — เป็นจุดที่คนใหม่จะเข้าใจผิดบ่อยที่สุด
 
 ### 5.1 `billed` นับเกินเมื่อรันซ้ำ
 `make_bills()` เพิ่ม `made` ให้ทุกห้องที่มี reading **ก่อน** ที่ `INSERT ... ON CONFLICT DO NOTHING` จะตัดสินใจ
@@ -258,8 +261,15 @@ seed สร้างทุกห้องเป็น `meter` (`RENT_FLAT` ป�
 ถ้าต้องทดสอบ ให้แก้ `rooms.billing_mode` ตรงใน DB ก่อน:
 
 ```powershell
-python -c "import sqlite3; c=sqlite3.connect('domplus.db'); c.execute(\"update rooms set billing_mode='flat' where id=1\"); c.commit()"
+@'
+import sqlite3
+c = sqlite3.connect("domplus.db")
+c.execute("update rooms set billing_mode='flat' where id=1")
+c.commit()
+'@ | python -
 ```
+
+(ส่งผ่าน stdin เพื่อเลี่ยงปัญหา PowerShell 5.1 กินเครื่องหมายคำพูดใน argument ของ native command)
 
 แล้วค่อย `POST /v1/billing/run` บน DB ที่ยังไม่มีบิลรอบนี้ (ต้องลบ `domplus.db` แล้ว seed ใหม่ หรือใช้ห้องที่ยังไม่มีบิล)
 ผลที่ต้องได้: total = `rent` เท่านั้น, `water_units = elec_units = 0`
@@ -358,4 +368,5 @@ tests/
 - [`HANDOFF.md`](HANDOFF.md) — เกณฑ์ "เสร็จ" ของ backend (หัวข้อ 5) ซึ่งเป็นที่มาของเทสต์ชุดนี้
 - [`ARCHITECTURE.md`](ARCHITECTURE.md) — โครงระบบและจุดที่ state อยู่ (`domplus.db`)
 - [`CONFIGURATION.md`](CONFIGURATION.md) — ค่าที่ต้อง freeze ตอนทดสอบ (`PERIOD`, `TODAY`, เรต, พอร์ต)
+- [`DEVELOPMENT.md`](DEVELOPMENT.md) — ลำดับกดดูในเบราว์เซอร์ และ build/dev workflow
 - [`../db/schema.sql`](../db/schema.sql) — constraint ที่เทสต์ระดับ DB ต้องคุม (`UNIQUE(room_id, period)` ฯลฯ)

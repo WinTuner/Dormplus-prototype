@@ -44,24 +44,32 @@ def rooms_payload(period=PERIOD):
 
 def save_reading(room_id, payload):
     con = server.db()
-    prev = con.execute(
-        "SELECT water_now, elec_now FROM readings WHERE room_id=? AND period='2026-10'", (room_id,)
-    ).fetchone()
-    wp = prev["water_now"] if prev else 0
-    ep = prev["elec_now"] if prev else 0
-    con.execute(
-        """INSERT INTO readings (room_id, period, water_prev, water_now, elec_prev, elec_now)
-           VALUES (?,?,?,?,?,?)
-           ON CONFLICT(room_id, period) DO UPDATE SET
-             water_now=excluded.water_now, elec_now=excluded.elec_now""",
-        (room_id, payload.get("period", PERIOD), wp, payload["water_now"], ep, payload["elec_now"]),
-    )
-    con.commit()
-    con.close()
+    try:
+        room = con.execute("SELECT id FROM rooms WHERE id=?", (room_id,)).fetchone()
+        if not room:
+            return 404, {"error": {"code": "NOT_FOUND", "message": f"ไม่พบห้อง {room_id}"}}
+        prev = con.execute(
+            "SELECT water_now, elec_now FROM readings WHERE room_id=? AND period='2026-10'", (room_id,)
+        ).fetchone()
+        wp = prev["water_now"] if prev else 0
+        ep = prev["elec_now"] if prev else 0
+        con.execute(
+            """INSERT INTO readings (room_id, period, water_prev, water_now, elec_prev, elec_now)
+               VALUES (?,?,?,?,?,?)
+               ON CONFLICT(room_id, period) DO UPDATE SET
+                 water_now=excluded.water_now, elec_now=excluded.elec_now""",
+            (room_id, payload.get("period", PERIOD), wp, payload["water_now"], ep, payload["elec_now"]),
+        )
+        con.commit()
+    except Exception:
+        con.rollback()
+        raise
+    finally:
+        con.close()
     wu = max(0, payload["water_now"] - wp)
     eu = max(0, payload["elec_now"] - ep)
     warn = "METER_DECREASED" if (payload["water_now"] < wp or payload["elec_now"] < ep) else None
-    return {"water_units": wu, "elec_units": eu, "warning": warn}
+    return 200, {"water_units": wu, "elec_units": eu, "warning": warn}
 
 
 def invoices_payload(status=None, period=PERIOD):
@@ -138,19 +146,27 @@ INV_CONFIRM = re.compile(r"^/v1/invoices/(\d+)/confirm$")
 
 def handle(method, path, query, payload):
     """Returns (status, body_dict)."""
+    period = (query.get("period") or [PERIOD])[0]
     if method == "GET" and path == "/v1/rooms":
-        return 200, rooms_payload(query.get("period", [PERIOD])[0])
+        return 200, rooms_payload(period)
     if method == "PUT" and ROOM_READING.match(path):
         room_id = int(ROOM_READING.match(path).group(1))
-        return 200, save_reading(room_id, payload)
+        return save_reading(room_id, payload)
     if method == "POST" and path == "/v1/billing/run":
-        return 200, server.make_bills()
+        con = server.db()
+        done = con.execute("SELECT COUNT(*) c FROM invoices WHERE period=?", (PERIOD,)).fetchone()["c"]
+        con.close()
+        if done:
+            return 409, {"error": {"code": "INVOICE_ALREADY_SENT",
+                                   "message": f"รอบ {PERIOD} ออกบิลแล้ว {done} ใบ"}}
+        made = server.make_bills()["billed"]
+        return 200, {"ok": True, "billed": made, "period": PERIOD}
     if method == "GET" and path == "/v1/invoices":
-        return 200, invoices_payload(query.get("status", [None])[0])
+        return 200, invoices_payload(query.get("status", [None])[0], period)
     if method == "POST" and INV_SLIP.match(path):
         return slip(int(INV_SLIP.match(path).group(1)), payload)
     if method == "POST" and INV_CONFIRM.match(path):
         return confirm(int(INV_CONFIRM.match(path).group(1)))
     if method == "GET" and path == "/v1/reports/summary":
-        return 200, summary()
+        return 200, summary(period)
     return 404, {"error": {"code": "NOT_FOUND", "message": path}}

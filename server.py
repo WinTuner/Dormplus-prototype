@@ -224,14 +224,14 @@ def make_bills():
             wu = max(0, (rd["water_now"] or 0) - (rd["water_prev"] or 0))
             eu = max(0, (rd["elec_now"] or 0) - (rd["elec_prev"] or 0))
             total = r["rent"] + wu * WATER_RATE + eu * ELEC_RATE
-        con.execute(
+        cur = con.execute(
             """INSERT INTO invoices (room_id, period, rent, water_units, water_rate,
                                      elec_units, elec_rate, total, due_date, status)
                VALUES (?,?,?,?,?,?,?,?,?, 'unpaid')
                ON CONFLICT(room_id, period) DO NOTHING""",
             (r["id"], PERIOD, r["rent"], wu, WATER_RATE, eu, ELEC_RATE, total, due),
         )
-        made += 1
+        made += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
     con.commit()
     con.close()
     return {"ok": True, "billed": made}
