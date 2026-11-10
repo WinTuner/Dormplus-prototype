@@ -103,6 +103,10 @@ def slip(invoice_id, payload):
     if not inv:
         con.close()
         return 404, {"error": {"code": "NOT_FOUND", "message": "ไม่พบบิล"}}
+    if inv["status"] != "unpaid":
+        con.close()
+        return 409, {"error": {"code": "INVALID_STATE",
+                               "message": f"บิลนี้อยู่สถานะ {inv['status']} แนบสลิปซ้ำไม่ได้"}}
     con.execute("UPDATE invoices SET status='pending' WHERE id=?", (invoice_id,))
     con.execute("INSERT INTO payments (invoice_id, amount) VALUES (?,?)", (invoice_id, inv["total"]))
     con.commit()
@@ -116,6 +120,10 @@ def confirm(invoice_id):
     if not inv:
         con.close()
         return 404, {"error": {"code": "NOT_FOUND", "message": "ไม่พบบิล"}}
+    if inv["status"] != "pending":
+        con.close()
+        return 409, {"error": {"code": "INVALID_STATE",
+                               "message": f"บิลนี้อยู่สถานะ {inv['status']} ยืนยันไม่ได้"}}
     con.execute("UPDATE invoices SET status='paid' WHERE id=?", (invoice_id,))
     con.execute("UPDATE payments SET confirmed_at=datetime('now') WHERE invoice_id=? AND confirmed_at IS NULL", (invoice_id,))
     con.commit()

@@ -324,17 +324,33 @@ class Handler(BaseHTTPRequestHandler):
         code, body = api_v1.handle(method, parsed.path, parse_qs(parsed.query), payload)
         self._send(code, body)
 
-    def do_PUT(self):
+    def _read_json(self):
+        """Parse the request body; returns (payload, error_response)."""
         length = int(self.headers.get("Content-Length") or 0)
-        payload = json.loads(self.rfile.read(length) or b"{}")
+        raw = self.rfile.read(length) if length else b""
+        if not raw:
+            return {}, None
+        try:
+            return json.loads(raw), None
+        except json.JSONDecodeError as exc:
+            return None, {"error": {"code": "VALIDATION",
+                                    "message": f"invalid JSON body: {exc.msg} (line {exc.lineno})"}}
+
+    def do_PUT(self):
+        payload, bad = self._read_json()
+        if bad:
+            self._send(400, bad)
+            return
         if urlparse(self.path).path.startswith("/v1/"):
             self._v1("PUT", payload)
         else:
             self._send(404, {"error": "not found"})
 
     def do_POST(self):
-        length = int(self.headers.get("Content-Length") or 0)
-        payload = json.loads(self.rfile.read(length) or b"{}")
+        payload, bad = self._read_json()
+        if bad:
+            self._send(400, bad)
+            return
         path = urlparse(self.path).path
         if path.startswith("/v1/"):
             self._v1("POST", payload)

@@ -52,6 +52,8 @@
 
     <button class="btn ghost" id="billBtn">ออกบิลทั้งหอ</button>
 
+    <div class="card" id="pending"></div>
+
     <div class="card" id="report"></div>
   </main>
 </div>
@@ -59,6 +61,11 @@
 <script src="/web/api.js"></script>
 <script>
 let S = null, cur = null;
+const skipped = new Set();
+
+function nextRoom() {
+  return S.items.find(r => !r.reading && !skipped.has(r.id));
+}
 
 async function load() {
   S = await API.rooms();
@@ -78,10 +85,20 @@ async function load() {
       '<span class="m">' + right + '</span></div>';
   }).join('');
 
-  const next = S.items.find(r => !r.reading);
+  const next = nextRoom();
   const btn = document.getElementById('nextBtn');
   btn.textContent = next ? 'เริ่มจากห้อง ' + next.room_no + ' (ยังไม่จด)' : 'จดครบทุกห้องแล้ว';
   btn.onclick = next ? () => openEntry(next.id) : null;
+
+  const pending = S.items.filter(r => r.invoice && r.invoice.status === 'pending');
+  document.getElementById('pending').innerHTML = pending.length
+    ? '<div class="row" style="margin-bottom:8px"><b>รอตรวจสอบ</b><span class="pill warn">' + pending.length + ' รายการ</span></div>' +
+      pending.map(r =>
+        '<div class="roomrow" style="cursor:default">' +
+          '<span>ห้อง ' + r.room_no + ' · ' + fmt(r.invoice.total) + ' บาท</span>' +
+          '<button class="btn" style="width:auto;padding:6px 14px;font-size:12px" onclick="confirmPay(' + r.invoice.id + ')">ยืนยัน</button>' +
+        '</div>').join('')
+    : '<div class="m">ยังไม่มีสลิปที่รอตรวจ</div>';
 
   const sum = await API.summary();
   document.getElementById('report').innerHTML =
@@ -125,7 +142,9 @@ function calc() {
 
 async function save(skip) {
   if (!cur) return;
-  if (!skip) {
+  if (skip) {
+    skipped.add(cur.id);
+  } else {
     await API.saveReading(cur.id, {
       period: S.period,
       water_now: +(document.getElementById('inW').value || 0),
@@ -133,9 +152,16 @@ async function save(skip) {
     });
   }
   await load();
-  const next = S.items.find(r => !r.reading);
+  const next = nextRoom();
   document.getElementById('entry').hidden = true;
   if (next) openEntry(next.id);
+}
+
+async function confirmPay(invoiceId) {
+  const res = await API.confirm(invoiceId).catch(e => ({ error: e.message }));
+  if (res.error) { alert(res.error); return; }
+  await load();
+  alert('ยืนยันแล้ว · ใบเสร็จ ' + (res.receipt_no || ''));
 }
 
 document.getElementById('closeEntry').onclick = () => { document.getElementById('entry').hidden = true; };
