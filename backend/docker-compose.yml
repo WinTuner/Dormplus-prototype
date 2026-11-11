@@ -1,0 +1,16 @@
+# Local Postgres for development and tests. Production uses Supabase.
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: domplus
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
