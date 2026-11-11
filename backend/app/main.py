@@ -5,11 +5,14 @@ from sqlalchemy.exc import SQLAlchemyError
 from app import errors
 from app.db import get_engine
 from app.errors import ApiError
+from app.routes import billing, rooms
 
 
 def create_app() -> FastAPI:
     app = FastAPI(title="DomPlus API", version="0.1.0")
     errors.install(app)
+    app.include_router(rooms.router)
+    app.include_router(billing.router)
 
     @app.get("/healthz", tags=["ops"])
     def healthz(engine: Engine = Depends(get_engine)) -> dict:

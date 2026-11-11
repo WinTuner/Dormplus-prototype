@@ -67,8 +67,10 @@
 ```
 
 ### `GET /rooms?period=2026-11`
+เฉพาะเจ้าของหอ · ไม่ส่ง `period` = เดือนปัจจุบันตามเวลาไทย · `reading`, `invoice`, `tenant` เป็น `null` ถ้ายังไม่มี
 ```json
-{ "items": [
+{ "period": "2026-11",
+  "items": [
   { "id": "r_203", "room_no": "203", "rent": 3220, "mode": "meter",
     "tenant": { "name": "สมชาย", "line_linked": true },
     "reading": { "water_prev": 128, "water_now": 133, "elec_prev": 540, "elec_now": 571 },
@@ -88,7 +90,11 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
 // res 200
 { "water_units": 5, "elec_units": 31, "warning": null }
 ```
-- `warning` = `"METER_DECREASED"` เมื่อค่าน้อยกว่าครั้งก่อน (ไม่ block)
+- "ครั้งก่อน" = reading ล่าสุดของห้องนี้ที่ `period` น้อยกว่ารอบที่ส่งมา
+- `warning` = `"METER_DECREASED"` เมื่อค่าน้อยกว่าครั้งก่อน (ไม่ block, หน่วยที่ลดนับเป็น 0)
+- `warning` = `"NO_PREVIOUS_READING"` เมื่อห้องนี้ยังไม่เคยจดมาก่อน (บันทึกได้, หน่วย = 0)
+- ออกบิลรอบนั้นแล้ว → `409 CONFLICT` · ห้องของหออื่น → `403 FORBIDDEN` · เฉพาะเจ้าของหอ
+- ส่งซ้ำโดยไม่มี `photo_url` → เก็บรูปเดิมไว้
 
 ---
 
@@ -100,16 +106,29 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
 // req
 { "period": "2026-11" }
 // res 202
-{ "job_id": "job_9", "rooms_to_bill": 42, "skipped_no_reading": 0 }
+{ "job_id": "job_9", "period": "2026-11", "rooms_to_bill": 42,
+  "skipped_no_reading": 0, "skipped_no_previous_reading": 0 }
 ```
-- ถ้ามีบิลรอบนี้แล้ว → `409 CONFLICT`
+- ทำทั้งหอใน transaction เดียว ล้มกลางทาง → rollback ทั้งหมด
+- ออกบิลเฉพาะห้องที่พร้อมและยังไม่มีบิลรอบนี้ · ห้อง `vacant` ข้าม
+  - ห้องคิดตามมิเตอร์: ต้องมี reading รอบนี้ (ไม่มี → `skipped_no_reading`) และ reading รอบก่อนหน้า (ไม่มี → `skipped_no_previous_reading`)
+  - ห้องเหมาจ่าย (`mode = flat`): ไม่ต้องมี reading · บิล = ค่าเช่าอย่างเดียว
+- กดซ้ำ: ออกบิลเฉพาะห้องที่เพิ่งพร้อม (เช่น จดมิเตอร์ทีหลัง) · ถ้าไม่มีห้องใหม่และรอบนี้มีบิลแล้ว → `409 CONFLICT`
+- หน่วยคิดจาก reading รอบก่อนหน้า **ณ ตอนออกบิล** (ถ้าแก้มิเตอร์เดือนก่อนหลังจดเดือนนี้แล้ว บิลจะใช้ค่าที่แก้)
+- ค่าน้ำ/ไฟ/วันครบกำหนดจาก `properties` ของหอ · ครบกำหนด = วันที่ออกบิล (เวลาไทย) + `due_days`
+- สร้าง `invoice_items` (ค่าเช่า · ค่าน้ำ · ค่าไฟ) และเขียน `audit_log` action `billing.run`
+- backend ตอนนี้ยังไม่มีคิว → `job_id` = `null`
 
 ### `GET /invoices?period=2026-11&status=unpaid`
+เฉพาะเจ้าของหอ · ไม่ส่ง `period` = เดือนปัจจุบันตามเวลาไทย · `status` = `unpaid` | `pending` | `paid` | `void`
 ```json
-{ "items": [ { "id": "inv_1", "room_no": "203", "total": 3842, "status": "unpaid",
+{ "period": "2026-11",
+  "items": [ { "id": "inv_1", "room_no": "203", "total": 3842, "status": "unpaid",
                "due_date": "2026-11-09", "days_overdue": 0 } ],
   "summary": { "total": 167400, "paid": 120000, "pending": 3842, "unpaid": 43558 } }
 ```
+- `days_overdue` นับเฉพาะบิล `unpaid` (บิลที่แนบสลิปรอตรวจ = 0)
+- `summary` เป็นยอดทั้งรอบของหอ ไม่ขึ้นกับ `status` ที่กรอง · `total` ไม่รวมบิล `void`
 
 ### `GET /invoices/:id`
 ```json
