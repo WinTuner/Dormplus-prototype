@@ -106,16 +106,29 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
 // req
 { "period": "2026-11" }
 // res 202
-{ "job_id": "job_9", "rooms_to_bill": 42, "skipped_no_reading": 0 }
+{ "job_id": "job_9", "period": "2026-11", "rooms_to_bill": 42,
+  "skipped_no_reading": 0, "skipped_no_previous_reading": 0 }
 ```
-- ถ้ามีบิลรอบนี้แล้ว → `409 CONFLICT`
+- ทำทั้งหอใน transaction เดียว ล้มกลางทาง → rollback ทั้งหมด
+- ออกบิลเฉพาะห้องที่พร้อมและยังไม่มีบิลรอบนี้ · ห้อง `vacant` ข้าม
+  - ห้องคิดตามมิเตอร์: ต้องมี reading รอบนี้ (ไม่มี → `skipped_no_reading`) และ reading รอบก่อนหน้า (ไม่มี → `skipped_no_previous_reading`)
+  - ห้องเหมาจ่าย (`mode = flat`): ไม่ต้องมี reading · บิล = ค่าเช่าอย่างเดียว
+- กดซ้ำ: ออกบิลเฉพาะห้องที่เพิ่งพร้อม (เช่น จดมิเตอร์ทีหลัง) · ถ้าไม่มีห้องใหม่และรอบนี้มีบิลแล้ว → `409 CONFLICT`
+- หน่วยคิดจาก reading รอบก่อนหน้า **ณ ตอนออกบิล** (ถ้าแก้มิเตอร์เดือนก่อนหลังจดเดือนนี้แล้ว บิลจะใช้ค่าที่แก้)
+- ค่าน้ำ/ไฟ/วันครบกำหนดจาก `properties` ของหอ · ครบกำหนด = วันที่ออกบิล (เวลาไทย) + `due_days`
+- สร้าง `invoice_items` (ค่าเช่า · ค่าน้ำ · ค่าไฟ) และเขียน `audit_log` action `billing.run`
+- backend ตอนนี้ยังไม่มีคิว → `job_id` = `null`
 
 ### `GET /invoices?period=2026-11&status=unpaid`
+เฉพาะเจ้าของหอ · ไม่ส่ง `period` = เดือนปัจจุบันตามเวลาไทย · `status` = `unpaid` | `pending` | `paid` | `void`
 ```json
-{ "items": [ { "id": "inv_1", "room_no": "203", "total": 3842, "status": "unpaid",
+{ "period": "2026-11",
+  "items": [ { "id": "inv_1", "room_no": "203", "total": 3842, "status": "unpaid",
                "due_date": "2026-11-09", "days_overdue": 0 } ],
   "summary": { "total": 167400, "paid": 120000, "pending": 3842, "unpaid": 43558 } }
 ```
+- `days_overdue` นับเฉพาะบิล `unpaid` (บิลที่แนบสลิปรอตรวจ = 0)
+- `summary` เป็นยอดทั้งรอบของหอ ไม่ขึ้นกับ `status` ที่กรอง · `total` ไม่รวมบิล `void`
 
 ### `GET /invoices/:id`
 ```json

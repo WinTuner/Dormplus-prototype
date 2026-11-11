@@ -8,7 +8,7 @@ for invoices this run actually created.
 from sqlalchemy import Connection, text
 
 from app.db import get_engine
-from app.ids import reading_id
+from app.ids import invoice_id, reading_id
 
 PROPERTY_ID = "p_1"
 PROPERTY_NAME = "หอพักบ้านสวน"
@@ -88,7 +88,7 @@ def add_unpaid_invoice(conn: Connection, room_no: str, period: str) -> None:
         text("""insert into invoices (id, room_id, period, rent, total, due_date, status)
                 values (:id, :room, :period, :rent, :total, cast(:due as date), 'unpaid')
                 on conflict do nothing returning id"""),
-        {"id": f"inv_{room_no}_{period}", "room": f"r_{room_no}", "period": period,
+        {"id": invoice_id(f"r_{room_no}", period), "room": f"r_{room_no}", "period": period,
          "rent": RENT_METER, "total": total, "due": f"{period}-09"},
     ).first()
     if created is None:

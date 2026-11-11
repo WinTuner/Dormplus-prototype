@@ -1,5 +1,5 @@
 """Rooms and meter readings: GET /v1/rooms and PUT /v1/rooms/{room_id}/reading (docs/API.md)."""
-from datetime import date, datetime, timedelta, timezone
+from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
@@ -7,18 +7,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy import Engine, text
 
 from app.auth import Session, owner_session
+from app.clock import PERIOD_PATTERN, period_of, today
 from app.db import get_engine
 from app.errors import ApiError
 from app.ids import reading_id
 
 router = APIRouter(prefix="/v1", tags=["rooms"])
-
-PERIOD_PATTERN = r"^\d{4}-(0[1-9]|1[0-2])$"
-BANGKOK = timezone(timedelta(hours=7))  # Thailand has no daylight saving
-
-
-def current_period() -> str:
-    return datetime.now(BANGKOK).strftime("%Y-%m")
 
 
 class TenantOut(BaseModel):
@@ -95,8 +89,9 @@ def list_rooms(
     period: str | None = Query(default=None, pattern=PERIOD_PATTERN, description="YYYY-MM, default this month"),
     session: Session = Depends(owner_session),
     engine: Engine = Depends(get_engine),
+    day: date = Depends(today),
 ) -> RoomsOut:
-    period = period or current_period()
+    period = period or period_of(day)
     with engine.connect() as conn:
         rows = conn.execute(ROOMS_SQL, {"period": period, "property_id": session.property_id}).all()
     return RoomsOut(period=period, items=[room_out(row) for row in rows])
