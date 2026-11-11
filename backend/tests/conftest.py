@@ -11,6 +11,7 @@ from alembic.config import Config
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
+from app.auth import Session, current_session
 from app.db import get_engine
 from app.main import create_app
 from app.seed import seed
@@ -50,9 +51,11 @@ def seeded(engine):
 
 @pytest.fixture
 def client_for():
-    """Build a TestClient whose routes use the given engine."""
-    def build(eng) -> TestClient:
+    """Build a TestClient whose routes use the given engine and, if given, act as the given session."""
+    def build(eng, session: Session | None = None) -> TestClient:
         app = create_app()
         app.dependency_overrides[get_engine] = lambda: eng
+        if session is not None:
+            app.dependency_overrides[current_session] = lambda: session
         return TestClient(app)
     return build
