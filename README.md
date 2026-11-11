@@ -33,6 +33,7 @@ web/
   api.js           API client — แก้ base URL จุดเดียวตอนต่อ backend จริง
   owner.html       หน้าเจ้าของหอ
   tenant.html      หน้าผู้เช่า
+backend/           backend จริง (FastAPI + Postgres) — ดู backend/README.md
 db/schema.sql      Postgres DDL (สำหรับ backend จริง)
 docs/API.md        สัญญา API + error code + state machine
 docs/HANDOFF.md    เอกสารส่งงาน back-end + เกณฑ์ "เสร็จ"
@@ -55,7 +56,7 @@ docs/richmenu-*.png  Rich Menu 2500×1686 (เจ้าของ / ผู้เ�
 | หน้าเจ้าของ + ผู้เช่า (web/) | ✅ ใช้ได้ |
 | API `/v1/*` (adapter บน SQLite) | ✅ ใช้ได้ |
 | คำนวณบิล · สถานะ · กันบิลซ้ำ | ✅ |
-| Backend จริง (FastAPI + Postgres) | ⬜ งานของ back-end |
+| Backend จริง (FastAPI + Postgres) | 🟡 มีโครง + migration + seed ใน `backend/` · ยังไม่มี endpoint |
 | LINE OA / LIFF / webhook | ⬜ ต้องมี Channel ID |
 | Auth (LINE Login) | ⬜ |
 | ตรวจสลิปอัตโนมัติ | ⬜ ตอนนี้เจ้าของกดยืนยันเอง |

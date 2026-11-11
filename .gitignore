@@ -4,3 +4,9 @@ __pycache__/
 *.pyc
 
 .planning/tmp/
+
+# backend
+.venv/
+.env
+.pytest_cache/
+*.egg-info/
