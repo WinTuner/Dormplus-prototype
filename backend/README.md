@@ -2,7 +2,27 @@
 
 FastAPI + Postgres (Supabase) ตาม [`docs/API.md`](../docs/API.md) และ [`docs/HANDOFF.md`](../docs/HANDOFF.md)
 
-ตอนนี้มีแค่โครง: `/healthz`, migration แรก (schema v1) และ seed หอตัวอย่าง 42 ห้อง ยังไม่มี endpoint `/v1/*`
+ตอนนี้มี `/healthz`, migration แรก (schema v1), seed หอตัวอย่าง 42 ห้อง และ endpoint ห้องกับมิเตอร์
+
+| Endpoint | ใครเรียกได้ | หมายเหตุ |
+|---|---|---|
+| `GET /v1/rooms?period=YYYY-MM` | เจ้าของหอ | ห้องทั้งหมดของหอใน session พร้อมผู้เช่า มิเตอร์ และบิลของรอบนั้น ไม่ส่ง `period` = เดือนนี้ (เวลาไทย) |
+| `PUT /v1/rooms/:id/reading` | เจ้าของหอ | ส่งซ้ำทับค่าเดิมได้ · ออกบิลรอบนั้นแล้ว → 409 · ห้องของหออื่น → 403 |
+
+## Session (ชั่วคราว จนกว่าจะมี LINE Login)
+
+ทุก route ใต้ `/v1` เอา `property_id` จาก session เท่านั้น ไม่รับจาก client (`app/auth.py`)
+ตอนนี้ยังไม่มี LINE Login จึงตอบ 401 ทุก request ยกเว้นตั้ง `DEV_AUTH=true` แล้วส่ง header:
+
+```bash
+curl -H "X-Dev-Property: p_1" "http://127.0.0.1:8000/v1/rooms?period=2026-11"
+curl -X PUT -H "X-Dev-Property: p_1" -H "Content-Type: application/json" \
+     -d '{"period":"2026-11","water_now":135,"elec_now":640}' \
+     http://127.0.0.1:8000/v1/rooms/r_301/reading
+```
+
+`X-Dev-Role` = `owner` (ค่าเริ่มต้น) หรือ `tenant` · `X-Dev-User` = ชื่อที่บันทึกลง `recorded_by`
+**ห้ามเปิด `DEV_AUTH` บน server จริง** เพราะใครก็ส่ง header เป็นหอไหนก็ได้
 
 ## รันในเครื่อง
 
@@ -39,12 +59,16 @@ test ที่ต้องใช้ฐานข้อมูลจะอ่าน
 - `/healthz` ตอบ 503 เมื่อต่อฐานข้อมูลไม่ได้
 - ฐานข้อมูลกันบิลซ้ำเอง (`UNIQUE(room_id, period)`) และรับเฉพาะสถานะบิลที่อยู่ใน state machine
 - seed สร้างข้อมูลครบ และรันซ้ำแล้วไม่เปลี่ยนอะไร
+- ไม่มี session → 401 · ผู้เช่าเรียก → 403 · หอ B เห็นและแก้ห้องของหอ A ไม่ได้ (403)
+- มิเตอร์: คำนวณหน่วยจากเดือนก่อน · ส่งซ้ำทับค่าเดิม · เลขลดลงยังบันทึกแต่เตือน · ห้องที่ยังไม่เคยจดเตือน `NO_PREVIOUS_READING` · ออกบิลแล้วแก้ไม่ได้ (409) · ข้อมูลผิด → 422
 
 ## โครงไฟล์
 
 ```
 app/main.py        create_app() + /healthz
-app/config.py      อ่าน DATABASE_URL จาก env หรือ .env
+app/routes/rooms.py  GET /v1/rooms · PUT /v1/rooms/:id/reading
+app/auth.py        session (property_id + role) · ตอนนี้เป็น DEV_AUTH ชั่วคราว
+app/config.py      อ่าน DATABASE_URL, DEV_AUTH จาก env หรือ .env
 app/db.py          engine (routes รับผ่าน Depends(get_engine) เพื่อให้ test สลับได้)
 app/errors.py      ApiError + แปลง error ทุกแบบเป็นรูปแบบในสัญญา
 app/seed.py        หอตัวอย่าง 42 ห้อง (python -m app.seed)
@@ -66,6 +90,7 @@ RLS เปิดไว้ที่ตาราง rooms, readings, invoices, inv
 ## งานถัดไป (HANDOFF ข้อ 6)
 
 - [x] วัน 1–2: schema + migration + seed 42 ห้อง
-- [ ] วัน 3–4: auth LINE + `/rooms` + `/readings`
+- [x] วัน 3–4 (ส่วนแรก): `/rooms` + `/readings` บน session ชั่วคราว
+- [ ] วัน 3–4 (ส่วนที่เหลือ): LINE Login แทน DEV_AUTH + RLS policy (รอ LINE Channel ID)
 - [ ] วัน 5–6: `/billing/run` + `/invoices`
 - [ ] วัน 7 ขึ้นไป: Procrastinate worker, LINE, สลิป, ทวง

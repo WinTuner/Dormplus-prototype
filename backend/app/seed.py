@@ -8,6 +8,7 @@ for invoices this run actually created.
 from sqlalchemy import Connection, text
 
 from app.db import get_engine
+from app.ids import reading_id
 
 PROPERTY_ID = "p_1"
 PROPERTY_NAME = "หอพักบ้านสวน"
@@ -70,7 +71,7 @@ def add_reading(conn: Connection, room_id: str, period: str,
     conn.execute(
         text("""insert into readings (id, room_id, period, water_prev, water_now, elec_prev, elec_now)
                 values (:id, :room, :period, :wp, :wn, :ep, :en) on conflict do nothing"""),
-        {"id": f"rd_{room_id[2:]}_{period}", "room": room_id, "period": period,
+        {"id": reading_id(room_id, period), "room": room_id, "period": period,
          "wp": water_prev, "wn": water_now, "ep": elec_prev, "en": elec_now},
     )
 

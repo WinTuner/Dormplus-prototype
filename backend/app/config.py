@@ -10,6 +10,10 @@ class Settings(BaseSettings):
 
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/domplus"
 
+    # Until LINE Login exists, local development can pick a session with X-Dev-* headers (see app/auth.py).
+    # Never turn this on in a deployed environment: anyone could act as any dorm.
+    dev_auth: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:
