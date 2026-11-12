@@ -9,6 +9,8 @@ LINE OA ──webhook──▶ /api/webhook ──▶ Vercel Blob (state.json �
 ผู้เช่า ──▶ /liff/bill.html ──▶ /api/bill, /api/slip
 ```
 
+> **deploy อัตโนมัติ:** push เข้า `master` ของ repo `WinTuner/domplus-prototype` → Vercel deploy โปรเจกต์ `line-app` (Root Directory = `line-app`) ขึ้น production ทันที
+
 ## 1. สิ่งที่ต้องมี
 
 - บัญชี LINE (ฟรี) และเบอร์ที่ติด LINE

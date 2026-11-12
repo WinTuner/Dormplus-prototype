@@ -12,8 +12,14 @@
 | Backend จริง (FastAPI + Postgres) | บางส่วน | `backend/` — rooms, readings, billing run, invoices, slip/confirm/reject, LINE Login |
 | LINE app ที่ deploy จริง | ใช้ได้ | `line-app/` (Vercel + Blob + LIFF) — ส่งบิล/แนบสลิป/ยืนยันในแชท · ดู `line-app/HANDOFF.md` |
 | LINE OA / LIFF / auth (backend) | บางส่วน | LIFF login + session cookie เสร็จ · webhook/ส่งข้อความยังไม่มี (`backend/app/routes/auth.py`, `backend/liff/`) |
+| Deploy: `line-app` | ✅ | Vercel · auto จาก `master` · https://line-app-iota.vercel.app |
+| Deploy: `backend` | ✅ | Vercel (serverless) · auto จาก `master` · https://line-backend-ten.vercel.app |
+| Database จริง | ✅ | Neon Postgres (Vercel Marketplace) · schema `0001` + seed 42 ห้อง · `backend/.env` (ไม่อยู่ใน git) |
 
-**`line-app/` คือของที่รันจริงอยู่ตอนนี้** — พฤติกรรมที่ผู้ใช้เห็น (การ์ดบิล, LIFF, การ์ดยืนยัน) ดูจากที่นั่น · `backend/` คือเป้าหมายระยะยาวตาม `docs/API.md`
+**สถานะ infra:** ทั้งสองโปรเจกต์ Vercel ผูก repo `WinTuner/domplus-prototype` และ deploy อัตโนมัติเมื่อ push `master`
+(Root Directory: `line-app` / `backend`, Branch Tracking: `master`) · CI ที่ GitHub มี job เดียวคือ `backend` (pytest + Postgres service)
+
+**`line-app/` คือของที่ผู้ใช้เห็นอยู่ตอนนี้** (การ์ดบิล, LIFF, การ์ดยืนยัน) · `backend/` deploy แล้วและมี DB จริง แต่ยังไม่มี UI ให้ผู้ใช้ — เป็นเป้าหมายระยะยาวตาม `docs/API.md`
 
 ## 2. สิ่งที่ต้องสร้าง
 

@@ -111,6 +111,8 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "$B/api/bill?room=203"
 
 ## 7. งานที่ยังไม่ได้ทำ (เรียงตามความคุ้มค่า)
 
+> สถานะ infra ณ วันนี้: `line-app` ต่อ GitHub แล้ว (deploy อัตโนมัติจาก `master`) · `line-backend` ก็ deploy แล้วที่ https://line-backend-ten.vercel.app พร้อม Neon Postgres
+
 | งาน | จุดที่ต้องแตะ | หมายเหตุ |
 |---|---|---|
 | หน้าสรุปยอด/ทวงหนี้ของเจ้าของ | `api/rooms.js` + `liff/bill.html` | ตอนนี้เห็นแค่สถานะต่อห้อง |
