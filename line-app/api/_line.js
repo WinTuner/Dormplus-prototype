@@ -25,6 +25,15 @@ const reply = (replyToken, messages) => call("message/reply", { replyToken, mess
 
 const push = (to, messages) => call("message/push", { to, messages });
 
+// Per-user rich menu: the owner sees the meter menu, tenants see the bill menu.
+async function linkRichMenu(userId, richMenuId) {
+  const res = await fetch(`https://api.line.me/v2/bot/user/${userId}/richmenu/${richMenuId}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  });
+  if (!res.ok) throw new Error(`richmenu link ${res.status}: ${(await res.text()).slice(0, 200)}`);
+}
+
 // The bill as a Flex card: amount, due date, and a button that opens the LIFF page.
 function billBubble(bill, baseUrl) {
   const money = (n) => n.toLocaleString("th-TH");
@@ -125,4 +134,4 @@ function confirmBubble(bill) {
   };
 }
 
-module.exports = { verify, reply, push, billBubble, confirmBubble, LIFF_ID };
+module.exports = { verify, reply, push, linkRichMenu, billBubble, confirmBubble, LIFF_ID };
