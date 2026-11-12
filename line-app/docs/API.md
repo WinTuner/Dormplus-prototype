@@ -188,6 +188,12 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 | `image` | string (data URL) | ไม่ | ต้องตรง `/^data:(image\/(jpeg\|png\|webp));base64,(.+)$/` |
 
 ขนาดรูปสูงสุด **3 MiB** (`MAX_BYTES = 3 * 1024 * 1024`) นับหลัง decode base64; นามสกุลไฟล์มาจาก mime (`jpeg` → `jpg`)
+
+**ตรวจสลิปอัตโนมัติ (ถ้าตั้ง `SLIP_VERIFY_TOKEN`)** — ส่งรูปให้ SlipVerify (`POST https://api.nearbyshop.xyz/slipVerify/v1`, multipart `qr_img` + `amount`) แล้วเก็บผลในบิล
+`slipCheck = { ok, reason, amount, amountMatches, ref, provider, checkedAt }`
+- `ok: true` = ธนาคารพบรายการ · `false` = ไม่พบ · `null` = ตรวจไม่ได้ (ไม่มี token / timeout / ผู้ให้บริการล่ม)
+- **ไม่ปิดบิลให้** — เจ้าของยังกดยืนยันเองทุกครั้ง · การ์ดเจ้าของขึ้นบรรทัดสรุป (ยอดตรง/ยอดไม่ตรง/ตรวจไม่ได้)
+- ถ้าไม่มี token หรือผู้ให้บริการล่ม การแนบสลิปยังสำเร็จตามปกติ (best effort)
 - **200:**
 
 ```json

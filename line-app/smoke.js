@@ -4,7 +4,7 @@ process.env.LINE_CHANNEL_ACCESS_TOKEN = "test-token";
 
 const crypto = require("crypto");
 const assert = require("assert");
-const { verify, billBubble, confirmBubble } = require("./api/_line");
+const { verify, billBubble, confirmBubble, slipCheckLabel } = require("./api/_line");
 
 // 1) signature: same payload, same secret → must verify
 const raw = Buffer.from(JSON.stringify({ events: [] }));
@@ -30,6 +30,11 @@ const pb = confirm.contents.footer.contents[0].action;
 assert.strictEqual(pb.type, "postback");
 assert.ok(pb.data.includes("action=confirm"), "postback action");
 assert.ok(pb.data.includes("room=203"), "postback carries room");
+// 3b) the owner card says what the automatic slip check found
+assert.ok(slipCheckLabel({ ok: true, amountMatches: true }).includes("พบรายการ"), "verified slip");
+assert.ok(slipCheckLabel({ ok: null, amountMatches: false }).includes("ยอดไม่ตรง"), "amount mismatch wins over ok=null");
+assert.ok(slipCheckLabel({ ok: null }).includes("ตรวจเองก่อน"), "unverifiable");
+assert.strictEqual(slipCheckLabel(null), null, "no check, no line");
 
 // 4) the seed-token bypass must be denied by default and on every production deploy
 function bypassAllowed(env) {

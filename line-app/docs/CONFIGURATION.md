@@ -2,7 +2,7 @@
 
 # การตั้งค่า (CONFIGURATION)
 
-เอกสารนี้อธิบายทุกค่าที่ระบบอ่านจาก `process.env` โดยไล่จากโค้ดจริงใน `api/*.js` ไม่มีการเดา รายการนี้คือ **ทั้งหมด** ของตัวแปรที่โค้ดอ่าน (16 ตัว) บวกกับตัวแปรที่ Vercel/`@vercel/blob` อ่านเองอีก 2 ตัว
+เอกสารนี้อธิบายทุกค่าที่ระบบอ่านจาก `process.env` โดยไล่จากโค้ดจริงใน `api/*.js` ไม่มีการเดา รายการนี้คือ **ทั้งหมด** ของตัวแปรที่โค้ดอ่าน (18 ตัว) บวกกับตัวแปรที่ Vercel/`@vercel/blob` อ่านเองอีก 2 ตัว
 
 > หมายเหตุ: `liff/bill.html` **ไม่อ่าน `process.env` เลย** หน้าเว็บได้ LIFF ID มาจาก `GET /api/config` ตอน runtime (`liff/bill.html` บรรทัด 56) ดังนั้นค่าที่หน้าเว็บเห็นคือค่าที่ฝั่ง server ส่งไปเท่านั้น
 
@@ -15,6 +15,8 @@
 | `LIFF_ID` | ✅ | `null` | `api/config.js`, `api/_line.js`, `api/_auth.js` | `/api/config` คืน `liffId: null` → หน้าเว็บขึ้น "เปิดหน้านี้จากปุ่มในแชท LINE เท่านั้น"; ปุ่มในการ์ดเปิดเป็น URL ตรงแทน `liff.line.me`; และถ้าไม่มี `LOGIN_CHANNEL_ID` ด้วย ทุก endpoint ที่ต้องล็อกอินจะตอบ 401 |
 | `OWNER_USER_ID` | ✅ | — | `api/_auth.js`, `api/slip.js` | ไม่มีใครเป็น owner → `/api/rooms`, `/api/run` ตอบ 403 และไม่มีการส่งการ์ด "ยืนยันการชำระ" ให้ใคร |
 | `SEED_TOKEN` | ✅ | — | `api/dev.js`, `api/dev.js`, `api/_auth.js` | `/api/dev?do=seed` และ `/api/dev?do=sendbill` ตอบ 403 ทุกครั้ง · bypass `x-seed-token` ไม่ทำงานบน production อยู่แล้ว |
+| `SLIP_VERIFY_TOKEN` | ไม่บังคับ | — (ปิด) | `api/_slipcheck.js` | ไม่มีการตรวจสลิปอัตโนมัติ — เจ้าของกดยืนยันเองเหมือนเดิม |
+| `SLIP_VERIFY_URL` | ไม่บังคับ | `https://api.nearbyshop.xyz/slipVerify/v1` | `api/_slipcheck.js` | ใช้ค่าเริ่มต้นของ SlipVerify |
 | `RICHMENU_OWNER_ID` | ไม่บังคับ | — | `api/owner-accept.js` | ไม่มีผล — เจ้าของที่รับสิทธิ์จะไม่ถูกสลับ rich menu |
 | `RICHMENU_TENANT_ID` | ไม่บังคับ | — | `api/webhook.js` | ไม่มีผล — ผู้เช่าที่ผูกห้องจะไม่ถูกสลับ rich menu |
 | `ALLOW_SEED_BYPASS` | ไม่บังคับ | — (ปิด) | `api/_auth.js` | ไม่มีผลบน production เว้นแต่ตั้งเป็น `true` — ใช้เปิด bypass บนเครื่องที่ไม่ได้รันบน Vercel |

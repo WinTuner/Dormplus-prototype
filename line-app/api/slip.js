@@ -3,6 +3,7 @@ const { put } = require("@vercel/blob");
 const store = require("./_store");
 const { push, confirmBubble } = require("./_line");
 const { requireUser, isOwner } = require("./_auth");
+const { verifySlip } = require("./_slipcheck");
 
 const MAX_BYTES = 3 * 1024 * 1024;
 
@@ -27,6 +28,7 @@ module.exports = async (req, res) => {
   }
 
   let slipPath = bill.slipPath || null;
+  let slipCheck = null;
   if (image) {
     const m = /^data:(image\/(jpeg|png|webp));base64,(.+)$/.exec(image);
     if (!m) return res.status(400).json({ error: { code: "VALIDATION", message: "รูปต้องเป็น JPEG/PNG/WEBP" } });
@@ -37,6 +39,18 @@ module.exports = async (req, res) => {
     const ext = m[2] === "jpeg" ? "jpg" : m[2];
     slipPath = `slips/${room}-${Date.now()}.${ext}`;
     await put(slipPath, bytes, { access: "private", contentType: m[1], allowOverwrite: true });
+
+    // Best effort: the owner still confirms. `ok: null` means "could not check".
+    const check = await verifySlip({ image: m[3], mime: m[1], amount: bill.total });
+    slipCheck = {
+      ok: check.ok,
+      reason: check.reason || null,
+      amount: check.amount ?? null,
+      amountMatches: check.amount == null ? null : check.amount === Number(bill.total),
+      ref: check.ref || null,
+      provider: check.provider || "slipverify",
+      checkedAt: check.checkedAt || new Date().toISOString(),
+    };
   }
 
   const next = {
@@ -45,8 +59,12 @@ module.exports = async (req, res) => {
     slipPath,
     slipNote: note || null,
     slipAt: new Date().toISOString(),
+    ...(slipCheck ? { slipCheck } : {}),
   };
+
+  // Keep the per-period copy in step so history shows the same state.
   await store.set(`bill:${room}`, next);
+  await store.set(`bill:${bill.period}:${room}`, next);
 
   // Tell the owner, but never fail the tenant's slip because of a push error.
   const owner = process.env.OWNER_USER_ID;
@@ -58,5 +76,11 @@ module.exports = async (req, res) => {
     }
   }
 
-  return res.status(200).json({ ok: true, status: next.status, total: next.total, hasSlip: !!slipPath });
+  return res.status(200).json({
+    ok: true,
+    status: next.status,
+    total: next.total,
+    hasSlip: !!slipPath,
+    slipCheck: slipCheck ? { ok: slipCheck.ok, amountMatches: slipCheck.amountMatches, reason: slipCheck.reason } : null,
+  });
 };
