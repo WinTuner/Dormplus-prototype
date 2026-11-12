@@ -130,12 +130,17 @@ alembic revision -m "add xyz"   # แล้วเขียน op.execute(...) �
 ```
 
 RLS เปิดไว้ที่ตาราง rooms, readings, invoices, invoice_items, payments แต่ยังไม่มี policy
-ตอนนี้ app ต่อด้วย user เจ้าของตาราง จึงยังไม่โดน RLS กรอง policy จะเพิ่มตอนทำ auth (กรองด้วย `property_id` จาก session)
+ตอนนี้ app ต่อด้วย user เจ้าของตาราง จึงยังไม่โดน RLS กรอง ทุก query กรอง `property_id` จาก session ในโค้ดแทน
 
 ## งานถัดไป (HANDOFF ข้อ 6)
 
 - [x] วัน 1–2: schema + migration + seed 42 ห้อง
-- [x] วัน 3–4 (ส่วนแรก): `/rooms` + `/readings` บน session ชั่วคราว
-- [ ] วัน 3–4 (ส่วนที่เหลือ): LINE Login แทน DEV_AUTH + RLS policy (รอ LINE Channel ID)
+- [x] วัน 3–4: `/rooms` + `/readings` · LINE Login ผ่าน LIFF → session cookie
+- [ ] วัน 3–4 (ค้าง): RLS policy กรอง `property_id`
 - [x] วัน 5–6: `/billing/run` + `/invoices` (ยังไม่ส่ง LINE · `job_id` = null)
-- [ ] วัน 7 ขึ้นไป: Procrastinate worker, LINE, สลิป, ทวง
+- [ ] วัน 5–6 (ค้าง): หน้าเจ้าของ (`web/`) ต่อ backend จริง
+- [ ] วัน 7–8: Procrastinate worker + ส่ง LINE จริง 1 หอ + `message_log`
+- [x] วัน 9–10 (แบบ manual): แนบสลิป → ยืนยัน/ตีกลับ + ใบเสร็จ
+- [ ] วัน 9–10 (ค้าง): ตรวจสลิปอัตโนมัติ (`slip.verify` + SlipOK)
+- [ ] วัน 11–12: ทวงอัตโนมัติ 1/5/10 วัน + รายงาน
+- [ ] วัน 13–14: error code ที่เหลือ, log, backup
