@@ -102,6 +102,8 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "$B/api/bill?room=203"
 
 `status`: `unpaid` → `pending` (แนบสลิป) → `paid` (เจ้าของยืนยัน)
 
+> ⚠️ **เพดาน Vercel Hobby: 12 serverless functions ต่อ deployment** — ตอนนี้ใช้ครบ 12 (`api/*.js` ที่ไม่ขึ้นต้นด้วย `_`) เพิ่ม endpoint ใหม่ต้องรวมของเดิมก่อน ไม่งั้น deploy ล้มด้วย `exceeded_serverless_functions_per_deployment`
+
 ## 6. กับดักที่เจอมาแล้ว (อ่านก่อนแก้)
 
 1. **Blob cache** — ต้อง `get(..., { useCache: false })` ไม่งั้นอ่านค่าเก่า ~30 วัน (เจอมาแล้ว: ออกรอบบิลแล้วบิลยังเป็นรอบเก่า)

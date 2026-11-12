@@ -129,6 +129,9 @@ curl -X POST "https://<โดเมน>/api/sendbill?token=<SEED_TOKEN>" ^
 | POST | `/api/run` | ออกรอบบิลจากหน่วยมิเตอร์ + ส่งการ์ด (เจ้าของเท่านั้น) |
 | POST | `/api/seed?token=` | สร้างบิลทดสอบทุกห้อง |
 | POST | `/api/sendbill?token=` | ยิงการ์ดบิลให้ userId หนึ่งคน |
+| POST | `/api/owner` | เจ้าของออก QR เพิ่มเจ้าของ · คนที่สแกนส่ง `{code}` มาแลกสิทธิ์ |
+| GET/POST | `/api/qr?room=203` | QR ประจำห้อง (GET อ่าน/สร้าง, POST หมุนรหัส) — เจ้าของเท่านั้น |
+| POST | `/api/qr` | ผู้เช่าแลกรหัสจาก QR หน้าห้อง (`{code}`) → ผูกห้อง |
 
 ## ข้อจำกัดของ prototype นี้
 
