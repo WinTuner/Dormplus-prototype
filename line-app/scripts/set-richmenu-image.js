@@ -47,8 +47,9 @@ function pngSize(buf) {
 
   const bytes = fs.readFileSync(imagePath);
   const size = pngSize(bytes);
-  if (size && (size.width !== 2500 || size.height !== 1686)) {
-    throw new Error(`wrong size ${size.width}x${size.height} — LINE needs exactly 2500x1686`);
+  const wanted = BUILD[which](LIFF_ID).size;
+  if (size && (size.width !== wanted.width || size.height !== wanted.height)) {
+    throw new Error(`wrong size ${size.width}x${size.height} — the ${which} menu needs exactly ${wanted.width}x${wanted.height}`);
   }
   if (bytes.length > 1024 * 1024) throw new Error(`image is ${(bytes.length / 1024 / 1024).toFixed(1)}MB — the limit is 1MB`);
 
@@ -60,7 +61,14 @@ function pngSize(buf) {
 
   if (oldId) {
     // Move everyone linked to the old menu onto the new one (500 users per request).
-    await json("POST", "/richmenu/batch", { operations: [{ type: "link", from: oldId, to: created.richMenuId }] });
+    // LINE only allows this between menus of the same size, so a size change has to fall back
+    // to: new menu becomes the default, old menu is deleted and its users drop to that default.
+    try {
+      await json("POST", "/richmenu/batch", { operations: [{ type: "link", from: oldId, to: created.richMenuId }] });
+      console.log("linked existing users to the new menu");
+    } catch (err) {
+      console.log("could not move linked users (size changed?) — relying on the default menu:", String(err.message).slice(0, 120));
+    }
     if (isDefault) await json("POST", `/user/all/richmenu/${created.richMenuId}`);
     await json("DELETE", `/richmenu/${oldId}`).catch(() => {});
   } else if (which === "tenant") {
