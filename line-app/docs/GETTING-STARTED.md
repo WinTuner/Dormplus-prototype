@@ -124,7 +124,7 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "https://<โดเมนของ�
 - [ ] `node -v` → ต้อง `>= 20`
 - [ ] `npm install` → มี `node_modules/@vercel/blob` (2.9.0)
 - [ ] `node smoke.js` → เห็น `smoke OK — signature + flex card + confirm card`
-- [ ] อ่าน [`CONFIGURATION.md`](./CONFIGURATION.md) ข้อ 1 ให้ครบ 18 ตัวแปร — ตัวที่ขาดแล้วพังทันทีคือ `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`, `LIFF_ID`, `OWNER_USER_ID`
+- [ ] อ่าน [`CONFIGURATION.md`](./CONFIGURATION.md) ข้อ 1 ให้ครบ 16 ตัวแปร — ตัวที่ขาดแล้วพังทันทีคือ `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`, `LIFF_ID`, `OWNER_USER_ID`
 - [ ] มี Messaging API channel (secret + long-lived token) และ LINE Login channel สำหรับ LIFF (README ข้อ 2, 6)
 - [ ] `vercel --prod` แล้ว `curl.exe -s https://<โดเมน>/api/config` ตอบ `200`
 - [ ] ใส่ env + Blob แล้ว Redeploy แล้ว `curl.exe -s -H "x-seed-token: <SEED_TOKEN>" https://<โดเมน>/api/me` ตอบ `200`
