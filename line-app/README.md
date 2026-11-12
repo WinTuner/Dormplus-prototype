@@ -1,12 +1,15 @@
-# DormPlus — LINE prototype (ใช้ได้จริง)
+# DormPlus — LINE app สำหรับหอพัก
 
-เว็บแอปนี้ทำให้ LINE ของคุณส่งบิลจริง และผู้เช่าเปิดหน้า LIFF แนบสลิปได้จริง
+ระบบจริงที่รันอยู่: เจ้าของจดมิเตอร์ → ออกบิล → การ์ดเข้า LINE → ผู้เช่าแนบสลิป → เจ้าของกดยืนยัน
+มี QR สำหรับผูกผู้เช่ากับห้อง, หลายเจ้าของ/ผู้ช่วย (ดูอย่างเดียว), ประวัติบิลย้อนหลัง และ rich menu แยกตามบทบาท
 
 ```
-LINE OA ──webhook──▶ /api/webhook ──▶ Vercel Blob (state.json ต่อ key)
+LINE OA ──webhook──▶ /api/webhook ──▶ Vercel Blob (kv/*.json, slips/*)
    ▲                      │
-   └──── push message ────┘
-ผู้เช่า ──▶ /liff/bill.html ──▶ /api/bill, /api/slip
+   └──── reply / push ────┘
+ผู้เช่า ── QR หน้าห้อง ──▶ liff/bill.html?bind=<code> ──▶ /api/qr
+        └─ ดูบิล/แนบสลิป ────────────────────────────▶ /api/bill, /api/slip
+เจ้าของ ── /liff/bill.html ──▶ /api/rooms, /api/run, /api/qr, /api/owner
 ```
 
 > **deploy อัตโนมัติ:** push เข้า `master` ของ repo `WinTuner/domplus-prototype` → Vercel deploy โปรเจกต์ `line-app` (Root Directory = `line-app`) ขึ้น production ทันที
@@ -65,6 +68,9 @@ Vercel → Project → Settings → Environment Variables (ใส่ทั้ง
 | `BILL_DUE` | `2026-11-16` (ไม่ใส่ก็ได้) |
 | `LIFF_ID` | ใส่ทีหลังในข้อ 6 |
 | `OWNER_USER_ID` | userId ของเจ้าของหอ — ใช้รับการ์ด "ยืนยันการชำระ" เมื่อผู้เช่าแนบสลิป (หาได้จาก webhook log ตอนพิมพ์อะไรในแชท) |
+| `RICHMENU_OWNER_ID` / `RICHMENU_TENANT_ID` | id ของ rich menu 2 ชุด — ไม่ใส่ก็ได้ (ระบบจะไม่สลับเมนูให้) |
+| `ROOMS` / `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` | ไม่บังคับ — ค่าเริ่มต้น 201–212 / 3500 / 25 / 7 |
+| `ALLOW_SEED_BYPASS` | ไม่บังคับ — `true` เพื่อเปิด `x-seed-token` บนเครื่องที่ไม่ได้รันบน Vercel (production ไม่มีทางเปิด) |
 
 หลังใส่ env แล้ว **Redeploy** 1 ครั้ง (Deployments → ⋯ → Redeploy)
 
@@ -108,12 +114,25 @@ curl -X POST "https://<โดเมน>/api/dev?do=sendbill&token=<SEED_TOKEN>" 
 ## 7. ทดสอบทั้งวงจร
 
 1. เพิ่มเพื่อน OA → บอททัก "สวัสดีครับ"
-2. พิมพ์ `ผูก 203` → บอทตอบ "ผูกกับห้อง 203 แล้ว"
+2. **ผูกห้องด้วย QR** — เจ้าของเปิด LIFF → เลือกห้อง → "QR ผู้เช่า" → ให้ผู้เช่าสแกน
+   (ทางเก่า `ผูก 203` ยังใช้ได้ แต่ไม่มีการยืนยันตัวตน — ควรเลิกใช้เมื่อทุกห้องมี QR)
 3. พิมพ์ `บิล` → ได้การ์ดบิล 3,842 บาท (แล้วแต่ข้อมูล seed)
 4. กดปุ่ม **ดูบิล / แนบสลิป** → เปิด LIFF → กด **แนบสลิป & แจ้งชำระ**
 5. `/api/bill?room=203` → `status: "pending"`
 6. **เจ้าของหอ** (userId ใน `OWNER_USER_ID`) ได้การ์ด "ห้อง 203 แจ้งชำระ" → กด **ยืนยันการชำระ**
 7. `/api/bill?room=203` → `status: "paid"` และผู้เช่าได้ข้อความแจ้งว่าชำระแล้ว
+
+## rich menu ตามบทบาท
+
+สร้าง/อัปเดตจากสคริปต์ (รูปอยู่ใน `docs/richmenu-*.png`, ต้อง 2500×1686 หรือ 2500×843):
+
+```bash
+LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js
+```
+
+- ผู้เช่า (compact 3 ช่อง, default): บิลของฉัน · แจ้งชำระ · ใบเสร็จ
+- เจ้าของ (3×2): จดมิเตอร์ · บิลค่าเช่า · ตรวจสอบสลิป / ค้างชำระ · รายงานรายรับ · จัดการห้อง
+- ระบบสลับเมนูให้อัตโนมัติเมื่อผู้เช่าผูกห้อง (QR) และเมื่อมีคนรับสิทธิ์เจ้าของ — ตั้ง id ใน `RICHMENU_TENANT_ID` / `RICHMENU_OWNER_ID`
 
 ## API ที่มี
 
@@ -122,10 +141,10 @@ curl -X POST "https://<โดเมน>/api/dev?do=sendbill&token=<SEED_TOKEN>" 
 | POST | `/api/webhook` | รับ event จาก LINE (ตรวจ signature) |
 | GET | `/api/config` | LIFF ID ให้หน้าเว็บ init (public) |
 | GET | `/api/me` | userId / ห้องที่ผูก / เป็นเจ้าของไหม |
-| GET | `/api/bill?room=203` | ดึงบิล (ต้องมี idToken; ผู้เช่าเห็นเฉพาะห้องตัวเอง) |
+| GET | `/api/bill?room=203` | ดึงบิล (ต้องมี idToken; ผู้เช่าเห็นเฉพาะห้องตัวเอง) · `&period=2026-10` เลือกรอบ · `&history=1` ดูทุกรอบ |
 | POST | `/api/slip` | แนบสลิป (รูปได้) → `pending` + push การ์ดหาเจ้าของ |
 | GET | `/api/slip-image?room=203` | ดูรูปสลิป (เฉพาะเจ้าของ/ผู้เช่าห้องนั้น) |
-| GET | `/api/rooms` | ทุกห้อง + มิเตอร์ล่าสุด (เจ้าของเท่านั้น) |
+| GET | `/api/rooms` | ทุกห้อง + มิเตอร์ล่าสุด (เจ้าของ/ผู้ช่วย) |
 | POST | `/api/run` | ออกรอบบิลจากหน่วยมิเตอร์ + ส่งการ์ด (เจ้าของเท่านั้น) |
 | POST | `/api/dev?do=seed&token=` | สร้างบิลทดสอบทุกห้อง |
 | POST | `/api/dev?do=sendbill&token=` | ยิงการ์ดบิลให้ userId หนึ่งคน |
@@ -133,12 +152,14 @@ curl -X POST "https://<โดเมน>/api/dev?do=sendbill&token=<SEED_TOKEN>" 
 | GET/POST | `/api/qr?room=203` | QR ประจำห้อง (GET อ่าน/สร้าง, POST หมุนรหัส) — เจ้าของเท่านั้น |
 | POST | `/api/qr` | ผู้เช่าแลกรหัสจาก QR หน้าห้อง (`{code}`) → ผูกห้อง |
 
-## ข้อจำกัดของ prototype นี้
+## ข้อจำกัดที่ยังเหลือ
 
 - **auth เป็นแบบ prototype** — ตรวจ LIFF idToken จริง · bypass `x-seed-token` **ปิดอยู่โดยค่าเริ่มต้น** เปิดเฉพาะเมื่อ `ALLOW_SEED_BYPASS=true` หรือรันบน Vercel env `preview`/`development` (production ไม่มีทางเปิด)
-- **ไม่มีหน้าจอสรุปยอด/ทวงหนี้** — เจ้าของจดมิเตอร์ + ดูสลิป + ยืนยันได้ แต่ยังไม่มี dashboard สรุป
-- **บิลถูกทับทุกรอบ** — `bill:<room>` เก็บรอบล่าสุดเท่านั้น ยังไม่มีประวัติ
-- **1 deploy = 1 หอ** — `OWNER_USER_ID` คนเดียว, รายชื่อห้องมาจาก env `ROOMS`
+- **ไม่มีหน้าจอทวงหนี้** — มีรายงานรายรับ + ยอดค้างแล้ว แต่ยังไม่มีการส่งข้อความทวงอัตโนมัติ
+- **ประวัติเริ่มนับจากรอบที่ออกหลังฟีเจอร์นี้** — บิลเก่าก่อนหน้ามีแค่ `bill:<room>` (รอบล่าสุด) ไม่มี key ต่อรอบ
+- **1 deploy = 1 หอ** — รายชื่อห้องมาจาก env `ROOMS` · เจ้าของหลายคนได้ แต่ไม่มีระดับสิทธิ์ละเอียดกว่าระหว่าง owner/viewer
+- **ไม่มีการตรวจสลิปกับธนาคาร** — เคยต่อ SlipVerify แล้วถอยออก (ผู้ให้บริการฟรีไม่น่าไว้ใจ) เจ้าของตรวจรูปเอง
+- **เพดาน Vercel Hobby 12 ฟังก์ชัน** — ตอนนี้ใช้ 11 (`api/*.js` ที่ไม่ขึ้นต้นด้วย `_`)
 - ข้อมูลอยู่ใน Vercel Blob แบบ key-value ไม่ใช่ Postgres (backend จริงอยู่ใน `pakdee-prototype/backend/`)
 
 ## ดูรายละเอียดสำหรับทีมที่รับช่วงต่อ
@@ -164,7 +185,7 @@ curl -X POST "https://<โดเมน>/api/dev?do=sendbill&token=<SEED_TOKEN>" 
 
 สถานะบิล: `unpaid` → `pending` (แนบสลิปแล้ว) → `paid` (เจ้าของกดยืนยัน)
 
-> รัน/ทดสอบในเครื่องต้องใช้ **Node.js >= 20** (ตาม `engines` ใน `package.json`) — dependency มีตัวเดียวคือ `@vercel/blob`
+> รัน/ทดสอบในเครื่องต้องใช้ **Node.js >= 20** (ตาม `engines` ใน `package.json`) — dependency มี 2 ตัว: `@vercel/blob` (เก็บ state) และ `qrcode-svg` (สร้าง QR ฝั่ง server)
 
 ## โครงไฟล์
 
@@ -172,11 +193,13 @@ curl -X POST "https://<โดเมน>/api/dev?do=sendbill&token=<SEED_TOKEN>" 
 |---|---|
 | `api/webhook.js` | รับ event จาก LINE: `follow`, ข้อความ (`บิล`, `ผูก 203`), postback ยืนยันการชำระ (เฉพาะ `OWNER_USER_ID`) |
 | `api/_line.js` | ตรวจ signature, `reply()` / `push()`, `billBubble()` (การ์ดบิล), `confirmBubble()` (การ์ดเจ้าของ) |
-| `api/_auth.js` | ตรวจ LIFF idToken → userId, `isOwner()`, bypass `x-seed-token` (เฉพาะ preview/dev หรือ `ALLOW_SEED_BYPASS=true`) |
-| `api/_store.js` | `get(key)` / `set(key, value)` ลง Blob |
+| `api/_auth.js` | ตรวจ LIFF idToken → userId, `roleOf()`/`isOwner()`/`canView()` (owner · viewer · ผู้เช่า), bypass `x-seed-token` เฉพาะ preview/dev |
+| `api/_store.js` | `get(key)` / `set(key, value)` ลง Blob (`useCache:false` — อ่านค่าที่เพิ่งเขียนได้ทันที) |
 | `api/_rooms.js` | รายชื่อห้องจาก env `ROOMS` + ค่าเช่า/ค่ามิเตอร์ต่อห้อง |
-| `api/me.js`, `bill.js`, `slip.js`, `slip-image.js`, `rooms.js`, `run.js`, `seed.js`, `sendbill.js`, `config.js` | endpoints ตามตาราง "API ที่มี" ด้านบน |
-| `liff/bill.html` | หน้าเดียว 2 บทบาท: ผู้เช่า (ดูบิล + แนบสลิป) / เจ้าของ (จดมิเตอร์ + ดูสลิป + ออกบิล) |
+| `api/me.js`, `bill.js`, `slip.js`, `slip-image.js`, `rooms.js`, `run.js`, `owner.js`, `qr.js`, `dev.js`, `config.js` | endpoints ตามตาราง "API ที่มี" ด้านบน |
+| `api/_bills.js` | index รายชื่อรอบบิลต่อห้อง (`bills:<room>`) ให้หน้าประวัติอ่านครั้งเดียว |
+| `scripts/setup-richmenu.js`, `scripts/set-richmenu-image.js`, `scripts/_richmenu-defs.js` | สร้าง/เปลี่ยนรูป rich menu 2 ชุด (เจ้าของ 6 ช่อง · ผู้เช่า 3 ช่อง compact) |
+| `liff/bill.html` | หน้าเดียว 2 บทบาท: ผู้เช่า (บิล · แนบสลิป · ประวัติย้อนหลัง) / เจ้าของ (จดมิเตอร์ · ออกบิล · ตรวจสลิป · รายงาน · QR ห้อง · QR เพิ่มเจ้าของ) |
 | `smoke.js` | smoke test แบบ offline — `node smoke.js` (ตรวจ signature + รูปการ์ด ไม่ต่อเน็ต) |
 | `vercel.json` | rewrite `/` → `/liff/bill.html` |
 | `HANDOFF.md` | เอกสารส่งต่อทีม: แผนผัง, โครงข้อมูลใน Blob, กับดักที่เจอมาแล้ว |
@@ -194,7 +217,7 @@ curl -X POST "https://<โดเมน>/api/dev?do=sendbill&token=<SEED_TOKEN>" 
 
 > ใช้ [`HANDOFF.md`](./HANDOFF.md) เป็นแหล่งหลักได้เสมอ — ละเอียดกว่า README และอัปเดตตามงานจริง
 
-<!-- VERIFY: docs/*.md ทั้ง 6 ไฟล์ยังไม่มีในเรพ ณ ตอนเขียน README นี้ (โฟลเดอร์ docs/ ว่าง) — จะถูกสร้างโดยรอบ docs update -->
+
 
 ## ข้อจำกัดเพิ่มเติม (ระดับเทคนิค)
 
