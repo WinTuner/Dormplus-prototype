@@ -55,7 +55,7 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 ### 2.2 การ auth 3 แบบ
 
 1. **Bearer LIFF idToken** — `_auth.requireUser()` อ่าน `Authorization: Bearer <idToken>` แล้วยิง `POST https://api.line.me/oauth2/v2.1/verify` ด้วย `id_token` + `client_id` (= `LOGIN_CHANNEL_ID` หรือ prefix ก่อน `-` ของ `LIFF_ID`) แล้วเอา `sub` เป็น userId ถ้าไม่มี token/ไม่มี channel → `401 UNAUTHORIZED`; verify ไม่ผ่าน → `403 FORBIDDEN`
-2. **`x-seed-token` bypass** — ถ้าตั้ง `SEED_TOKEN` และ header ตรง `requireUser()` จะ **ข้ามการตรวจ idToken ทั้งหมด** แล้วคืน `OWNER_USER_ID` (หรือ `"dev"` ถ้าไม่ได้ตั้ง) — ใช้ได้กับทุก endpoint ที่เรียก `requireUser`
+2. **`x-seed-token` bypass (ปิดโดยค่าเริ่มต้น)** — ทำงานเฉพาะเมื่อ `ALLOW_SEED_BYPASS=true` หรือ `VERCEL_ENV` เป็น `preview`/`development` **และ** header ตรงกับ `SEED_TOKEN` · เมื่อเข้าเงื่อนไข `requireUser()` จะคืน `OWNER_USER_ID` (หรือ `"dev"` ถ้าไม่ได้ตั้ง) · **production ปฏิเสธเสมอ**
 3. **`?token=` ของ seed/sendbill** — endpoint สองตัวนี้ **ไม่เรียก `requireUser` เลย** เช็กแค่ query `token` เท่ากับ `SEED_TOKEN`
 
 `isOwner(userId)` คือ `!!OWNER_USER_ID && userId === OWNER_USER_ID` → ถ้าไม่ได้ตั้ง `OWNER_USER_ID` ทุกคนเป็น non-owner (รวม `x-seed-token` ที่คืน `"dev"` ด้วย)
@@ -96,7 +96,7 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 
 `api/me.js` — บอกว่าใครเรียก และผูกกับห้องไหน
 
-- **Auth:** Bearer idToken (หรือ `x-seed-token`)
+- **Auth:** Bearer idToken (หรือ `x-seed-token` — เฉพาะ preview/dev)
 - **Query/body:** ไม่มี
 - **200:**
 
@@ -301,7 +301,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 รายละเอียดที่ควรรู้:
 
 - **`ผูก <room>` ต้องมีบิลอยู่ก่อน** — เช็ก `bill:<room>` ไม่ใช่ `ROOMS` ดังนั้นห้องที่ยังไม่เคยออกบิลผูกไม่ได้
-- **postback `action=confirm` ยอมรับจากใครก็ได้** — ไม่ได้เทียบ `event.source.userId` กับ `OWNER_USER_ID`; ใครก็ตามที่ส่ง postback ที่มี `action=confirm&room=<room>` มาทำให้บิลเป็น `paid` ได้ (การ์ดถูกส่งหาการ์ดเจ้าของเท่านั้น แต่ enforcement อยู่ที่ UI ไม่ใช่ server)
+- **postback `action=confirm` ตรวจเจ้าของแล้ว** — `webhook.js` เทียบ `event.source.userId` กับ `OWNER_USER_ID` ก่อนปิดบิล; ผู้ที่ไม่ใช่เจ้าของได้ข้อความ "เฉพาะเจ้าของหอกดยืนยันได้ครับ" และสถานะบิลไม่เปลี่ยน
 - **การผูกห้องไม่มีการยืนยันตัวตนของห้อง** — ผู้ใช้คนไหนพิมพ์ `ผูก 203` ก็ผูกได้ และเขียน `room-user:203` ทับผู้เช่าคนเดิมได้ (การผูกซ้ำเปลี่ยนเจ้าของ mapping)
 - **`OWNER_USER_ID` ไม่ถูกใช้ใน webhook เลย** — webhook ไม่รู้จัก role; สิทธิ์ทั้งหมดมาจาก `bill:<room>` ที่มีอยู่
 - ถ้า `LINE_CHANNEL_ACCESS_TOKEN` ผิด/หมดอายุ `reply`/`push` throw แต่ `handleEvent` ถูกครอบด้วย `try/catch` ต่อ event → webhook ยังตอบ 200 ผู้ใช้แค่ไม่ได้รับข้อความ
@@ -316,7 +316,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 | `/api/rooms`, `/api/run` | idToken + `isOwner` | — |
 | `/api/seed`, `/api/sendbill` | `?token=` เท่ากับ `SEED_TOKEN` | ไม่มี auth ผู้ใช้, ไม่จำกัดจำนวนครั้ง, token อยู่ใน query (ติด access log) |
 | `/api/webhook` | HMAC signature | ไม่ตรวจผู้ส่งต่อ event, ไม่มี idempotency |
-| webhook `postback action=confirm` | signature ของ LINE | **ไม่ตรวจว่าเป็นเจ้าของ** |
+| webhook `postback action=confirm` | signature ของ LINE + `isOwner(userId)` | ✅ ตรวจแล้ว |
 | webhook `ผูก <room>` | signature ของ LINE | **ไม่ตรวจความเป็นเจ้าของห้อง / ไม่มีการยืนยันตัวตน** |
 | ทุก endpoint ที่เรียก `requireUser` | idToken หรือ `x-seed-token` | `x-seed-token` เป็น bypass ที่ตั้งใจไว้ (คอมเมนต์ `shortcut:` ใน `api/_auth.js`) — ต้องลบก่อนใช้จริง |
 

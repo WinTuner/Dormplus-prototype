@@ -58,7 +58,7 @@ graph TD
 3. ถ้ายังไม่ล็อกอิน → `liff.login()`; ถ้า `getIDToken()` คืนค่าว่าง → หน้าแจ้งว่า LIFF ยังไม่เปิด scope `openid`
 4. `api()` ในหน้าเว็บแนบ `Authorization: Bearer <idToken>` ทุกครั้ง (และ `Content-Type: application/json` เมื่อมี body)
 5. ฝั่ง server `_auth.requireUser()`:
-   - ถ้า `SEED_TOKEN` ถูกตั้งและ header `x-seed-token` ตรง → คืน `OWNER_USER_ID || "dev"` (bypass สำหรับ dev)
+   - ถ้า `BYPASS_ALLOWED` (preview/dev หรือ `ALLOW_SEED_BYPASS=true`) และ header `x-seed-token` ตรงกับ `SEED_TOKEN` → คืน `OWNER_USER_ID || "dev"` · production ไม่มี bypass
    - ถ้าไม่มี token หรือไม่มี `CHANNEL_ID` → `401 UNAUTHORIZED`
    - ถ้าไม่ตรง → `POST https://api.line.me/oauth2/v2.1/verify` ด้วย `id_token` + `client_id` = `CHANNEL_ID` แล้วเอา `payload.sub` เป็น userId; ผิด/หมดอายุ → `403 FORBIDDEN`
 6. `CHANNEL_ID` = `LOGIN_CHANNEL_ID` หรือถ้าไม่ตั้งก็ใช้ prefix ของ `LIFF_ID` (ตัดที่ `-`) — คำนวณตอน module load
@@ -91,11 +91,11 @@ graph TD
 | ผู้เช่า (tenant) | ผู้ใช้ที่ผูกห้องแล้ว (`user-room:<userId>` มีค่า) | บิลของห้องตัวเอง, สลิปของห้องตัวเอง | `GET /api/bill`, `POST /api/slip`, `GET /api/slip-image`, ดูบิลในแชท |
 | เจ้าของ (owner) | `userId === process.env.OWNER_USER_ID` (`_auth.isOwner`) | ทุกห้อง ทุกบิล ทุกสลิป | `GET /api/rooms`, `POST /api/run`, ดูบิล/สลิปทุกห้อง, ยืนยันการชำระ |
 | ผู้ใช้ที่ยังไม่ผูกห้อง | ไม่มี `user-room:<userId>` | หน้า LIFF ขึ้น "ยังไม่ได้ผูกห้อง" | `GET /api/me` เท่านั้น · `GET /api/bill` และ `POST /api/slip` → 400 (ไม่มี room) · `GET /api/slip-image` → 403 |
-| dev bypass | request ที่ใส่ header `x-seed-token` = `SEED_TOKEN` | เท่ากับเจ้าของ | ทุก endpoint ที่ใช้ `requireUser` |
+| dev bypass (preview/dev เท่านั้น) | header `x-seed-token` = `SEED_TOKEN` และ `BYPASS_ALLOWED` | เท่ากับเจ้าของ | ทุก endpoint ที่ใช้ `requireUser` — production ปฏิเสธ |
 
 - `OWNER_USER_ID` มีคนเดียวต่อ deployment → 1 deploy = 1 หอ
 - `isOwner()` คืน `false` เสมอถ้าไม่ได้ตั้ง `OWNER_USER_ID` (เงื่อนไข `!!process.env.OWNER_USER_ID` มาก่อน)
-- ตัว bypass ใน `_auth.js` ถูกทำเครื่องหมาย `shortcut:` ไว้ในโค้ดเอง — ตั้งใจให้ลบเมื่อมี admin login จริง
+- ตัว bypass ใน `_auth.js` ถูกจำกัดด้วย `BYPASS_ALLOWED` (preview/dev หรือ `ALLOW_SEED_BYPASS=true`) — production ปฏิเสธเสมอ
 
 ## 5. State machine ของบิล
 
@@ -119,7 +119,7 @@ stateDiagram-v2
 | ไม่เปลี่ยน | `POST /api/slip` ตอน `paid` | `api/slip.js` | ตอบ `409 INVALID_STATE` |
 | → `paid` | postback `action=confirm` | `api/webhook.js` | ถ้า `paid` อยู่แล้วตอบ "ยืนยันไปแล้ว" ไม่เขียนซ้ำ |
 
-ข้อสังเกตที่โค้ดทำจริง: postback ยืนยัน **ไม่ตรวจว่า event มาจาก `OWNER_USER_ID`** และยอมให้กระโดดจาก `unpaid` → `paid` ได้โดยตรง (การ์ดยืนยันถูกส่งหาการ์ดเจ้าของเท่านั้น แต่ data ของ postback เป็นเพียง `action=confirm&room=<room>`)
+ข้อสังเกตที่โค้ดทำจริง: postback ยืนยัน **ตรวจว่า event มาจาก `OWNER_USER_ID`** (`isOwner`) ก่อนปิดบิล — ผู้ที่ไม่ใช่เจ้าของถูกปฏิเสธและสถานะไม่เปลี่ยน · แต่ยังยอมให้กระโดดจาก `unpaid` → `paid` ได้โดยตรงถ้าเจ้าของกด
 
 ## 6. ข้อมูลที่เก็บ (Blob key map)
 
@@ -145,7 +145,7 @@ bill object ที่ `run.js` สร้าง: `{ room, period, rent, water, el
 |---|---|---|
 | `api/webhook.js` | รับ event LINE, ตรวจ signature, จัดการ `follow`/ข้อความ/`postback` | อ่าน raw body เอง; ตอบ 200 หลังประมวลผลทุก event |
 | `api/_line.js` | `verify()`, `reply()`, `push()`, `billBubble()`, `confirmBubble()`, `LIFF_ID` | อ่าน env 3 ตัวตอน module load; เรียก `https://api.line.me/v2/bot/*` |
-| `api/_auth.js` | `requireUser()`, `isOwner()`, `CHANNEL_ID` | ตรวจ idToken กับ LINE; มี bypass `x-seed-token` |
+| `api/_auth.js` | `requireUser()`, `isOwner()`, `CHANNEL_ID`, `BYPASS_ALLOWED` | ตรวจ idToken กับ LINE; bypass `x-seed-token` เฉพาะ preview/dev |
 | `api/_store.js` | `get(key)` / `set(key, value)` บน Blob | JSON เท่านั้น; หนึ่ง key = หนึ่งไฟล์; เขียนทับได้ |
 | `api/_rooms.js` | `ROOMS`, `DEFAULTS`, `configFor(room)` | ค่า default จาก env, ทับด้วย `room:<room>` |
 | `api/me.js` | `GET` ข้อมูลตัวเอง: `userId`, `owner`, `room` | ใช้ตัดสินว่า LIFF จะแสดง view ไหน |
@@ -204,7 +204,7 @@ line-app/
 3. **หนึ่งบิลต่อหนึ่งห้อง ไม่มีประวัติ** — `bill:<room>` ถูกเขียนทับทุกรอบ; การดูยอดย้อนหลังทำไม่ได้จากข้อมูลที่มี
 4. **ไม่มี background job / cron / queue** — `vercel.json` มีแค่ `rewrites`; บิลรอบใหม่เกิดเมื่อมีคนกดจากหน้าเจ้าของเท่านั้น การแจ้งเตือน/ทวงหนี้ยังไม่มีกลไก
 5. **Function เป็น stateless และ env ถูกอ่านตอน module load** — `_line.js` (`TOKEN`, `SECRET`, `LIFF_ID`), `_auth.js` (`CHANNEL_ID`), `_rooms.js` (`ROOMS`, `DEFAULTS`) เก็บค่าไว้เป็น const ระดับ module → เปลี่ยน env แล้วต้องมี deploy/instance ใหม่ถึงจะมีผล
-6. **ไม่มี CSRF/ownership check บน postback** — `action=confirm` ใน `webhook.js` ไม่ตรวจ `event.source.userId === OWNER_USER_ID`; ใครก็ตามที่ได้ปุ่ม (หรือส่ง postback ที่มี data นี้) ทำให้บิลเป็น `paid` ได้ในหลักการ <!-- VERIFY: LINE บังคับว่า postback ส่งได้เฉพาะจากผู้รับการ์ดหรือไม่ — พฤติกรรมแพลตฟอร์ม ไม่อยู่ในเรพ -->
+6. **postback ตรวจเจ้าของแล้ว แต่ไม่มี CSRF token** — `webhook.js` เทียบ `isOwner(event.source.userId)` ก่อนปิดบิล; ที่ยังไม่มีคือ nonce กัน replay (event เดิมที่ดักได้สามารถส่งซ้ำได้จนกว่าบิลจะเป็น `paid`)
 7. **ไม่มี idempotency ของ webhook** — event ทั้งชุดถูก `Promise.all` พร้อมกัน (await ครบ แต่**ไม่มีการรับประกันลำดับ**) และไม่เก็บ `webhookEventId`; ถ้า LINE ส่ง event ซ้ำ (retry เพราะ response ช้า/หลุด) การ `push` การ์ดหรือการเขียน Blob จะเกิดซ้ำ
 8. **การตอบ webhook ต้องรอทุก event จบ** — รวมถึง call ไป LINE (`reply`/`push`) และ Blob หลายครั้งต่อ event; ถ้าช้า LINE จะ retry (ดูข้อ 7)
 9. **Push ที่ล้มเหลวถูกกลืน** — `slip.js` และ `run.js` ครอบ `try/catch` แล้ว `console.error` เท่านั้น สถานะจึงถูก commit ได้โดยที่ผู้ใช้ไม่ได้รับแจ้ง

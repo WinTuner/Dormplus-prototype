@@ -1,6 +1,7 @@
 // POST /api/webhook — LINE Messaging API webhook.
 const { verify, reply, push, billBubble } = require("./_line");
 const store = require("./_store");
+const { isOwner } = require("./_auth");
 
 async function readRaw(req) {
   const chunks = [];
@@ -85,6 +86,10 @@ async function handleEvent(event, baseUrl) {
   if (event.type === "postback") {
     const data = new URLSearchParams(event.postback.data);
     if (data.get("action") === "confirm") {
+      // Only the owner may close a bill: anyone holding the card (or forging the postback) is refused.
+      if (!isOwner(userId)) {
+        return reply(event.replyToken, [{ type: "text", text: "เฉพาะเจ้าของหอกดยืนยันได้ครับ" }]);
+      }
       const room = data.get("room");
       const bill = await store.get(`bill:${room}`);
       if (!bill) return reply(event.replyToken, [{ type: "text", text: `ไม่พบบิลห้อง ${room} ครับ` }]);

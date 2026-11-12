@@ -199,10 +199,10 @@ vercel --prod
 
 ในเวิร์กสเปซนี้มี `.vercel/project.json` อยู่แล้ว (`projectName: "line-app"`) จึงข้ามขั้น link ได้ แต่ `.vercel` ถูก gitignore ไว้ — เครื่องอื่นต้อง link ใหม่
 
-หลัง deploy ให้ทดสอบ path ที่แตะ 1 ครั้งด้วย dev bypass แล้วทดสอบใน LINE จริงอีก 1 ครั้ง:
+หลัง deploy (preview) ทดสอบ path ที่แตะ 1 ครั้งด้วย dev bypass แล้วทดสอบใน LINE จริงอีก 1 ครั้ง — production ไม่มี bypass:
 
 ```bash
-curl.exe -s -H "x-seed-token: <SEED_TOKEN>" https://<โดเมน>/api/me
+curl.exe -s -H "x-seed-token: <SEED_TOKEN>" https://<preview-url>/api/me   # production จะได้ 401
 ```
 
 **แก้ env แล้วต้อง Redeploy เสมอ** — `_line.js` (`TOKEN`, `SECRET`, `LIFF_ID`), `_auth.js` (`CHANNEL_ID`), `_rooms.js` (`ROOMS`, `DEFAULTS`) จับค่าใส่ `const` ระดับ module ตอนโหลดไฟล์ อินสแตนซ์ที่ warm อยู่จะยังใช้ค่าเก่าไปจนกว่าจะมี deployment ใหม่ (README ข้อ 4 ระบุ "Redeploy" ไว้ตรง ๆ)
