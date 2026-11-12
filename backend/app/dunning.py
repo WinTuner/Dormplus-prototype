@@ -30,7 +30,7 @@ DUE_FOR_REMINDER_SQL = text("""
     ) t on true
     where r.property_id = :property_id
       and i.status = 'unpaid'
-      and (:today - i.due_date) in (1, 5, 10)
+      and (:today - i.due_date) = :days_late
       and not exists (
           select 1 from message_log m
           where m.invoice_id = i.id and m.kind = :kind_for_day
@@ -47,7 +47,7 @@ def due_for_reminder(engine: Engine, property_id: str, today: date) -> list[dict
         with engine.connect() as conn:
             found = conn.execute(
                 DUE_FOR_REMINDER_SQL,
-                {"property_id": property_id, "today": today, "kind_for_day": kind},
+                {"property_id": property_id, "today": today, "kind_for_day": kind, "days_late": day},
             ).mappings().all()
         rows += [dict(row, kind=kind) for row in found]
     return rows
