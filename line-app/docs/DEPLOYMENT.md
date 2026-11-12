@@ -316,3 +316,31 @@ vercel rollback
 | `docs/API.md` | endpoint และรูปแบบ error |
 | `docs/TESTING.md` | `smoke.js` และสิ่งที่ทดสอบอัตโนมัติไม่ได้ |
 | `HANDOFF.md` | กับดักที่ทีมเจอมาแล้ว + งานที่ยังเหลือ |
+
+## เปลี่ยนรูป rich menu ภายหลัง
+
+รูปผูกกับ rich menu ตั้งแต่ตอนสร้าง — LINE **ไม่มี API ให้เปลี่ยนรูปของเมนูเดิม** (อัปโหลดซ้ำจะได้ `400 An image has already been uploaded`)
+สคริปต์จึงสร้างเมนูใหม่ + ย้ายคนที่ผูกเมนูเดิมมาที่เมนูใหม่ (batch link) + คง default ถ้าเดิมเป็น default + ลบเมนูเก่า
+
+```bash
+# 1) เอารูปใหม่ไปวาง เช่น docs/richmenu-tenant.png (ต้อง 2500x1686 PNG ไม่เกิน 1MB)
+# 2) อัปเดตเมนูผู้เช่า (ถ้าเมนูเดิมเป็น default ระบบย้าย default ให้)
+LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... RICHMENU_TENANT_ID=richmenu-... \
+  node scripts/set-richmenu-image.js tenant ../docs/richmenu-tenant.png
+
+# 3) สคริปต์พิมพ์ id ใหม่ → แทน env บน Vercel
+vercel env rm RICHMENU_TENANT_ID production --yes
+"richmenu-xxxx" | vercel env add RICHMENU_TENANT_ID production
+
+# 4) deploy production ใหม่ (env ถูกอ่านตอน module load)
+```
+
+ของเจ้าของใช้ `set-richmenu-image.js owner ...` + `RICHMENU_OWNER_ID` แทน
+
+**ถ้าเลย์เอาต์ในรูปเปลี่ยน** (เช่น 2x2 → 3 ช่อง) ต้องแก้พื้นที่กดใน `scripts/_richmenu-defs.js` ด้วย ไม่งั้นปุ่มไม่ตรงกับภาพ
+
+**สร้างใหม่ทั้งหมด** (เช่น เปลี่ยนเป็นขนาด compact 2500x843): `scripts/setup-richmenu.js` จะลบเมนูเดิมทุกอันแล้วสร้างใหม่
+
+```bash
+LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js [owner.png] [tenant.png]
+```
