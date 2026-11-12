@@ -22,7 +22,8 @@ from app.seed import seed
 BACKEND = Path(__file__).resolve().parents[1]
 TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL")
 
-TABLES = "audit_log, message_log, payments, invoice_items, invoices, readings, tenants, rooms, properties"
+TABLES = ("link_codes, audit_log, message_log, payments, invoice_items, invoices, readings, tenants, rooms, "
+          "properties")
 
 
 def alembic_config(url: str) -> Config:

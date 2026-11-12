@@ -7,7 +7,7 @@ Repo นี้มีของจริง 2 ส่วน — เลือกอ�
 | ส่วน | stack | deploy | เอกสาร |
 |---|---|---|---|
 | [`line-app/`](line-app/) | Node · Vercel serverless · Vercel Blob · LINE Messaging API + LIFF | **ใช้จริง** — https://line-app-iota.vercel.app | [`line-app/README.md`](line-app/README.md) · [`line-app/docs/`](line-app/docs/) |
-| [`backend/`](backend/) | Python · FastAPI · Postgres (Alembic) | ยังไม่ deploy | [`backend/README.md`](backend/README.md) |
+| [`backend/`](backend/) | Python · FastAPI · Postgres (Neon) | **ใช้จริง** — https://line-backend-ten.vercel.app | [`backend/README.md`](backend/README.md) |
 
 ทั้งสองส่วนใช้สัญญา API เดียวกันเป็นเป้าหมาย: [`docs/API.md`](docs/API.md) · งานที่เหลือและเกณฑ์ "เสร็จ": [`docs/HANDOFF.md`](docs/HANDOFF.md)
 
@@ -47,7 +47,7 @@ pytest
 | ส่วน | สถานะ |
 |---|---|
 | `line-app/` — ส่งบิลใน LINE · LIFF แนบสลิป · เจ้าของยืนยัน/จดมิเตอร์ | ✅ ใช้งานได้ (มีข้อจำกัดเรื่อง auth อ่านใน [`line-app/HANDOFF.md`](line-app/HANDOFF.md)) |
-| `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · สลิป · confirm/reject + ใบเสร็จ · LINE Login ผ่าน LIFF | 🟡 ใช้ได้บางส่วน · test 58 ตัว |
+| `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · สลิป · confirm/reject + ใบเสร็จ · LINE Login ผ่าน LIFF | 🟡 deploy แล้ว (Vercel + Neon) · test 58 ตัว · ยังไม่มีหน้า UI ฝั่งเจ้าของ |
 | RLS policy (กรอง `property_id` ที่ระดับ DB) | ⬜ ตอนนี้กรองในโค้ด |
 | ส่งข้อความ LINE / webhook ฝั่ง backend | ⬜ `line-app/` ทำแล้ว แต่ backend ยังไม่ส่งเอง |
 | คิวงาน + ทวงอัตโนมัติ (Procrastinate) | ⬜ |
