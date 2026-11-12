@@ -9,6 +9,9 @@ Repo นี้มีของจริง 2 ส่วน — เลือกอ�
 | [`line-app/`](line-app/) | Node · Vercel serverless · Vercel Blob · LINE Messaging API + LIFF | **ใช้จริง** — https://line-app-iota.vercel.app | [`line-app/README.md`](line-app/README.md) · [`line-app/docs/`](line-app/docs/) |
 | [`backend/`](backend/) | Python · FastAPI · Postgres (Neon) | **ใช้จริง** — https://line-backend-ten.vercel.app | [`backend/README.md`](backend/README.md) |
 
+`line-app/` คือของที่ผู้เช่า/เจ้าของใช้จริง: จดมิเตอร์ → ออกบิล → การ์ดใน LINE → แนบสลิป → เจ้าของยืนยัน
+มี **QR ผูกห้อง** (ปริ้นแปะประตู), **QR เพิ่มเจ้าของ/ผู้ช่วย**, **ประวัติบิลย้อนหลัง** และ **rich menu แยกตามบทบาท**
+
 ทั้งสองส่วนใช้สัญญา API เดียวกันเป็นเป้าหมาย: [`docs/API.md`](docs/API.md) · งานที่เหลือและเกณฑ์ "เสร็จ": [`docs/HANDOFF.md`](docs/HANDOFF.md)
 
 ```text
@@ -26,6 +29,14 @@ node smoke.js          # offline test, ไม่ต้อง npm install
 ```
 
 ต้องมี LINE OA + LIFF + Vercel + Blob ก่อน — ทำตาม [`line-app/README.md`](line-app/README.md) ข้อ 2–6 (สร้าง OA → deploy → ตั้ง env → seed → LIFF → ทดสอบ)
+
+## เริ่มใช้กับหอจริง (3 ขั้น ใน `line-app/`)
+
+1. **ผูกผู้เช่า** — เจ้าของเปิด LIFF → เลือกห้อง → "QR ผู้เช่า" → ปริ้นแปะหน้าประตู
+2. **เพิ่มคนช่วย** — หน้าหลัก → "เพิ่มเจ้าของหอ (QR)" เลือก *เจ้าของหอ* หรือ *ผู้ช่วย (ดูอย่างเดียว)*
+3. **ออกรอบบิล** — จดมิเตอร์ทีละห้อง → "ออกบิลและส่งเข้า LINE" → เจ้าของยืนยันสลิปในการ์ดในแชท
+
+รายละเอียด (env, rich menu, ปัญหาที่เคยเจอ) อยู่ใน [`line-app/README.md`](line-app/README.md) และ [`line-app/HANDOFF.md`](line-app/HANDOFF.md)
 
 ## เริ่มพัฒนา backend
 
@@ -51,8 +62,12 @@ pytest
 | RLS policy (กรอง `property_id` ที่ระดับ DB) | ⬜ ตอนนี้กรองในโค้ด |
 | ส่งข้อความ LINE / webhook ฝั่ง backend | ⬜ `line-app/` ทำแล้ว แต่ backend ยังไม่ส่งเอง |
 | คิวงาน + ทวงอัตโนมัติ (Procrastinate) | ⬜ |
-| ตรวจสลิปอัตโนมัติ (SlipOK) | ⬜ เจ้าของกดยืนยันเอง |
+| ตรวจสลิปอัตโนมัติกับธนาคาร | ⬜ ประเมินแล้ว: ตัวฟรี (SlipVerify) ไม่น่าไว้ใจ → ถอยออก · รอเลือกเจ้าที่มีบริษัท/SLA (Checkslip · Check-Slip) |
 | หน้าจอเจ้าของของ backend (Thai web UI) | ⬜ `line-app/` มีหน้าจดมิเตอร์ของเจ้าของแล้ว |
+| QR ผูกผู้เช่ากับห้อง | ✅ `GET/POST /api/qr?room=` (เจ้าของสร้าง/หมุน) · ผู้เช่าสแกน → ผูกทันที |
+| หลายเจ้าของ + ผู้ช่วย (ดูอย่างเดียว) | ✅ QR จากเจ้าของเดิม · สิทธิ์ `owner` / `viewer` · `/api/me` คืน `role` |
+| ประวัติบิลย้อนหลัง | ✅ `bill:<period>:<room>` + หน้าดูย้อนหลังใน LIFF (เริ่มนับจากรอบที่ออกหลังฟีเจอร์นี้) |
+| Rich menu 2 ชุด | ✅ เจ้าของ 6 ช่อง (2500×1686) · ผู้เช่า 3 ช่อง compact (2500×843) · สลับอัตโนมัติตามสิทธิ์ |
 
 ## กติกาที่ใส่ไว้ในระบบ
 
