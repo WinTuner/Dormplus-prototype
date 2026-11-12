@@ -1,9 +1,9 @@
-# DormPlus — API Contract (v1)
+﻿# DormPlus — API Contract (v1)
 
 สัญญาระหว่าง frontend (LIFF + เว็บเจ้าของ) กับ backend
 ทุก endpoint เป็น JSON · ทุก request ที่ไม่ใช่ public ต้องมี session cookie
 
-**สถานะ:** ✅ = adapter `api_v1.py` ตอบได้แล้ว (ใช้พัฒนา frontend ได้) · ⬜ = backend จริงต้องสร้าง
+**สถานะ:** ✅ = `backend/` ทำแล้ว · ⬜ = ยังไม่ได้ทำ
 
 | Endpoint | สถานะ |
 |---|---|
@@ -197,38 +197,10 @@ unpaid ──แนบสลิป──▶ pending ──เจ้าของ�
 - ทุกการเปลี่ยนสถานะเขียน `audit_log`
 
 ---
-
-## Implementation notes — adapter `api_v1.py`
-
-ส่วนนี้บันทึกว่า adapter ที่มีอยู่จริง (`api_v1.py` บน `server.py` + SQLite) ต่างจากสัญญาข้างบนตรงไหน
-ใช้เพื่อพัฒนา frontend ได้ถูก แต่ **ไม่ใช่** พฤติกรรมของ backend จริง
-
-Base URL ของ prototype: `http://127.0.0.1:8777/v1` (ไม่ใช่ `https://api.domplus.app/v1`) — รัน `python server.py`
-แล้วเสิร์ฟเฉพาะ `127.0.0.1` ฐานข้อมูล `domplus.db` ถูก seed อัตโนมัติตอน start (42 ห้อง, 12 ห้องแรกจดมิเตอร์รอบ `2026-11` แล้ว)
-
-| หัวข้อ | สัญญา | adapter `api_v1.py` |
-|---|---|---|
-| Auth | session cookie ทุก request ที่ไม่ใช่ public | ไม่มีเลย — `handle()` ไม่ตรวจ header/cookie ใด ๆ เปิดให้เรียกได้ทุก request (ป้องกันด้วยการ bind `127.0.0.1` เท่านั้น) |
-| `/auth/*`, `/properties/:id`, `/invoices/:id`, `reject`, webhook | มีในสัญญา | ยังไม่ implement — ตกลงที่ `404 NOT_FOUND` |
-| Pagination | — | ไม่มี `limit`/`offset`/cursor คืนทุกรายการเสมอ |
-| รูปแบบ id | string (`r_203`, `inv_1`, `p_1`) | SQLite `INTEGER` (`1`, `10`, …) — path param เป็นตัวเลขเท่านั้น (`^/v1/rooms/(\d+)/reading$`) |
-| `period` | ต่อ request | ค่าคงที่ `server.PERIOD = "2026-11"`; `PUT /v1/rooms/:id/reading` อ่าน "ครั้งก่อน" จาก period `'2026-10'` แบบ hardcode; `GET /v1/invoices` และ `GET /v1/reports/summary` **รับ `?period=` แต่ไม่ใช้** (ตอบข้อมูล `2026-11` เสมอ) |
-| ชนิดข้อมูลใน SQLite | — | เงิน/หน่วยเป็น `INTEGER`; `due_date`, `period` เป็น `TEXT` (`YYYY-MM` / `YYYY-MM-DD`); เวลาเขียนด้วย `datetime('now')` ของ SQLite (UTC string) |
-| `tenant.line_linked` | Boolean จริง | `false` ตลอด — prototype ไม่มีตารางผูก LINE |
-| `PUT /v1/rooms/:id/reading` | รับ `photo_url` | รับแล้วทิ้ง ไม่บันทึกรูป; `water_units`/`elec_units` ถูก clamp ที่ 0 (`max(0, now - prev)`) |
-| `POST /v1/billing/run` | `202` + `job_id`, `rooms_to_bill`, `skipped_no_reading` | `200` + `{"ok": true, "billed": N}`; `N` = จำนวนห้องที่มี reading รอบนี้ (นับซ้ำได้ถ้าออกบิลไปแล้ว เพราะ insert ใช้ `ON CONFLICT DO NOTHING`); ไม่มีคิว/ไม่มี `job_id` |
-| `POST /v1/invoices/:id/slip` | ตรวจสลิปผ่าน provider (slipok) | ตรวจ manual: `verify.ok` เป็น `null` เสมอ, `verify.provider = "manual"`, ไม่เก็บ `slip_url` |
-| `POST /v1/invoices/:id/confirm` | `paid` + `receipt_no` + `paid_at` | `paid` + `receipt_no` (รูปแบบ `REC-2026-11-0011` = `REC-{PERIOD}-{id:04d}`) — **ไม่มี `paid_at`** ใน response (เขียนลง `payments.confirmed_at` แทน) |
-| `GET /v1/invoices` | มี `summary` ต่อท้าย | ไม่มี `summary`; `?status=` ใช้ได้ |
-| `GET /v1/reports/summary` | `billed`/`paid`/`pending`/`unpaid` + `rooms_total`/`rooms_paid`/`rooms_overdue` | คืน `billed`/`paid`/`pending`/`unpaid` + `invoices` (จำนวนบิล) — ไม่มี field นับห้อง |
-| `GET /v1/rooms` | ตามตัวอย่างข้างบน | เพิ่ม `period` และ `rates { water, elec }` ระดับบนสุด |
-| error code | `UNAUTHORIZED`/`FORBIDDEN`/`VALIDATION`/`UPSTREAM`/`CONFLICT` | สร้างแค่ `NOT_FOUND` (404) และ `INVALID_STATE` (409); path ที่ไม่รู้จักคืน `{"error": {"code": "NOT_FOUND", "message": "<path>"}}` |
-| `audit_log` | ทุกการเปลี่ยนสถานะ | ยังไม่มีตาราง/การเขียน log |
-
 ## `409 INVALID_STATE`
 
-สัญญาเดิมในหัวข้อ "กติกากลาง" มีแต่ `CONFLICT` — adapter ใช้ code `INVALID_STATE` เมื่อบิลไม่ได้อยู่สถานะที่ переходนั้นต้องใช้
-(แทนที่จะ silently no-op) ตารางสถานะยังเหมือน state machine ด้านบน
+`backend/` ใช้ code `INVALID_STATE` เมื่อบิลไม่ได้อยู่สถานะที่ transition นั้นต้องใช้ (แทนที่จะ silently no-op)
+ตารางสถานะยังเหมือน state machine ด้านบน
 
 | endpoint | สถานะที่ต้องเป็น | ถ้าไม่ใช่ |
 |---|---|---|
@@ -244,13 +216,13 @@ Base URL ของ prototype: `http://127.0.0.1:8777/v1` (ไม่ใช่ `ht
 - แนบสลิปซ้ำบนบิล `pending`/`paid` และยืนยันซ้ำบนบิล `paid`/`unpaid` → `409` (ไม่มีการเขียน DB ใด ๆ)
 - frontend ควรถือ `409 INVALID_STATE` = "refresh ข้อมูลบิลนี้แล้วแสดงสถานะจริง" ไม่ใช่ error ที่ต้อง retry
 
-## ตัวอย่าง curl (prototype)
+## ตัวอย่าง curl (`backend/` บนเครื่อง)
 
-ทุกอย่างรันกับ `python server.py` ที่พอร์ต 8777 · ตัวอย่าง response เป็นค่าที่วัดจริงจาก seed
-(ตัวเลขจะเปลี่ยนตามข้อมูลใน `domplus.db`) · บน PowerShell ใช้ `curl.exe` และ escape `"` แทน `'`
+ทุกอย่างรันกับ `uvicorn app.main:app` ที่พอร์ต 8000 (ดู [`backend/README.md`](../backend/README.md)) · ต้องมี `DEV_AUTH=true` และส่ง header `X-Dev-Property` · บน PowerShell ใช้ `curl.exe` และ escape `"` แทน `'`
+
 
 ```bash
-BASE=http://127.0.0.1:8777
+BASE=http://127.0.0.1:8000
 ```
 
 ### `GET /v1/rooms`

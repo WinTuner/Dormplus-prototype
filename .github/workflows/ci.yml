@@ -6,48 +6,6 @@ on:
   pull_request:
 
 jobs:
-  # The prototype: Python standard library only, no dependencies to install.
-  prototype:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Syntax + import
-        run: |
-          python -m py_compile server.py api_v1.py
-          python -c "import server, api_v1; print('import ok')"
-
-      - name: Smoke — seed and bill one round on a throwaway DB
-        run: |
-          python - <<'PY'
-          import os, tempfile
-          import server, api_v1
-
-          server.DB = os.path.join(tempfile.mkdtemp(), "ci.db")
-          server.seed()
-
-          con = server.db()
-          rooms = con.execute("SELECT COUNT(*) c FROM rooms").fetchone()["c"]
-          con.close()
-          assert rooms == 42, f"expected 42 seeded rooms, got {rooms}"
-
-          code, body = api_v1.handle("POST", "/v1/billing/run", {}, {})
-          assert code == 200, (code, body)
-          assert body["billed"] == 12, body
-
-          code, again = api_v1.handle("POST", "/v1/billing/run", {}, {})
-          assert code == 409, (code, again)
-
-          code, missing = api_v1.handle("PUT", "/v1/rooms/999/reading", {}, {"water_now": 1, "elec_now": 1})
-          assert code == 404, (code, missing)
-
-          print("smoke ok — rooms:", rooms, "billed:", body["billed"])
-          PY
-
   # The real backend (FastAPI + Postgres). Skips itself until backend/ exists on the branch,
   # so this file is safe to merge before the backend lands.
   backend:

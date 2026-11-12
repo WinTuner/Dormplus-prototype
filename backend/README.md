@@ -63,7 +63,7 @@ python -m app.seed              # หอ p_1 · 42 ห้อง · มิเต�
 uvicorn app.main:app --reload   # http://127.0.0.1:8000/healthz และ /docs
 ```
 
-seed รันซ้ำได้ ไม่สร้างข้อมูลซ้ำ ตัวเลขมิเตอร์ตรงกับ prototype (`server.py`)
+seed รันซ้ำได้ ไม่สร้างข้อมูลซ้ำ (ตัวเลขชุดเดียวกับที่ใช้ในเทสต์)
 
 ## Test
 
