@@ -87,6 +87,7 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 | `POST /api/owner-accept` | ผู้ใช้ที่ล็อกอิน LINE | `{code}` | `{owner:true}` (หรือ `{owner:true, already:true}` ถ้าเป็นเจ้าของอยู่แล้ว) |
 
 - รหัสผิด → `404 NOT_FOUND` · หมดอายุ/ถูกใช้ → `410 INVITE_EXPIRED` · ไม่ได้ตั้ง `OWNER_USER_ID` → `409 INVALID_STATE`
+- เมื่อรับสิทธิ์สำเร็จ ระบบสลับ rich menu ให้เป็นเมนูเจ้าของ (ถ้าตั้ง `RICHMENU_OWNER_ID`)
 - endpoint ที่ตรวจ `isOwner()` ใช้ได้กับเจ้าของที่ได้สิทธิ์ทาง QR ด้วย (rooms, run, bill/slip ของห้องอื่น, ยืนยันการชำระในแชท)
 
 ## 3. `GET /api/config`

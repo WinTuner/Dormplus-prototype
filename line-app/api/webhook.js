@@ -1,5 +1,5 @@
 // POST /api/webhook — LINE Messaging API webhook.
-const { verify, reply, push, billBubble } = require("./_line");
+const { verify, reply, push, linkRichMenu, billBubble } = require("./_line");
 const store = require("./_store");
 const { isOwner } = require("./_auth");
 
@@ -78,6 +78,12 @@ async function handleEvent(event, baseUrl) {
       }
       await store.set(`user-room:${userId}`, room);
       await store.set(`room-user:${room}`, userId);
+      // From now on this person is a tenant: give them the tenant rich menu.
+      if (process.env.RICHMENU_TENANT_ID) {
+        await linkRichMenu(userId, process.env.RICHMENU_TENANT_ID).catch((err) =>
+          console.error("richmenu link failed", err.message)
+        );
+      }
       return reply(event.replyToken, [{ type: "text", text: `ผูกกับห้อง ${room} แล้วครับ` }]);
     }
   }

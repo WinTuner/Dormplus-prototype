@@ -1,6 +1,7 @@
 // POST /api/owner-accept — the person who scanned the owner QR redeems the code and becomes an owner.
 const store = require("./_store");
 const { requireUser, isOwner } = require("./_auth");
+const { linkRichMenu } = require("./_line");
 
 module.exports = async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
@@ -30,6 +31,13 @@ module.exports = async (req, res) => {
 
   await store.set(`owner:${userId}`, { addedAt: new Date().toISOString(), addedBy: invite.createdBy });
   await store.set(key, { ...invite, usedAt: new Date().toISOString(), usedBy: userId });
+
+  // Owners get the meter menu instead of the tenant bill menu.
+  if (process.env.RICHMENU_OWNER_ID) {
+    await linkRichMenu(userId, process.env.RICHMENU_OWNER_ID).catch((err) =>
+      console.error("richmenu link failed", err.message)
+    );
+  }
 
   return res.status(200).json({ owner: true });
 };
