@@ -112,6 +112,22 @@ docker run --rm -p 8000:8000 \
 `PORT` ถูกอ่านจาก env (Railway / Cloud Run ใส่ให้เอง) ค่าเริ่มต้น 8000 · ยังไม่รัน migration อัตโนมัติ —
 ต้อง `alembic upgrade head` ก่อน start หรือทำเป็น release command ของผู้ให้บริการ
 
+## Deploy บน Vercel (ที่ใช้อยู่จริง)
+
+Production: **https://line-backend-ten.vercel.app** (โปรเจกต์ `line-backend`, root directory = `backend`)
+
+```bash
+cd backend
+vercel --prod        # deploy จากเครื่อง
+```
+
+- entrypoint คือ `api/index.py` ซึ่งแค่ `from app.main import app` → Vercel รู้จักว่าเป็น ASGI
+- dependency มาจาก `requirements.txt` (คู่กับ `pyproject.toml` ที่ยังใช้ตอนพัฒนาในเครื่อง)
+- env ที่ต้องตั้งบน Vercel: `DATABASE_URL` (pooled endpoint ของ Neon + `?sslmode=require`),
+  `LINE_CHANNEL_ID`, `LIFF_ID`, `SESSION_SECRET`, `COOKIE_SECURE=true`, `DEV_AUTH=false`
+- **ไม่ต้องรัน migration ตอน deploy** — schema ถูก apply ไปแล้ว ให้รัน `alembic upgrade head` จากเครื่องเมื่อมี migration ใหม่
+- ข้อจำกัดของ serverless: ไม่มี worker/cron ในโปรเซสนี้, cold start ~1–2 วิ, timeout 300 วิ
+
 ## โครงไฟล์
 
 ```
