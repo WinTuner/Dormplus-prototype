@@ -63,6 +63,7 @@ docs/richmenu-*.png  Rich Menu 2500×1686 (เจ้าของ / ผู้เ�
 | คิวงาน + ทวงอัตโนมัติ (Procrastinate) | ⬜ |
 | ตรวจสลิปอัตโนมัติ | ⬜ ตอนนี้เจ้าของกดยืนยันเอง |
 | หน้าเจ้าของ (`web/`) ต่อ backend จริง | ⬜ ยังเรียก API ชั่วคราวบน SQLite |
+| LINE app ที่ deploy จริง (`line-app/`) | 🟡 prototype แยก stack (Vercel + Blob + LIFF) — ส่งบิล/แนบสลิป/ยืนยันในแชทได้จริง ดู [`line-app/README.md`](line-app/README.md) |
 
 ## กติกาที่ใส่ไว้ในระบบ
 
