@@ -297,6 +297,15 @@ function statusPill(status) {
   return `<span class="pill bad">ยังไม่ชำระ</span>`;
 }
 
+// Same wording as the LINE card, so the owner sees one story in both places.
+function slipLabel(check) {
+  if (!check) return "";
+  if (check.amountMatches === false) return "ตรวจอัตโนมัติ: ยอดไม่ตรงกับบิล ⚠";
+  if (check.ok === true) return "ตรวจอัตโนมัติ: พบรายการในธนาคาร ✓";
+  if (check.ok === false) return "ตรวจอัตโนมัติ: ไม่พบรายการในธนาคาร ✗";
+  return "ตรวจอัตโนมัติ: ตรวจไม่ได้ — ตรวจเองก่อนยืนยัน";
+}
+
 function tenantInvoice() {
   const b = T.bill;
   header(`ห้อง ${b.room} · รอบบิล ${periodTh(b.period)}`, `ใบแจ้งหนี้ ${monthTh(b.period)}`);
@@ -929,6 +938,7 @@ function ownerReview(tab) {
         <div style="flex:1">
           <b>ห้อง ${esc(r.room)}</b>
           <div class="m">ยอดบิล ${fmt(r.bill.total)} บาท${r.bill.slipAt ? " · แจ้ง " + timeTh(r.bill.slipAt) : ""}</div>
+          ${r.bill.slipCheck ? `<div class="m">${esc(slipLabel(r.bill.slipCheck))}</div>` : ""}
           <div class="m">รอบบิล ${periodTh(r.bill.period)}</div>
         </div>
       </div>

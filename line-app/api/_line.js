@@ -84,6 +84,15 @@ function billBubble(bill, baseUrl) {
   };
 }
 
+// One line the owner can act on, or nothing when no check was run.
+function slipCheckLabel(check) {
+  if (!check) return null;
+  if (check.amountMatches === false) return "ตรวจสลิป: ยอดไม่ตรงกับบิล ⚠";
+  if (check.ok === true) return "ตรวจสลิป: พบรายการในธนาคาร ✓";
+  if (check.ok === false) return "ตรวจสลิป: ไม่พบรายการในธนาคาร ✗";
+  return "ตรวจสลิปอัตโนมัติไม่ได้ — ตรวจเองก่อนกดยืนยัน";
+}
+
 // Owner's card: asks to confirm the slip the tenant attached.
 function confirmBubble(bill) {
   const money = (n) => n.toLocaleString("th-TH");
@@ -101,6 +110,17 @@ function confirmBubble(bill) {
           { type: "text", text: `ห้อง ${bill.room} แจ้งชำระ`, weight: "bold", size: "md" },
           { type: "text", text: `${money(bill.total)} บาท`, weight: "bold", size: "xxl", color: "#4FD8D2" },
           { type: "text", text: `รอบ ${bill.period}`, size: "xs", color: "#8B9AAB" },
+          ...(slipCheckLabel(bill.slipCheck)
+            ? [
+                {
+                  type: "text",
+                  text: slipCheckLabel(bill.slipCheck),
+                  size: "xs",
+                  color: bill.slipCheck.amountMatches === false || bill.slipCheck.ok === false ? "#F59E0B" : "#8B9AAB",
+                  wrap: true,
+                },
+              ]
+            : []),
         ],
       },
       footer: {
@@ -134,4 +154,4 @@ function confirmBubble(bill) {
   };
 }
 
-module.exports = { verify, reply, push, linkRichMenu, billBubble, confirmBubble, LIFF_ID };
+module.exports = { verify, reply, push, linkRichMenu, billBubble, confirmBubble, slipCheckLabel, LIFF_ID };

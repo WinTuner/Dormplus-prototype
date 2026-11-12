@@ -125,6 +125,7 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "$B/api/bill?room=203"
 | หลายเจ้าของ/ผู้ช่วย | `_auth.js` | `OWNER_USER_ID` เป็นคนเดียว — เปลี่ยนเป็น list หรือ role ใน Blob |
 | ~~ลบ `x-seed-token` bypass~~ | `_auth.js` | ✅ ปิดแล้ว — ค่าเริ่มต้นคือปฏิเสธ เปิดเฉพาะ `ALLOW_SEED_BYPASS=true` หรือ Vercel env `preview`/`development` |
 | หลายเจ้าของ | `_auth.js` | ✅ มีแล้ว — เจ้าของคนแรกจาก `OWNER_USER_ID`, คนต่อ ๆ ไปรับสิทธิ์ด้วย QR (`/api/owner` → `?owner=<code>`) |
+| ตรวจสลิปอัตโนมัติ | `_slipcheck.js` | ✅ ต่อ SlipVerify แล้ว (ฟรี, ต้องขอ token ผ่าน Discord) — เป็นแค่ "ตัวช่วยตัดสินใจ" ไม่ปิดบิลเอง · ถ้าไม่มี token ระบบข้ามการตรวจ |
 | ผูกผู้เช่าด้วยการพิมพ์เลขห้อง | `webhook.js` | ⚠️ ยังมีอยู่ (`ผูก 203`) และ **ไม่มีการยืนยัน** — ทางที่ถูกคือ QR หน้าห้อง (`/api/qr` → `?bind=<code>`) ควรลบคำสั่งนี้ออกเมื่อ QR พร้อมใช้ทุกห้อง |
 | LINE Notify/แจ้งเตือนก่อนครบกำหนด | Vercel Cron | push ข้อความเตือนจาก `room-user:` map |
 | UI หลายภาษา / หลายหอใน deploy เดียว | ทั้งหมด | ตอนนี้ 1 deploy = 1 หอ (ตั้งใจ) |
