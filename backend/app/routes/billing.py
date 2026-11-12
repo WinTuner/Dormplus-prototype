@@ -1,17 +1,17 @@
 """Billing and invoices: POST /v1/billing/run and GET /v1/invoices (docs/API.md)."""
 import json
-from datetime import date, timedelta
+from datetime import date, datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Connection, Engine, text
 
-from app.auth import Session, owner_session
+from app.auth import Session, owner_session, tenant_session
 from app.clock import PERIOD_PATTERN, period_of, today
 from app.db import get_engine
 from app.errors import ApiError
-from app.ids import invoice_id
+from app.ids import invoice_id, payment_id
 
 router = APIRouter(prefix="/v1", tags=["billing"])
 
@@ -50,6 +50,35 @@ class InvoicesOut(BaseModel):
     period: str
     items: list[InvoiceRow]
     summary: InvoiceSummary
+
+
+class SlipIn(BaseModel):
+    slip_url: str | None = Field(default=None, max_length=500, examples=["s3://slips/203-1109.jpg"])
+
+
+class SlipVerify(BaseModel):
+    ok: bool | None = None  # null until someone (or an OCR service) checks the slip
+    amount: int
+    provider: str = "manual"
+
+
+class SlipOut(BaseModel):
+    status: Status
+    verify: SlipVerify
+
+
+class ConfirmOut(BaseModel):
+    status: Status
+    receipt_no: str
+    paid_at: datetime
+
+
+class RejectIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class RejectOut(BaseModel):
+    status: Status
 
 
 # Every occupied room of the dorm, with this period's reading, the latest earlier reading and whether
@@ -196,3 +225,117 @@ def list_invoices(
                           days_overdue=days_overdue(r.status, r.due_date)) for r in rows],
         summary=InvoiceSummary(total=paid + pending + unpaid, paid=paid, pending=pending, unpaid=unpaid),
     )
+
+
+# --- tenant attaches a slip, owner confirms or rejects it ---------------------------------------
+
+# The room comes from the session, never from the request: a tenant can only reach their own bill.
+OWN_INVOICE_SQL = text("""
+    select i.id, i.total, i.status
+    from invoices i
+    where i.id = :id and i.room_id = :room_id
+    for update
+""")
+
+PROPERTY_INVOICE_SQL = text("""
+    select i.id, i.period, i.status
+    from invoices i join rooms r on r.id = i.room_id
+    where i.id = :id and r.property_id = :property_id
+    for update of i
+""")
+
+
+@router.post("/invoices/{invoice_id}/slip", response_model=SlipOut)
+def attach_slip(
+    invoice_id: str,
+    body: SlipIn,
+    session: Session = Depends(tenant_session),
+    engine: Engine = Depends(get_engine),
+) -> SlipOut:
+    """Tenant says "I paid, here is the slip" -> pending. Uploading the photo itself is not built yet,
+    so slip_url is stored as given (null is fine for a walk-in slip)."""
+    with engine.begin() as conn:
+        row = conn.execute(OWN_INVOICE_SQL, {"id": invoice_id, "room_id": session.room_id}).first()
+        if row is None:
+            raise ApiError(404, "NOT_FOUND", "ไม่พบบิลนี้ในห้องของคุณ")
+        if row.status != "unpaid":
+            raise ApiError(409, "INVALID_STATE", f"บิลนี้อยู่ในสถานะ {row.status} จึงแนบสลิปไม่ได้")
+
+        conn.execute(text("""
+            insert into payments (id, invoice_id, amount, slip_key, verify_ok)
+            values (:id, :invoice_id, :amount, :slip_key, null)
+            on conflict (id) do update
+                set slip_key = excluded.slip_key, verify_ok = null, verified_by = null, verified_at = null
+        """), {"id": payment_id(row.id), "invoice_id": row.id, "amount": row.total, "slip_key": body.slip_url})
+        conn.execute(text("update invoices set status = 'pending' where id = :id"), {"id": row.id})
+
+    return SlipOut(status="pending", verify=SlipVerify(ok=None, amount=row.total))
+
+
+@router.post("/invoices/{invoice_id}/confirm", response_model=ConfirmOut)
+def confirm_invoice(
+    invoice_id: str,
+    session: Session = Depends(owner_session),
+    engine: Engine = Depends(get_engine),
+) -> ConfirmOut:
+    """Owner checks the slip and closes the bill: pending -> paid, with a receipt number."""
+    with engine.begin() as conn:
+        row = conn.execute(PROPERTY_INVOICE_SQL,
+                           {"id": invoice_id, "property_id": session.property_id}).first()
+        if row is None:
+            raise ApiError(404, "NOT_FOUND", "ไม่พบบิลนี้ในหอของคุณ")
+        if row.status != "pending":
+            raise ApiError(409, "INVALID_STATE", f"บิลนี้อยู่ในสถานะ {row.status} จึงยืนยันไม่ได้")
+
+        used = conn.execute(text("""
+            select count(*) from invoices i join rooms r on r.id = i.room_id
+            where r.property_id = :property_id and i.period = :period and i.receipt_no is not null
+        """), {"property_id": session.property_id, "period": row.period}).scalar_one()
+        receipt_no = f"REC-{row.period}-{used + 1:04d}"
+
+        conn.execute(text("""
+            update invoices set status = 'paid', receipt_no = :receipt_no, paid_at = now() where id = :id
+        """), {"id": row.id, "receipt_no": receipt_no})
+        conn.execute(text("""
+            update payments set verify_ok = true, verified_by = :by, verified_at = now()
+            where invoice_id = :id
+        """), {"id": row.id, "by": session.user_id})
+        conn.execute(text("""
+            insert into audit_log (property_id, actor, action, payload)
+            values (:pid, :actor, 'invoice.confirm', cast(:payload as jsonb))
+        """), {"pid": session.property_id, "actor": session.user_id,
+               "payload": json.dumps({"invoice_id": row.id, "receipt_no": receipt_no})})
+        paid_at = conn.execute(text("select paid_at from invoices where id = :id"),
+                               {"id": row.id}).scalar_one()
+
+    return ConfirmOut(status="paid", receipt_no=receipt_no, paid_at=paid_at)
+
+
+@router.post("/invoices/{invoice_id}/reject", response_model=RejectOut)
+def reject_slip(
+    invoice_id: str,
+    body: RejectIn,
+    session: Session = Depends(owner_session),
+    engine: Engine = Depends(get_engine),
+) -> RejectOut:
+    """Owner says the slip is wrong: pending -> unpaid so the tenant can pay again."""
+    with engine.begin() as conn:
+        row = conn.execute(PROPERTY_INVOICE_SQL,
+                           {"id": invoice_id, "property_id": session.property_id}).first()
+        if row is None:
+            raise ApiError(404, "NOT_FOUND", "ไม่พบบิลนี้ในหอของคุณ")
+        if row.status != "pending":
+            raise ApiError(409, "INVALID_STATE", f"บิลนี้อยู่ในสถานะ {row.status} จึงตีกลับไม่ได้")
+
+        conn.execute(text("update invoices set status = 'unpaid' where id = :id"), {"id": row.id})
+        conn.execute(text("""
+            update payments set verify_ok = false, verified_by = :by, verified_at = now()
+            where invoice_id = :id
+        """), {"id": row.id, "by": session.user_id})
+        conn.execute(text("""
+            insert into audit_log (property_id, actor, action, payload)
+            values (:pid, :actor, 'invoice.reject', cast(:payload as jsonb))
+        """), {"pid": session.property_id, "actor": session.user_id,
+               "payload": json.dumps({"invoice_id": row.id, "reason": body.reason})})
+
+    return RejectOut(status="unpaid")
