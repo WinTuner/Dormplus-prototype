@@ -83,12 +83,28 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 
 | endpoint | auth | body | ผล |
 |---|---|---|---|
-| `POST /api/owner-invite` | เจ้าของเท่านั้น | — | `{code, url, qr, expiresAt}` · `qr` เป็น SVG string ของ `https://liff.line.me/<LIFF_ID>?owner=<code>` |
-| `POST /api/owner-accept` | ผู้ใช้ที่ล็อกอิน LINE | `{code}` | `{owner:true}` (หรือ `{owner:true, already:true}` ถ้าเป็นเจ้าของอยู่แล้ว) |
+| `POST /api/owner` | เจ้าของเท่านั้น | — | `{code, url, qr, expiresAt}` · `qr` เป็น SVG string ของ `https://liff.line.me/<LIFF_ID>?owner=<code>` |
+| `POST /api/owner` | ผู้ใช้ที่ล็อกอิน LINE | `{code}` | `{owner:true}` (หรือ `{owner:true, already:true}` ถ้าเป็นเจ้าของอยู่แล้ว) |
 
 - รหัสผิด → `404 NOT_FOUND` · หมดอายุ/ถูกใช้ → `410 INVITE_EXPIRED` · ไม่ได้ตั้ง `OWNER_USER_ID` → `409 INVALID_STATE`
 - เมื่อรับสิทธิ์สำเร็จ ระบบสลับ rich menu ให้เป็นเมนูเจ้าของ (ถ้าตั้ง `RICHMENU_OWNER_ID`)
 - endpoint ที่ตรวจ `isOwner()` ใช้ได้กับเจ้าของที่ได้สิทธิ์ทาง QR ด้วย (rooms, run, bill/slip ของห้องอื่น, ยืนยันการชำระในแชท)
+
+### 2.6 QR ผูกห้องสำหรับผู้เช่า (`room-qr` / `tenant-bind`)
+
+ผู้เช่าไม่ต้องพิมพ์ ``ผูก 203`` อีก: เจ้าของสร้าง QR ของห้อง แปะหน้าห้อง ผู้เช่าสแกนครั้งเดียวจบ
+รหัสผูกกับห้องและ **ใช้ได้ตลอด** จนกว่าเจ้าของจะกดสร้างใหม่ (สร้างใหม่ = ใบที่แปะอยู่ใช้ไม่ได้ทันที)
+
+| endpoint | auth | body/query | ผล |
+|---|---|---|---|
+| `GET /api/qr?room=203` | เจ้าของ | — | `{room, code, url, qr}` · สร้างรหัสให้ถ้ายังไม่มี |
+| `POST /api/qr?room=203` | เจ้าของ | — | เหมือนกัน แต่ **หมุนรหัสใหม่** (`rotated:true`) |
+| `POST /api/qr` | ผู้ใช้ที่ล็อกอิน LINE | `{code}` | `{ok:true, room, previous}` — เขียน `user-room:<userId>` + `room-user:<room>` + สลับเมนูผู้เช่า |
+
+- รหัส 10 ตัว (ไม่มี 0/O/1/I/L) · เก็บ 2 key: `room-qr:<room>` และ `qr-code:<code>` (ตัวหลังถูกลบเมื่อหมุน)
+- รหัสผิด/ถูกหมุนแล้ว → `404 NOT_FOUND`
+- ห้องที่ไม่มีทั้งบิลและผู้เช่า → `404 NOT_FOUND` (กันพิมพ์เลขห้องผิด)
+- **ข้อจำกัด:** QR นี้เป็นกุญแจของห้อง ไม่ผูกกับตัวบุคคล — ใครได้รูปไปก็ผูกได้จนกว่าเจ้าของจะหมุนรหัส (เหมือนกุญแจจริง)
 
 ## 3. `GET /api/config`
 

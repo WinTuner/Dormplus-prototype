@@ -16,6 +16,10 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install runtime dependencies
+        working-directory: line-app
+        run: npm ci --no-audit --no-fund
+
       - name: Syntax check every handler
         working-directory: line-app
         run: |
