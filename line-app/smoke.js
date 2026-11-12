@@ -77,3 +77,14 @@ const auth = require("./api/_auth");
 
   console.log("smoke OK — signature + flex card + confirm card + auth guards");
 })();
+
+// 6) QR helper actually renders (needs node_modules; skipped when running dependency-free)
+try {
+  const QR = require("qrcode-svg");
+  const svg = new QR({ content: "https://liff.line.me/test?bind=ABCDEFGHJK", width: 320, height: 320 }).svg();
+  assert.ok(svg.startsWith("<svg") || svg.includes("<svg"), "QR renders as SVG");
+  console.log("smoke OK — QR renders");
+} catch (err) {
+  if (err.code === "MODULE_NOT_FOUND") console.log("smoke: qrcode-svg not installed, QR check skipped");
+  else throw err;
+}

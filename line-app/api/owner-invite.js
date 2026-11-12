@@ -32,7 +32,7 @@ module.exports = async (req, res) => {
   await store.set(`owner-invite:${code}`, { createdBy: userId, createdAt: new Date().toISOString(), expiresAt });
 
   const url = liffUrl(code);
-  const qr = url ? qrcode({ content: url, width: 320, height: 320, padding: 8 }).svg() : null;
+  const qr = url ? new qrcode({ content: url, width: 320, height: 320, padding: 8 }).svg() : null;
 
   return res.status(200).json({ code, url, qr, expiresAt });
 };

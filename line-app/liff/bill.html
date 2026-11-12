@@ -190,6 +190,10 @@ async function boot() {
     const ownerCode = params.get("owner");
     if (ownerCode) return acceptOwner(ownerCode, me);
 
+    // Opened from a room QR: bind this LINE account to that room, then show its bill.
+    const bindCode = params.get("bind");
+    if (bindCode) return acceptBind(bindCode, me);
+
     // Every rich-menu tab now has a screen; a tab we do not know falls back to home.
     const ownerTabs = { meter: "rooms", rooms: "rooms", slips: "review/pending", unpaid: "review/overdue", report: "report" };
     if (ownerTabs[tab]) {
@@ -450,6 +454,7 @@ function renderOwner() {
   window.scrollTo(0, 0);
   if (r === "rooms") return ownerRooms();
   if (r.startsWith("entry/")) return ownerEntry(decodeURIComponent(r.slice(6)));
+  if (r.startsWith("qr/")) return ownerQr(decodeURIComponent(r.slice(3)));
   if (r === "bill") return ownerBill();
   if (r === "report") return ownerReport();
   if (r === "owners") return ownerInvite();
@@ -610,6 +615,60 @@ async function acceptOwner(code, me) {
   }
 }
 
+// Owner-only: the QR printed for a room's door, so a tenant binds by scanning it.
+function ownerQr(room) {
+  header(`ห้อง ${room}`, "QR ผู้เช่า", "rooms");
+  bottom("");
+  view.innerHTML = `<div class="card"><div class="m">กำลังสร้าง QR…</div></div>`;
+
+  const show = (r) => {
+    view.innerHTML = `
+      <div class="card">
+        <div class="m">ให้ผู้เช่าสแกนในแอป LINE — ผูกกับห้องนี้ทันที (ไม่ต้องพิมพ์เลขห้อง)</div>
+        ${r.qr ? `<div class="qr">${r.qr}</div>` : `<div class="m warnText">ยังไม่ได้ตั้ง LIFF_ID — สร้าง QR ไม่ได้</div>`}
+        <div class="row" style="margin-top:10px"><span class="m">รหัสห้อง</span><b style="letter-spacing:2px">${esc(r.code)}</b></div>
+        ${r.url ? `<div class="m" style="margin-top:6px;word-break:break-all">${esc(r.url)}</div>` : ""}
+      </div>
+      <div class="card">
+        <div class="m">ปริ้นแปะหน้าห้องได้เลย · รหัสนี้ใช้ได้ตลอดจนกว่าจะกดสร้างใหม่</div>
+        <button class="btn" id="rotate" style="margin-top:12px">สร้าง QR ใหม่ (รหัสเดิมใช้ไม่ได้)</button>
+      </div>`;
+
+    $("rotate").onclick = async () => {
+      if (!confirm(`สร้าง QR ใหม่ให้ห้อง ${room}? ใบที่แปะอยู่จะใช้ไม่ได้ทันที`)) return;
+      try {
+        show(await api(`/api/room-qr?room=${encodeURIComponent(room)}`, { method: "POST" }));
+        toast("สร้าง QR ใหม่แล้ว");
+      } catch (e) {
+        toast(e.message, true);
+      }
+    };
+  };
+
+  api(`/api/room-qr?room=${encodeURIComponent(room)}`)
+    .then(show)
+    .catch((e) => {
+      view.innerHTML = `<div class="card"><div class="err">${esc(e.message)}</div></div>`;
+    });
+}
+
+// A tenant opened the room QR: bind, then continue as that room's tenant.
+async function acceptBind(code, me) {
+  header("DormPlus", "กำลังผูกห้อง");
+  bottom("");
+  view.innerHTML = `<div class="card"><div class="m">กำลังตรวจ QR…</div></div>`;
+  try {
+    const r = await api("/api/tenant-bind", { method: "POST", body: JSON.stringify({ code }) });
+    history.replaceState(null, "", location.pathname);
+    toast(`ผูกกับห้อง ${r.room} แล้ว`);
+    return startTenant(r.room);
+  } catch (e) {
+    return notice("ผูกไม่สำเร็จ", e.message, me.owner ? "ไปหน้าหลัก" : "ลองใหม่", () =>
+      me.owner ? startOwner("home") : fail("สแกน QR หน้าห้องอีกครั้ง")
+    );
+  }
+}
+
 function ownerRooms() {
   header(`รอบบิล ${periodTh(O.period)}`, "จดมิเตอร์", "home");
   const all = O.rooms;
@@ -686,7 +745,13 @@ function ownerEntry(roomNo) {
     </div>
     <div class="card rows" id="calc"></div>
     <div class="hint warnText" id="hint"></div>
-    ${locked ? `<div class="hint">ห้องนี้ออกบิลรอบ ${periodTh(O.period)} แล้ว — แก้ไขไม่ได้</div>` : ""}`;
+    ${locked ? `<div class="hint">ห้องนี้ออกบิลรอบ ${periodTh(O.period)} แล้ว — แก้ไขไม่ได้</div>` : ""}
+    <div class="card">
+      <div class="m">ให้ผู้เช่าผูกห้องนี้ด้วย QR</div>
+      <button class="btn" id="qrBtn" style="margin-top:10px">QR ผู้เช่า (ปริ้นแปะหน้าห้อง)</button>
+    </div>`;
+
+  $("qrBtn").onclick = () => go(`qr/${encodeURIComponent(r.room)}`);
 
   const units = () => ({ water: Number($("inW").value || 0), elec: Number($("inE").value || 0) });
   const calc = () => {
