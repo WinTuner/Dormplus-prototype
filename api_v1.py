@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""DomPlus v1 API — adapter over the prototype's SQLite data.
+"""DormPlus v1 API — adapter over the prototype's SQLite data.
 
 Implements the contract in docs/API.md so the web/ frontend can be built
 against it. The real backend (FastAPI + Postgres) replaces this file.

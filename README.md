@@ -1,4 +1,4 @@
-# DomPlus — prototype + frontend
+# DormPlus — prototype + frontend
 
 > ระบบออกบิลและทวงค่าเช่าหอพัก ที่เจ้าของแค่จดมิเตอร์
 

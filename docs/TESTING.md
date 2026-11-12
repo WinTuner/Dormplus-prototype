@@ -1,5 +1,5 @@
 <!-- generated-by: gsd-doc-writer -->
-# DomPlus — Testing
+# DormPlus — Testing
 
 **สถานะ: ยังไม่มีชุดทดสอบอัตโนมัติแม้แต่ตัวเดียว** ไม่มี `pytest`, ไม่มี `unittest`, ไม่มีไฟล์ `test_*.py`,
 ไม่มี `requirements.txt` / `pyproject.toml`, ไม่มี CI (ไม่มีโฟลเดอร์ `.github/`)

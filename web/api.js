@@ -1,4 +1,4 @@
-/* DomPlus — API client (contract: docs/API.md) */
+/* DormPlus — API client (contract: docs/API.md) */
 const API = (() => {
   const base = ""; // same origin; set to https://api.domplus.app/v1 in production
 

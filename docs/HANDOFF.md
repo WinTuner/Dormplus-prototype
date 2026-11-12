@@ -1,4 +1,4 @@
-# DomPlus — Handoff: backend
+# DormPlus — Handoff: backend
 
 เอกสารส่งงานสำหรับคนรับช่วง back-end · อัปเดต 10 พ.ย. 2569
 
@@ -13,8 +13,8 @@
 | Rich menu 2 ชุด | เสร็จ | `docs/richmenu-*.png` |
 | API contract | เสร็จ | `docs/API.md` |
 | Schema Postgres | เสร็จ | `db/schema.sql` |
-| Backend จริง (FastAPI) | **ยังไม่มี** | — |
-| LINE OA / LIFF / auth | **ยังไม่มี** | — |
+| Backend จริง (FastAPI) | บางส่วน | `backend/` — rooms, readings, billing run, invoices, slip/confirm/reject, LINE Login |
+| LINE OA / LIFF / auth | บางส่วน | LIFF login + session cookie เสร็จ · webhook/ส่งข้อความยังไม่มี (`backend/app/routes/auth.py`, `backend/liff/`) |
 
 **`server.py` คือ reference implementation** — พฤติกรรมที่ถูกต้องดูจากไฟล์นี้ (คำนวณบิล, สถานะ, กันบิลซ้ำ) ไม่ใช่จาก UI
 

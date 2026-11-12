@@ -1,4 +1,4 @@
-# DomPlus — API Contract (v1)
+# DormPlus — API Contract (v1)
 
 สัญญาระหว่าง frontend (LIFF + เว็บเจ้าของ) กับ backend
 ทุก endpoint เป็น JSON · ทุก request ที่ไม่ใช่ public ต้องมี session cookie
@@ -304,10 +304,30 @@ curl -s "$BASE/v1/invoices?status=unpaid"
       "due_date": "2026-11-09", "days_overdue": 1 } ] }
 ```
 
+### `GET /v1/liff-config`
+
+public — ให้หน้า LIFF เอา `liff_id` ไป `liff.init()`
+
+```json
+{ "liff_id": "2012575885-l35sh1N4" }
+```
+
+### `GET /v1/me/invoices`
+
+ผู้เช่าเท่านั้น — 12 รอบล่าสุดของห้องตัวเอง (ห้องมาจาก cookie)
+
+```json
+{ "items": [ { "id": "inv_202_2026-11", "period": "2026-11", "total": 3562,
+               "status": "unpaid", "due_date": "2026-11-09" } ] }
+```
+
 ### `POST /v1/invoices/:id/slip`
 
+ผู้เช่าเท่านั้น — ห้องมาจาก cookie ไม่ใช่จาก request · แนบได้เฉพาะบิล `unpaid` (สถานะอื่น → 409)
+`slip_url` ไม่บังคับ (ยังไม่มีระบบอัปโหลดรูปใน prototype นี้)
+
 ```bash
-curl -s -X POST "$BASE/v1/invoices/11/slip" \
+curl -s -X POST "$BASE/v1/invoices/inv_202_2026-11/slip" \
   -H "Content-Type: application/json" \
   -d '{"slip_url":"s3://slips/202-1109.jpg"}'
 ```
@@ -318,14 +338,30 @@ curl -s -X POST "$BASE/v1/invoices/11/slip" \
 
 ### `POST /v1/invoices/:id/confirm`
 
+เจ้าของหอของหอนั้น · `pending` → `paid` + ออกเลขใบเสร็จ (`REC-<period>-NNNN`)
+
 ```bash
-curl -s -X POST "$BASE/v1/invoices/11/confirm" \
+curl -s -X POST "$BASE/v1/invoices/inv_202_2026-11/confirm" \
   -H "Content-Type: application/json" \
   -d '{}'
 ```
 
 ```json
-{ "status": "paid", "receipt_no": "REC-2026-11-0011" }
+{ "status": "paid", "receipt_no": "REC-2026-11-0001", "paid_at": "2026-11-12T09:00:45Z" }
+```
+
+### `POST /v1/invoices/:id/reject`
+
+เจ้าของหอของหอนั้น · `pending` → `unpaid` พร้อมเหตุผล (ลง `audit_log`)
+
+```bash
+curl -s -X POST "$BASE/v1/invoices/inv_202_2026-11/reject" \
+  -H "Content-Type: application/json" \
+  -d '{"reason":"ยอดในสลิปไม่ตรง"}'
+```
+
+```json
+{ "status": "unpaid" }
 ```
 
 ### `GET /v1/reports/summary`

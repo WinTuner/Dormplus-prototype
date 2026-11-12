@@ -1,5 +1,5 @@
 <!-- generated-by: gsd-doc-writer -->
-# DomPlus — Configuration
+# DormPlus — Configuration
 
 ทุกค่าตั้งต้นของ prototype เป็น **ค่าคงที่ระดับโมดูล (module-level constants)** ใน `server.py`
 ไม่มีไฟล์ `.env`, ไม่มี config loader, และไม่มี `os.environ` / `getenv` อยู่เลยในโปรเจกต์นี้
@@ -60,27 +60,32 @@
 
 ## 3. Environment variables ที่ backend จริงจะต้องใช้
 
-ยังไม่มีตัวไหนถูกอ่านในโค้ดปัจจุบัน — รายการนี้เป็น **ชื่อที่ต้องมี** ตามฟีเจอร์ที่ค้างอยู่ใน
-`docs/HANDOFF.md` และ `db/schema.sql` ไม่ใช่ค่าที่มีอยู่ใน repo
+อ่านจาก `backend/app/config.py` (pydantic-settings, โหลด `backend/.env`) — ตัวอย่างครบชุดอยู่ใน
+`backend/.env.example`
 
-| ชื่อ | ใช้ทำอะไร | ที่มา |
+| ชื่อ | ใช้ทำอะไร | สถานะ |
 |---|---|---|
-| `DATABASE_URL` | เชื่อม Postgres | `docs/HANDOFF.md:24` (schema Postgres) |
-| `LINE_LOGIN_CHANNEL_ID` | ตรวจ idToken ตอน `/auth/line` | `docs/API.md:46-56` |
-| `LINE_CHANNEL_SECRET` | ตรวจ `X-Line-Signature` ของ webhook | `docs/API.md:164-166` |
-| `LINE_CHANNEL_ACCESS_TOKEN` | ส่งข้อความ OA | `docs/HANDOFF.md:27` |
-| `SESSION_SECRET` | เซ็น session cookie | `docs/API.md:4` |
-| `ENCRYPTION_KEY` | เข้ารหัส `line_secret_enc` / `line_token_enc` | `db/schema.sql:12-13` |
-| `SLIPOK_API_KEY` | ตรวจสลิปอัตโนมัติ | `docs/HANDOFF.md:29`, `docs/HANDOFF.md:76` |
-| `APP_BASE_URL` | สร้างลิงก์ LIFF / redirect หลัง login | `docs/HANDOFF.md:77` |
-| `PORT` / `HOST` | bind ของ ASGI server | แทน `server.py:361` |
+| `DATABASE_URL` | เชื่อม Postgres | ใช้งานแล้ว |
+| `DEV_AUTH` | เปิด session ผ่าน header `X-Dev-*` สำหรับ dev (ห้ามเปิดบนเซิร์ฟเวอร์จริง) | ใช้งานแล้ว |
+| `LINE_CHANNEL_ID` | ตรวจ idToken ตอน `POST /v1/auth/line` (ว่าง = 503 `LINE_NOT_CONFIGURED`) | ใช้งานแล้ว |
+| `LIFF_ID` | ให้หน้า LIFF init ผ่าน `GET /v1/liff-config` | ใช้งานแล้ว |
+| `SESSION_SECRET` | เซ็น cookie `dp_session` (เปลี่ยนแล้วผู้ใช้ต้อง login ใหม่) | ใช้งานแล้ว |
+| `COOKIE_SECURE` | `true` เมื่อเสิร์ฟผ่าน HTTPS | ใช้งานแล้ว |
+| `TEST_DATABASE_URL` | ฐานข้อมูลสำหรับ pytest (ถูกล้างทุกครั้ง) | ใช้งานแล้ว |
+| `LINE_CHANNEL_SECRET` | ตรวจ `X-Line-Signature` ของ webhook | ยังไม่มีโค้ด |
+| `LINE_CHANNEL_ACCESS_TOKEN` | ส่งข้อความ OA | ยังไม่มีโค้ด |
+| `ENCRYPTION_KEY` | เข้ารหัส `line_secret_enc` / `line_token_enc` ในตาราง `properties` | ยังไม่มีโค้ด |
+| `SLIPOK_API_KEY` | ตรวจสลิปอัตโนมัติ | ยังไม่มีโค้ด |
+| `APP_BASE_URL` | สร้างลิงก์ LIFF / redirect หลัง login | ยังไม่มีโค้ด |
+| `PORT` / `HOST` | bind ของ ASGI server (Dockerfile ใช้ `${PORT:-8000}`) | ใช้งานแล้ว |
 
-<!-- VERIFY: ชื่อ env var ทั้งตารางนี้ยังไม่มีในโค้ด — เป็นข้อเสนอจากการอ่าน docs/HANDOFF.md และ docs/schema.sql เท่านั้น ต้องยืนยันกับผู้รับงาน back-end ก่อนใช้งานจริง -->
-<!-- VERIFY: ไม่พบการระบุผู้ให้บริการ hosting (Supabase/Railway ถูกเอ่ยใน docs/HANDOFF.md:78 แต่ยังไม่มีการเลือกจริง) และไม่พบชื่อ secret manager ที่ใช้ -->
-<!-- VERIFY: ยังไม่มี `.env.example` ใน repo — ควรสร้างเมื่อเริ่มงาน backend จริง -->
+<!-- VERIFY: provider hosting ยังไม่ถูกเลือก (Supabase/Railway ถูกเอ่ยใน docs/HANDOFF.md:78 แต่ยังไม่มีการตัดสิน) และยังไม่มี secret manager -->
+<!-- VERIFY: env ที่ระบุ "ยังไม่มีโค้ด" ยังไม่มีจุดอ่านใน backend/app — ตรวจซ้ำเมื่อทำ webhook/slip OCR -->
 
 หมายเหตุ: `LINE_CHANNEL_ID` / secret / token **ไม่ควร** เป็น env var ระดับโปรเซส
 เพราะระบบรองรับหลายหอ — ค่าเหล่านี้เก็บต่อแถวใน `properties` (หัวข้อ 2) แล้วถอดรหัสตอนใช้
+> สถานะปัจจุบัน: `LINE_CHANNEL_ID` เป็น env ระดับโปรเซส (1 deploy = 1 OA) ซึ่งเป็นข้อจำกัดที่รู้อยู่ —
+> ต้องย้ายไปตาราง `properties` ก่อนรองรับหลายหอใน deploy เดียว
 
 ---
 
