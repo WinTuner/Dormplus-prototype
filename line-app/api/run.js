@@ -1,6 +1,7 @@
 // POST /api/run — owner records this month's meter units and pushes the bills.
 // body: { period?, due?, readings: [{ room, water, elec }] }  (units, not baht)
 const store = require("./_store");
+const { indexBill } = require("./_bills");
 const { push, billBubble } = require("./_line");
 const { requireUser, isOwner } = require("./_auth");
 const { configFor } = require("./_rooms");
@@ -50,6 +51,8 @@ module.exports = async (req, res) => {
 
     await store.set(`meter:${room}`, { water: waterUnits, elec: elecUnits, at: new Date().toISOString() });
     await store.set(`bill:${room}`, bill);
+    await store.set(`bill:${bill.period}:${room}`, bill);
+    await indexBill(room, bill.period);
 
     const tenant = await store.get(`room-user:${room}`);
     let pushed = false;

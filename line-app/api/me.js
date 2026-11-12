@@ -1,6 +1,6 @@
 // GET /api/me — who am I, which room am I bound to, am I the owner.
 const store = require("./_store");
-const { requireUser, isOwner } = require("./_auth");
+const { requireUser, roleOf } = require("./_auth");
 const { linkRichMenu } = require("./_line");
 
 // The tenant menu is the OA default, so only the owner needs a switch. Doing it here means the
@@ -23,7 +23,8 @@ module.exports = async (req, res) => {
   const userId = await requireUser(req, res);
   if (!userId) return;
 
-  const owner = await isOwner(userId);
+  const role = await roleOf(userId);
+  const owner = role === "owner";
   if (owner) await ensureOwnerMenu(userId);
 
   return res.status(200).json({

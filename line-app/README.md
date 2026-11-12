@@ -72,7 +72,7 @@ Vercel → Project → Settings → Environment Variables (ใส่ทั้ง
 
 ```bash
 # สร้างบิลห้อง 201–212
-curl -X POST "https://<โดเมน>/api/seed?token=<SEED_TOKEN>"
+curl -X POST "https://<โดเมน>/api/dev?do=seed&token=<SEED_TOKEN>"
 
 # ดูบิลห้อง 203 (เปิดในเบราว์เซอร์ได้)
 https://<โดเมน>/api/bill?room=203
@@ -82,7 +82,7 @@ https://<โดเมน>/api/bill?room=203
 หรือใช้ LINE Developers Console → Messaging API → **Webhook event log** (เห็น `userId`)
 
 ```bash
-curl -X POST "https://<โดเมน>/api/sendbill?token=<SEED_TOKEN>" ^
+curl -X POST "https://<โดเมน>/api/dev?do=sendbill&token=<SEED_TOKEN>" ^
   -H "Content-Type: application/json" ^
   -d "{\"to\":\"Uxxxxxxxx\",\"room\":\"203\"}"
 ```
@@ -127,8 +127,8 @@ curl -X POST "https://<โดเมน>/api/sendbill?token=<SEED_TOKEN>" ^
 | GET | `/api/slip-image?room=203` | ดูรูปสลิป (เฉพาะเจ้าของ/ผู้เช่าห้องนั้น) |
 | GET | `/api/rooms` | ทุกห้อง + มิเตอร์ล่าสุด (เจ้าของเท่านั้น) |
 | POST | `/api/run` | ออกรอบบิลจากหน่วยมิเตอร์ + ส่งการ์ด (เจ้าของเท่านั้น) |
-| POST | `/api/seed?token=` | สร้างบิลทดสอบทุกห้อง |
-| POST | `/api/sendbill?token=` | ยิงการ์ดบิลให้ userId หนึ่งคน |
+| POST | `/api/dev?do=seed&token=` | สร้างบิลทดสอบทุกห้อง |
+| POST | `/api/dev?do=sendbill&token=` | ยิงการ์ดบิลให้ userId หนึ่งคน |
 | POST | `/api/owner` | เจ้าของออก QR เพิ่มเจ้าของ · คนที่สแกนส่ง `{code}` มาแลกสิทธิ์ |
 | GET/POST | `/api/qr?room=203` | QR ประจำห้อง (GET อ่าน/สร้าง, POST หมุนรหัส) — เจ้าของเท่านั้น |
 | POST | `/api/qr` | ผู้เช่าแลกรหัสจาก QR หน้าห้อง (`{code}`) → ผูกห้อง |
@@ -199,7 +199,7 @@ curl -X POST "https://<โดเมน>/api/sendbill?token=<SEED_TOKEN>" ^
 ## ข้อจำกัดเพิ่มเติม (ระดับเทคนิค)
 
 - **แนบสลิปได้เฉพาะ JPEG / PNG / WEBP และไม่เกิน 3MB ต่อรูป** (เกินแล้วได้ `413 TOO_LARGE`) — หน้า LIFF ย่อรูปเหลือด้านยาวสุด 1280px, JPEG quality 0.8 ก่อนส่ง
-- **ไม่มี rate limit ของตัวเอง** — พึ่ง limit ของ Vercel อย่างเดียว และ `?token=` ของ `/api/seed` / `/api/sendbill` จะติดไปใน access log ได้
+- **ไม่มี rate limit ของตัวเอง** — พึ่ง limit ของ Vercel อย่างเดียว และ `?token=` ของ `/api/dev?do=seed` / `/api/dev?do=sendbill` จะติดไปใน access log ได้
 - **ไม่มี cron** — บิลรอบใหม่เกิดเมื่อมีคนกดออกบิลจากหน้าเจ้าของ (`/api/run`) เท่านั้น ยังไม่มีตัวส่งบิลอัตโนมัติรายเดือน
 - **webhook รับแค่ `follow`, ข้อความ text, และ `postback`** — ถ้าผู้เช่าส่งรูปสลิปเข้ามาในแชทตรง ๆ จะไม่มีอะไรเกิดขึ้น ต้องแนบผ่านหน้า LIFF
 - **ไม่มีชุดเทสต์อัตโนมัติ** — `package.json` ไม่มี `scripts` จึงไม่มี `npm test`; ที่มีคือ `node smoke.js` (offline) กับการทดสอบมือตามข้อ 7

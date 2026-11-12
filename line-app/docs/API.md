@@ -17,8 +17,8 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 | ทุก method (ไม่ได้ตรวจ — ใช้ GET) | `/api/slip-image` | Bearer idToken + สิทธิ์รายห้อง | `api/slip-image.js` |
 | ทุก method (ไม่ได้ตรวจ — ใช้ GET) | `/api/rooms` | Bearer idToken + owner | `api/rooms.js` |
 | `POST` เท่านั้น | `/api/run` | Bearer idToken + owner | `api/run.js` |
-| `POST` เท่านั้น | `/api/seed` | `?token=<SEED_TOKEN>` | `api/seed.js` |
-| `POST` เท่านั้น | `/api/sendbill` | `?token=<SEED_TOKEN>` | `api/sendbill.js` |
+| `POST` เท่านั้น | `/api/dev?do=seed` | `?token=<SEED_TOKEN>` | `api/dev.js` |
+| `POST` เท่านั้น | `/api/dev?do=sendbill` | `?token=<SEED_TOKEN>` | `api/dev.js` |
 | `POST` เท่านั้น | `/api/webhook` | `x-line-signature` (HMAC) | `api/webhook.js` |
 
 `api/_auth.js`, `api/_line.js`, `api/_rooms.js`, `api/_store.js` เป็น shared module ไม่ใช่ endpoint (ขึ้นต้นด้วย `_`) <!-- VERIFY: Vercel ไม่สร้าง public route ให้ไฟล์ที่ขึ้นต้นด้วย `_` ใน api/ — เป็นพฤติกรรมแพลตฟอร์ม ไม่มีอะไรในเรพยืนยัน --> — ไฟล์ที่ชื่ออื่นใน `api/` กลายเป็น route ตามชื่อไฟล์โดยไม่ต้องประกาศใน `vercel.json` (ซึ่งมีแค่ rewrite `/` → `/liff/bill.html`)
@@ -84,9 +84,10 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 | endpoint | auth | body | ผล |
 |---|---|---|---|
 | `POST /api/owner` | เจ้าของเท่านั้น | — | `{code, url, qr, expiresAt}` · `qr` เป็น SVG string ของ `https://liff.line.me/<LIFF_ID>?owner=<code>` |
-| `POST /api/owner` | ผู้ใช้ที่ล็อกอิน LINE | `{code}` | `{owner:true}` (หรือ `{owner:true, already:true}` ถ้าเป็นเจ้าของอยู่แล้ว) |
+| `POST /api/owner` | ผู้ใช้ที่ล็อกอิน LINE | `{code}` | `{owner, role}` — `role` เป็น `owner` หรือ `viewer` (หรือ `{already:true}`) |
 
 - รหัสผิด → `404 NOT_FOUND` · หมดอายุ/ถูกใช้ → `410 INVITE_EXPIRED` · ไม่ได้ตั้ง `OWNER_USER_ID` → `409 INVALID_STATE`
+- ออก rหัสเป็น **ผู้ช่วย (viewer)** ได้ด้วย `POST /api/owner` body `{role:"viewer"}` — ดูบิล/สลิป/รายงานได้ แต่ออกบิล หมุน QR หรือเพิ่มเจ้าของไม่ได้
 - เมื่อรับสิทธิ์สำเร็จ ระบบสลับ rich menu ให้เป็นเมนูเจ้าของ (ถ้าตั้ง `RICHMENU_OWNER_ID`)
 - endpoint ที่ตรวจ `isOwner()` ใช้ได้กับเจ้าของที่ได้สิทธิ์ทาง QR ด้วย (rooms, run, bill/slip ของห้องอื่น, ยืนยันการชำระในแชท)
 
@@ -139,7 +140,7 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 - **อ่าน Blob:** `user-room:<userId>`
 - **Side effect:** ไม่มี
 
-## 5. `GET /api/bill?room=203`
+## 5. `GET /api/bill?room=203[&period=YYYY-MM][&history=1]`
 
 `api/bill.js` — บิลของห้องเดียว ผู้เช่าเห็นได้เฉพาะห้องที่ผูก เจ้าของเห็นทุกห้อง
 
@@ -270,9 +271,9 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 - **Side effect อื่น:** `push()` การ์ด `billBubble` ให้ `room-user:<room>` ถ้ามีผู้เช่า; push ล้มเหลว → `pushed:false` + `console.error` (ไม่ fail request)
 - การคำนวณ: `water = Math.round(waterUnits * waterRate)`, `elec = Math.round(elecUnits * elecRate)`, `total = rent + water + elec`
 
-## 10. `POST /api/seed?token=<SEED_TOKEN>`
+## 10. `POST /api/dev?do=seed&token=<SEED_TOKEN>`
 
-`api/seed.js` — ใส่บิลตัวอย่างทุกห้องใน `ROOMS` (idempotent)
+`api/dev.js` — ใส่บิลตัวอย่างทุกห้องใน `ROOMS` (idempotent)
 
 - **Auth:** **ไม่ใช้ `requireUser`** — เช็กแค่ `req.query.token === SEED_TOKEN`; ถ้าไม่ได้ตั้ง `SEED_TOKEN` หรือ token ไม่ตรง → `403 FORBIDDEN` ("ต้องมี token")
 - **Query:** `token` (string) เท่านั้น
@@ -288,11 +289,11 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 - **Side effect อื่น:** ไม่มีการ push LINE
 - ค่า default ของ seed: `period` = `BILL_PERIOD || "2026-11"`, `due` = `BILL_DUE || "2026-11-16"`, หน่วยน้ำ `4 + (i % 4)`, หน่วยไฟ `28 + (i % 6) * 7`
 
-## 11. `POST /api/sendbill?token=<SEED_TOKEN>`
+## 11. `POST /api/dev?do=sendbill&token=<SEED_TOKEN>`
 
-`api/sendbill.js` — ยิงการ์ดบิลหาหนึ่ง userId (เครื่องมือทดสอบ)
+`api/dev.js` — ยิงการ์ดบิลหาหนึ่ง userId (เครื่องมือทดสอบ)
 
-- **Auth:** **ไม่ใช้ `requireUser`** — เช็กแค่ `?token=` เทียบ `SEED_TOKEN` (เหมือน `/api/seed`)
+- **Auth:** **ไม่ใช้ `requireUser`** — เช็กแค่ `?token=` เทียบ `SEED_TOKEN` (เหมือน `/api/dev?do=seed`)
 - **Query:** `token` (string)
 - **Body (JSON):**
 
@@ -344,7 +345,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 | `/api/me` | idToken | — |
 | `/api/bill`, `/api/slip`, `/api/slip-image` | idToken + `user-room:<userId> === room` (ยกเว้น owner) | ว่า `room` เป็นห้องที่อยู่ใน `ROOMS` |
 | `/api/rooms`, `/api/run` | idToken + `isOwner` | — |
-| `/api/seed`, `/api/sendbill` | `?token=` เท่ากับ `SEED_TOKEN` | ไม่มี auth ผู้ใช้, ไม่จำกัดจำนวนครั้ง, token อยู่ใน query (ติด access log) |
+| `/api/dev?do=seed`, `/api/dev?do=sendbill` | `?token=` เท่ากับ `SEED_TOKEN` | ไม่มี auth ผู้ใช้, ไม่จำกัดจำนวนครั้ง, token อยู่ใน query (ติด access log) |
 | `/api/webhook` | HMAC signature | ไม่ตรวจผู้ส่งต่อ event, ไม่มี idempotency |
 | webhook `postback action=confirm` | signature ของ LINE + `isOwner(userId)` | ✅ ตรวจแล้ว |
 | webhook `ผูก <room>` | signature ของ LINE | **ไม่ตรวจความเป็นเจ้าของห้อง / ไม่มีการยืนยันตัวตน** |

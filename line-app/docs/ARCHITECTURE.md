@@ -31,7 +31,7 @@ graph TD
 ```
 
 - `api/config.js` เป็น endpoint เดียวที่เปิดสาธารณะ (คืนแค่ `liffId`) ไม่ผ่าน `_auth`
-- `api/seed.js` และ `api/sendbill.js` ไม่ผ่าน `_auth` แต่เช็ก `?token=` เทียบกับ `SEED_TOKEN`
+- `api/dev.js` และ `api/dev.js` ไม่ผ่าน `_auth` แต่เช็ก `?token=` เทียบกับ `SEED_TOKEN`
 - `_rooms.js` อ่าน `process.env.ROOMS` ตอน module load และอ่าน `room:<room>` จาก Blob ผ่าน `_store.js`
 
 ## 3. เส้นทาง request ที่มีจริง
@@ -104,7 +104,7 @@ graph TD
 
 ```mermaid
 stateDiagram-v2
-  [*] --> unpaid: POST /api/run (เจ้าของ) หรือ POST /api/seed
+  [*] --> unpaid: POST /api/run (เจ้าของ) หรือ POST /api/dev?do=seed
   unpaid --> pending: POST /api/slip
   pending --> pending: POST /api/slip อีกครั้ง (เปลี่ยนรูป)
   unpaid --> paid: postback action=confirm
@@ -115,7 +115,7 @@ stateDiagram-v2
 | การเปลี่ยนสถานะ | ใคร/what | ไฟล์ | เงื่อนไข/ผลข้างเคียง |
 |---|---|---|---|
 | → `unpaid` | `POST /api/run` | `api/run.js` | เขียนทับบิลเดิมทั้งใบเสมอ (ไม่เช็กสถานะเก่า) — ประวัติรอบก่อนหาย |
-| → `unpaid` | `POST /api/seed?token=` | `api/seed.js` | เขียนทับทุกห้องใน `ROOMS` ด้วยข้อมูลตัวอย่าง |
+| → `unpaid` | `POST /api/dev?do=seed&token=` | `api/dev.js` | เขียนทับทุกห้องใน `ROOMS` ด้วยข้อมูลตัวอย่าง |
 | `unpaid`/`pending` → `pending` | `POST /api/slip` | `api/slip.js` | ตั้ง `slipAt` ใหม่ทุกครั้ง; `slipPath` เดิมถูกเก็บต่อถ้าไม่ได้แนบรูปใหม่ |
 | ไม่เปลี่ยน | `POST /api/slip` ตอน `paid` | `api/slip.js` | ตอบ `409 INVALID_STATE` |
 | → `paid` | postback `action=confirm` | `api/webhook.js` | ถ้า `paid` อยู่แล้วตอบ "ยืนยันไปแล้ว" ไม่เขียนซ้ำ |
@@ -155,8 +155,8 @@ bill object ที่ `run.js` สร้าง: `{ room, period, rent, water, el
 | `api/slip-image.js` | `GET` stream รูปสลิป private | ตรวจสิทธิ์รายห้องก่อนอ่าน |
 | `api/rooms.js` | `GET` ทุกห้อง + config + meter + bill + tenant | เฉพาะเจ้าของ |
 | `api/run.js` | `POST` ออกรอบบิลจากหน่วยมิเตอร์ + push การ์ด | เฉพาะเจ้าของ; เขียน `meter` + `bill` ต่อห้อง |
-| `api/seed.js` | `POST` ใส่บิลตัวอย่างทุกห้อง (`?token=`) | เขียนทับของเดิมได้ |
-| `api/sendbill.js` | `POST` ยิงการ์ดบิลหาคนเดียว (`?token=`) | เครื่องมือทดสอบ |
+| `api/dev.js` | `POST` ใส่บิลตัวอย่างทุกห้อง (`?token=`) | เขียนทับของเดิมได้ |
+| `api/dev.js` | `POST` ยิงการ์ดบิลหาคนเดียว (`?token=`) | เครื่องมือทดสอบ |
 | `api/config.js` | `GET` คืน `{ liffId }` | public โดยตั้งใจ |
 | `liff/bill.html` | หน้าเดียว 2 บทบาท + ตัวเรียก API ทั้งหมด | ไม่มี build; inline CSS/JS; ใช้ LIFF SDK จาก CDN |
 | `smoke.js` | เทสต์ offline: signature + รูปการ์ด + postback data | ใช้ `assert`, ตั้ง env ปลอมเอง |

@@ -33,13 +33,14 @@ async function invite(req, res, userId) {
     return res.status(403).json({ error: { code: "FORBIDDEN", message: "เฉพาะเจ้าของหอ" } });
   }
 
+  const role = (req.body && req.body.role) === "viewer" ? "viewer" : "owner";
   const code = newCode(8);
   const expiresAt = new Date(Date.now() + TTL_MS).toISOString();
-  await store.set(`owner-invite:${code}`, { createdBy: userId, createdAt: new Date().toISOString(), expiresAt });
+  await store.set(`owner-invite:${code}`, { createdBy: userId, role, createdAt: new Date().toISOString(), expiresAt });
 
   const url = liffUrl(code);
   const qr = url ? new qrcode({ content: url, width: 320, height: 320, padding: 8 }).svg() : null;
-  return res.status(200).json({ code, url, qr, expiresAt });
+  return res.status(200).json({ code, url, qr, role, expiresAt });
 }
 
 // Someone opened the QR and redeemed the code.
@@ -57,7 +58,8 @@ async function accept(req, res, userId, code) {
   }
   if (await isOwner(userId)) return res.status(200).json({ owner: true, already: true });
 
-  await store.set(`owner:${userId}`, { addedAt: new Date().toISOString(), addedBy: found.createdBy });
+  const role = found.role === "viewer" ? "viewer" : "owner";
+  await store.set(`owner:${userId}`, { addedAt: new Date().toISOString(), addedBy: found.createdBy, role });
   await store.set(key, { ...found, usedAt: new Date().toISOString(), usedBy: userId });
 
   if (process.env.RICHMENU_OWNER_ID) {
@@ -65,5 +67,5 @@ async function accept(req, res, userId, code) {
       console.error("richmenu link failed", err.message)
     );
   }
-  return res.status(200).json({ owner: true });
+  return res.status(200).json({ owner: role === "owner", role });
 }

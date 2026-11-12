@@ -40,8 +40,8 @@
 | `api/slip-image.js` | ส่งไฟล์รูปสลิป (private) ให้เจ้าของหรือผู้เช่าห้องนั้น |
 | `api/rooms.js` | ข้อมูลทุกห้องสำหรับหน้าจดมิเตอร์ |
 | `api/run.js` | ออกรอบบิลจากหน่วยมิเตอร์ + ส่งการ์ดให้ผู้เช่าที่ผูกห้องแล้ว |
-| `api/seed.js` | ข้อมูลทดสอบ (ต้องมี `?token=`) |
-| `api/sendbill.js` | ยิงการ์ดบิลหาคนเดียว (ทดสอบ) |
+| `api/dev.js` | ข้อมูลทดสอบ (ต้องมี `?token=`) |
+| `api/dev.js` | ยิงการ์ดบิลหาคนเดียว (ทดสอบ) |
 | `api/owner.js` | เจ้าของออก QR เพิ่มเจ้าของ (POST) · คนที่สแกนแลกรหัสเป็นเจ้าของ (POST + `{code}`) |
 | `api/qr.js` | QR ประจำห้อง (`GET/POST ?room=`) · ผู้เช่าแลกรหัสผูกห้อง (POST + `{code}`) |
 | `liff/bill.html` | หน้าเดียว 2 บทบาท: ผู้เช่า = บิล+แนบสลิป / เจ้าของ = จดมิเตอร์+ดูสลิป |
@@ -56,7 +56,7 @@
 | `LIFF_ID` | ✅ | `2012575885-l35sh1N4` (ใช้ทั้งสร้างลิงก์และ derive channel id) |
 | `LOGIN_CHANNEL_ID` | ไม่บังคับ | override channel id ที่ใช้ตรวจ idToken (ถ้าไม่ใส่ = prefix ของ `LIFF_ID`) |
 | `OWNER_USER_ID` | ✅ | userId ของเจ้าของหอ (รับการ์ดยืนยัน + สิทธิ์หน้าจดมิเตอร์) |
-| `SEED_TOKEN` | ✅ | รหัสสำหรับ `/api/seed`, `/api/sendbill`, และ dev bypass |
+| `SEED_TOKEN` | ✅ | รหัสสำหรับ `/api/dev?do=seed`, `/api/dev?do=sendbill`, และ dev bypass |
 | `PUBLIC_BASE_URL` | แนะนำ | `https://<โดเมน>` |
 | `ROOMS` | ไม่บังคับ | เช่น `101,102,103` (ค่าเริ่มต้น `201…212`) |
 | `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` | ไม่บังคับ | เริ่มต้น 3500 / 25 / 7 |
@@ -77,7 +77,7 @@ curl.exe -s $B/api/me
 curl.exe -s -H "x-seed-token: <SEED_TOKEN>" $B/api/me
 
 # seed บิลทั้งหอ
-curl.exe -s -X POST "$B/api/seed?token=<SEED_TOKEN>"
+curl.exe -s -X POST "$B/api/dev?do=seed&token=<SEED_TOKEN>"
 
 # ออกรอบบิลใหม่ (หน่วยมิเตอร์)
 curl.exe -s -X POST "$B/api/run" -H "x-seed-token: <SEED_TOKEN>" -H "Content-Type: application/json" `

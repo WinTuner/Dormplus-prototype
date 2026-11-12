@@ -1,13 +1,13 @@
 // GET /api/rooms — owner's view: every room, last meter reading, current bill.
 const store = require("./_store");
-const { requireUser, isOwner } = require("./_auth");
+const { requireUser, canView } = require("./_auth");
 const { ROOMS, configFor } = require("./_rooms");
 
 module.exports = async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   const userId = await requireUser(req, res);
   if (!userId) return;
-  if (!await isOwner(userId)) return res.status(403).json({ error: { code: "FORBIDDEN", message: "เฉพาะเจ้าของหอ" } });
+  if (!(await canView(userId))) return res.status(403).json({ error: { code: "FORBIDDEN", message: "เฉพาะเจ้าของหอ" } });
 
   const rooms = await Promise.all(
     ROOMS.map(async (room) => ({

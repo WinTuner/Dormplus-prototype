@@ -1,7 +1,7 @@
 // GET /api/slip-image?room=203 — streams the private slip photo to the owner or that room's tenant.
 const { get } = require("@vercel/blob");
 const store = require("./_store");
-const { requireUser, isOwner } = require("./_auth");
+const { requireUser, canView } = require("./_auth");
 
 module.exports = async (req, res) => {
   const userId = await requireUser(req, res);
@@ -9,7 +9,7 @@ module.exports = async (req, res) => {
 
   const room = String(req.query.room || "").trim();
   const bound = await store.get(`user-room:${userId}`);
-  if (!await isOwner(userId) && bound !== room) {
+  if (!(await canView(userId)) && bound !== room) {
     return res.status(403).json({ error: { code: "FORBIDDEN", message: "เข้าถึงสลิปห้องนี้ไม่ได้" } });
   }
 
