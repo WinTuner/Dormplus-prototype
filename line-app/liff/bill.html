@@ -6,49 +6,163 @@
 <title>DormPlus</title>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-  :root{--bg:#0B0F14;--card:#121A22;--line:#24333F;--text:#E6EDF3;--muted:#8B9AAB;--accent:#4FD8D2;--warn:#F59E0B;--bad:#FF7A7A}
+  :root{
+    --bg:#0B0F14;--bar:#111820;--card:#121A22;--card2:#0E151C;--line:#24333F;
+    --text:#E6EDF3;--muted:#8B9AAB;--accent:#4FD8D2;--primary:#147A80;--primary-text:#F2FFFE;
+    --warn:#F59E0B;--bad:#FF7A7A;--radius:12px;--gutter:16px
+  }
   *{box-sizing:border-box;margin:0;padding:0}
   body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans Thai',system-ui,sans-serif;min-height:100vh;display:flex;justify-content:center}
-  .app{width:100%;max-width:430px;padding:28px 20px 40px;display:flex;flex-direction:column;gap:12px}
-  .kick{font-size:11px;color:var(--accent);font-weight:600}
-  h1{font-size:20px;font-weight:700;margin-top:2px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+  button{font-family:inherit;color:inherit}
+  .app{width:100%;max-width:430px;min-height:100vh;display:flex;flex-direction:column}
+
+  /* top bar: optional back chevron + kicker + title */
+  .topbar{background:var(--bar);border-bottom:1px solid var(--line);padding:14px var(--gutter) 12px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:5}
+  .back{background:none;border:none;width:28px;height:28px;display:grid;place-items:center;cursor:pointer;color:var(--text);margin-left:-6px;flex:none}
+  .back[hidden]{display:none}
+  .kick{font-size:11px;color:var(--muted);line-height:1.4}
+  h1{font-size:17px;font-weight:700;line-height:1.4}
+
+  main{flex:1;padding:14px var(--gutter) 24px;display:flex;flex-direction:column;gap:10px}
+  .section{font-size:12px;font-weight:600;color:var(--text);margin-top:6px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
   .m{font-size:12px;color:var(--muted);line-height:1.6}
   .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
-  .big{font-size:34px;font-weight:700;color:var(--accent)}
-  .pill{font-size:11px;padding:3px 10px;border-radius:999px;border:1px solid rgba(79,216,210,.5);color:var(--accent);white-space:nowrap}
+  .rows{display:flex;flex-direction:column;gap:8px;font-size:13px}
+  .rows .total{border-top:1px solid var(--line);padding-top:10px;margin-top:2px;font-weight:700}
+  .big{font-size:22px;font-weight:700}
+  .huge{font-size:30px;font-weight:700;line-height:1.3}
+  .unit{font-size:12px;color:var(--muted);font-weight:400}
+  .progress{height:6px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:10px}
+  .progress i{display:block;height:100%;background:var(--primary);border-radius:99px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .stats .card{padding:12px;cursor:pointer;text-align:left}
+  .stats .big{margin-top:4px}
+
+  .btn{display:block;width:100%;background:transparent;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:14px;font-weight:600;text-align:center;cursor:pointer;color:var(--text)}
+  .btn.primary{background:var(--primary);border-color:var(--primary);color:var(--primary-text)}
+  .btn:disabled{opacity:.45;cursor:default}
+  .btn.sm{width:auto;padding:8px 14px;font-size:12px}
+  .stack{display:flex;flex-direction:column;gap:8px}
+  .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .bottombar{position:sticky;bottom:0;background:var(--bar);border-top:1px solid var(--line);padding:12px var(--gutter) 16px;display:flex;flex-direction:column;gap:8px}
+  .bottombar[hidden]{display:none}
+
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chip{font-size:12px;padding:4px 12px;border-radius:99px;border:1px solid var(--line);background:transparent;cursor:pointer;color:var(--muted)}
+  .chip.on{background:var(--primary);border-color:var(--primary);color:var(--primary-text)}
+  .pill{font-size:11px;padding:3px 10px;border-radius:99px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+  .pill.todo{background:var(--primary);border-color:var(--primary);color:var(--primary-text)}
+  .pill.ok{border-color:rgba(79,216,210,.5);color:var(--accent)}
   .pill.warn{border-color:rgba(245,158,11,.6);color:var(--warn)}
-  .btn{background:var(--accent);color:#062B14;font-weight:600;font-size:15px;text-align:center;padding:14px;border-radius:12px;border:none;width:100%;cursor:pointer;font-family:inherit}
-  .btn:disabled{opacity:.5}
-  .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
-  .ok{color:var(--accent);font-size:13px;text-align:center;min-height:18px}
-  .err{color:var(--bad);font-size:13px;line-height:1.6}
+  .pill.bad{border-color:rgba(255,122,122,.6);color:var(--bad)}
+
+  .roomcard{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer;width:100%;text-align:left;font-size:14px}
+  .roomcard b{font-weight:600}
+  .roomcard .m{font-size:11px;line-height:1.4}
+  .roomcard.next{border-color:var(--primary)}
+
+  .field{display:flex;flex-direction:column;gap:6px}
+  .field label{font-size:12px;color:var(--muted)}
+  .in{display:flex;align-items:center;gap:10px}
+  .in input{flex:1;background:var(--card);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:12px;font-family:inherit;font-size:16px;width:100%}
+  .in input:focus{outline:none;border-color:var(--accent)}
+  .in input:disabled{opacity:.6}
+  .prev{display:flex;gap:24px;margin-top:6px}
+  .prev b{font-size:20px}
+
+  .seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:4px}
+  .seg button{background:none;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:600;cursor:pointer;color:var(--muted)}
+  .seg button.on{background:var(--primary);color:var(--primary-text)}
+
+  .slip{display:flex;gap:12px;align-items:flex-start}
+  .thumb{width:52px;height:64px;border-radius:8px;background:var(--card2);border:1px solid var(--line);object-fit:cover;flex:none;display:grid;place-items:center;font-size:10px;color:var(--muted);cursor:pointer;overflow:hidden}
+  .thumb img{width:100%;height:100%;object-fit:cover}
+  .qr{width:132px;height:132px;margin:0 auto;border:1px solid var(--line);border-radius:10px;display:grid;place-items:center;font-size:12px;color:var(--muted);text-align:center}
+  .pick{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:240px;border:1px dashed var(--line);border-radius:var(--radius);background:var(--card);cursor:pointer;text-align:center;overflow:hidden}
+  .pick img{width:100%;max-height:420px;object-fit:contain;display:block}
   input[type=file]{display:none}
-  .field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
-  input[type=number],input[type=text]{background:#0B0F14;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:9px;font-family:inherit;font-size:14px;width:100%}
-  .mrow{display:grid;grid-template-columns:46px 1fr 1fr 78px;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
-  .mrow:last-child{border-bottom:none}
-  .mrow input{text-align:center;padding:11px 6px;font-size:15px}
-  .who{font-weight:700;font-size:15px}
-  .mtotal{font-size:12px;color:var(--accent)}
-  .thumb{width:34px;height:34px;border-radius:8px;object-fit:cover;background:#0B0F14;border:1px solid var(--line)}
+  .hint{font-size:12px;color:var(--muted);line-height:1.6}
+  .warnText{color:var(--warn)}
+  .err{color:var(--bad);font-size:13px;line-height:1.6}
+  .empty{text-align:center;padding:28px 12px}
+
+  .sheet{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:var(--gutter);z-index:20}
+  .sheet .card{width:100%;max-width:398px;max-height:90vh;overflow:auto}
+  .sheet img{width:100%;border-radius:10px;margin-top:10px;display:block}
+
+  .toast{position:fixed;left:50%;top:84px;transform:translateX(-50%);max-width:calc(100% - 32px);background:var(--card);border:1px solid var(--accent);color:var(--text);font-size:13px;padding:10px 14px;border-radius:10px;z-index:30;opacity:0;pointer-events:none;transition:opacity .2s}
+  .toast.show{opacity:1}
+  .toast.err{border-color:var(--bad)}
 </style>
 </head>
 <body>
 <div class="app">
-  <div>
-    <div class="kick" id="kick">DormPlus</div>
-    <h1 id="title">กำลังโหลด…</h1>
-  </div>
-  <div id="view"></div>
+  <header class="topbar">
+    <button class="back" id="back" hidden aria-label="ย้อนกลับ">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+    </button>
+    <div>
+      <div class="kick" id="kick">DormPlus</div>
+      <h1 id="title">กำลังโหลด…</h1>
+    </div>
+  </header>
+  <main id="view"></main>
+  <div class="bottombar" id="bottom" hidden></div>
 </div>
+<div class="toast" id="toast"></div>
 
 <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const view = $("view");
 const fmt = (n) => Number(n || 0).toLocaleString("th-TH");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 let idToken = null;
+
+// ---------- shared UI ----------
+const TH_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+const periodTh = (p) => (p && /^\d{4}-\d{2}$/.test(p) ? `${TH_MONTHS[Number(p.slice(5, 7)) - 1]} ${Number(p.slice(0, 4)) + 543}` : "—");
+const monthTh = (p) => (p && /^\d{4}-\d{2}$/.test(p) ? TH_MONTHS[Number(p.slice(5, 7)) - 1] : "");
+const dateTh = (d) => (d && /^\d{4}-\d{2}-\d{2}/.test(d) ? `${Number(d.slice(8, 10))} ${TH_MONTHS[Number(d.slice(5, 7)) - 1]} ${Number(d.slice(0, 4)) + 543}` : "—");
+const timeTh = (iso) => {
+  if (!iso) return "";
+  const t = new Date(iso);
+  if (isNaN(t)) return "";
+  return `${t.getDate()} ${TH_MONTHS[t.getMonth()]} ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+};
+const todayISO = () => {
+  const t = new Date();
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+};
+
+// Top bar: title, kicker and an optional back target (a hash route).
+function header(kick, title, backTo) {
+  $("kick").textContent = kick;
+  $("title").textContent = title;
+  const b = $("back");
+  b.hidden = !backTo;
+  b.onclick = backTo ? () => go(backTo) : null;
+}
+
+// Sticky bottom bar; pass "" to hide it.
+function bottom(html) {
+  const el = $("bottom");
+  el.innerHTML = html;
+  el.hidden = !html;
+}
+
+let toastTimer = null;
+function toast(msg, isError) {
+  const el = $("toast");
+  el.textContent = msg;
+  el.className = "toast show" + (isError ? " err" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (el.className = "toast"), 3200);
+}
+
+const go = (route) => { location.hash = route; };
+const route = () => location.hash.replace(/^#/, "");
 
 // ---------- boot ----------
 async function boot() {
@@ -68,19 +182,21 @@ async function boot() {
     const params = new URLSearchParams(location.search);
     const tab = params.get("tab") || "";
     const room = me.room || params.get("room");
-    const home = () => (me.owner ? ownerView(me) : room ? billView(room) : fail("ยังไม่ได้ผูกห้อง — พิมพ์ “ผูก 203” ในแชท LINE ก่อน"));
+    const home = () => (me.owner ? startOwner("home") : room ? startTenant(room) : fail("ยังไม่ได้ผูกห้อง — พิมพ์ “ผูก 203” ในแชท LINE ก่อน"));
 
     // Rich-menu tabs that are drawn but not built yet.
-    const soon = { slips: "ตรวจสอบสลิป", unpaid: "ค้างชำระ", report: "รายงานรายรับ", rooms: "จัดการห้อง" };
-    if (soon[tab]) return notice(soon[tab], "ส่วนนี้ยังไม่เปิดใช้งานในเวอร์ชันนี้", me.owner ? "ไปหน้าจดมิเตอร์" : "ดูบิลของฉัน", home);
+    const soon = { report: "รายงานรายรับ", rooms: "จัดการห้อง" };
+    if (soon[tab]) return notice(soon[tab], "ส่วนนี้ยังไม่เปิดใช้งานในเวอร์ชันนี้", me.owner ? "ไปหน้าหลัก" : "ดูบิลของฉัน", home);
 
-    if (tab === "meter") {
-      if (!me.owner) return notice("จดมิเตอร์", "หน้าจอนี้สำหรับเจ้าของหอ", "ดูบิลของฉัน", home);
-      return ownerView(me);
+    // Owner rich-menu tabs map onto owner screens.
+    const ownerTabs = { meter: "rooms", slips: "review/pending", unpaid: "review/overdue" };
+    if (ownerTabs[tab]) {
+      if (!me.owner) return notice("เฉพาะเจ้าของหอ", "หน้าจอนี้สำหรับเจ้าของหอ", "ดูบิลของฉัน", home);
+      return startOwner(ownerTabs[tab]);
     }
     if (tab === "bill") {
-      if (me.owner) return notice("บิลค่าเช่า", "หน้าจอนี้สำหรับผู้เช่า — เจ้าของหอดูสถานะบิลและสลิปได้ที่หน้าจดมิเตอร์", "ไปหน้าจดมิเตอร์", home);
-      return room ? billView(room) : fail("ยังไม่ได้ผูกห้อง — พิมพ์ “ผูก 203” ในแชท LINE ก่อน");
+      if (me.owner) return notice("บิลค่าเช่า", "หน้าจอนี้สำหรับผู้เช่า — เจ้าของหอดูสถานะบิลและสลิปได้ที่หน้าหลัก", "ไปหน้าหลัก", home);
+      return room ? startTenant(room) : fail("ยังไม่ได้ผูกห้อง — พิมพ์ “ผูก 203” ในแชท LINE ก่อน");
     }
 
     return home();
@@ -92,15 +208,17 @@ async function boot() {
 
 // A screen for "not built yet" / "wrong role", with one button back to what does work.
 function notice(title, message, ctaLabel, cta) {
-  $("title").textContent = title;
-  view.innerHTML = `<div class="card"><div class="m">${message}</div>
-    <button class="btn" id="cta" style="margin-top:12px">${ctaLabel}</button></div>`;
+  header("DormPlus", title);
+  bottom("");
+  view.innerHTML = `<div class="card"><div class="m">${esc(message)}</div>
+    <button class="btn primary" id="cta" style="margin-top:12px">${esc(ctaLabel)}</button></div>`;
   $("cta").onclick = cta;
 }
 
 function fail(msg) {
-  $("title").textContent = "ใช้งานไม่ได้";
-  view.innerHTML = `<div class="card"><div class="err">${msg}</div></div>`;
+  header("DormPlus", "ใช้งานไม่ได้");
+  bottom("");
+  view.innerHTML = `<div class="card"><div class="err">${esc(msg)}</div></div>`;
 }
 
 async function api(path, opts = {}) {
@@ -111,63 +229,6 @@ async function api(path, opts = {}) {
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(data?.error?.message || `HTTP ${res.status}`), { status: res.status });
   return data;
-}
-
-// ---------- tenant ----------
-async function billView(room) {
-  let b;
-  try {
-    b = await api(`/api/bill?room=${encodeURIComponent(room)}`);
-  } catch (e) {
-    $("title").textContent = `ห้อง ${room}`;
-    view.innerHTML = `<div class="card"><div class="err">${e.message}</div></div>`;
-    return;
-  }
-
-  $("title").textContent = `ห้อง ${b.room}`;
-  const label = b.status === "paid" ? "ชำระแล้ว" : b.status === "pending" ? "รอตรวจสอบ" : "ยังไม่ชำระ";
-  const pillClass = b.status === "unpaid" ? "pill warn" : "pill";
-
-  view.innerHTML = `
-    <div class="card">
-      <div class="row"><span class="m">รอบบิล ${b.period}</span><span class="${pillClass}" id="pill">${label}</span></div>
-      <div class="big" style="margin-top:6px">${fmt(b.total)} <span style="font-size:14px;color:var(--muted)">บาท</span></div>
-      <div class="m" style="margin-top:10px">ค่าเช่า ${fmt(b.rent)} · ค่าน้ำ ${fmt(b.water)} · ค่าไฟ ${fmt(b.elec)}</div>
-      ${b.due ? `<div class="m" style="margin-top:4px">ครบกำหนด ${b.due}</div>` : ""}
-    </div>
-    <div class="card">
-      <div class="row"><b>แนบสลิป</b><span class="${pillClass}" id="slipStatus">${label}</span></div>
-      <div class="m" id="note" style="margin-top:6px">—</div>
-      <label class="btn ghost" for="file" style="display:block;margin-top:12px;${b.status === "paid" ? "opacity:.5;pointer-events:none" : ""}">
-        ${b.hasSlip ? "เปลี่ยนรูปสลิป" : "เลือกรูปสลิป"}
-      </label>
-      <input type="file" id="file" accept="image/*" capture="environment">
-      <button class="btn" id="send" style="margin-top:10px" ${b.status === "paid" ? "disabled" : ""}>แนบสลิป &amp; แจ้งชำระ</button>
-      <div class="ok" id="msg"></div>
-    </div>`;
-
-  const note = $("note");
-  if (b.status === "paid") note.textContent = "ใบเสร็จออกแล้ว";
-  else if (b.status === "pending") note.textContent = "แนบสลิปแล้ว — รอเจ้าของหอยืนยัน";
-  else note.textContent = "โอนเงินแล้วแนบสลิปเพื่อให้เจ้าของหอยืนยัน";
-
-  $("send").onclick = async () => {
-    const btn = $("send"), msg = $("msg");
-    btn.disabled = true;
-    msg.style.color = "";
-    msg.textContent = "กำลังส่ง…";
-    try {
-      const file = $("file").files[0];
-      const image = file ? await shrink(file) : undefined;
-      await api("/api/slip", { method: "POST", body: JSON.stringify({ room, image }) });
-      msg.textContent = "แจ้งชำระแล้ว — รอเจ้าของหอยืนยัน";
-      await billView(room);
-    } catch (e) {
-      msg.style.color = "var(--bad)";
-      msg.textContent = e.message;
-      btn.disabled = false;
-    }
-  };
 }
 
 // Downscale in the browser so the photo fits the 4.5MB function limit.
@@ -181,157 +242,517 @@ async function shrink(file) {
   return c.toDataURL("image/jpeg", 0.8);
 }
 
+// Slip images are private: fetch with the token and keep one object URL per room.
+const slipUrls = {};
+async function slipUrl(room) {
+  if (slipUrls[room]) return slipUrls[room];
+  const res = await fetch(`/api/slip-image?room=${encodeURIComponent(room)}`, {
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+  if (!res.ok) throw new Error("โหลดสลิปไม่สำเร็จ");
+  slipUrls[room] = URL.createObjectURL(await res.blob());
+  return slipUrls[room];
+}
+
+// ---------- tenant ----------
+let T = null; // { room, bill }
+
+async function startTenant(room) {
+  T = { room, bill: null };
+  window.onhashchange = renderTenant;
+  await loadTenant();
+}
+
+async function loadTenant() {
+  header(`ห้อง ${T.room}`, "ใบแจ้งหนี้");
+  view.innerHTML = `<div class="card"><div class="m">กำลังโหลด…</div></div>`;
+  bottom("");
+  try {
+    T.bill = await api(`/api/bill?room=${encodeURIComponent(T.room)}`);
+  } catch (e) {
+    T.bill = null;
+    view.innerHTML = `<div class="card"><div class="err">${esc(e.message)}</div></div>`;
+    return;
+  }
+  renderTenant();
+}
+
+function renderTenant() {
+  if (!T || !T.bill) return;
+  if (route() === "slip" && T.bill.status !== "paid") return tenantSlip();
+  return tenantInvoice();
+}
+
+function statusPill(status) {
+  if (status === "paid") return `<span class="pill ok">ชำระแล้ว</span>`;
+  if (status === "pending") return `<span class="pill warn">รอตรวจสอบ</span>`;
+  return `<span class="pill bad">ยังไม่ชำระ</span>`;
+}
+
+function tenantInvoice() {
+  const b = T.bill;
+  header(`ห้อง ${b.room} · รอบบิล ${periodTh(b.period)}`, `ใบแจ้งหนี้ ${monthTh(b.period)}`);
+
+  const note = b.status === "paid" ? "ชำระแล้ว · ใบเสร็จออกแล้ว"
+    : b.status === "pending" ? `แนบสลิปแล้ว${b.slipAt ? " " + timeTh(b.slipAt) : ""} — รอเจ้าของหอยืนยัน`
+    : "";
+
+  view.innerHTML = `
+    <div class="card">
+      <div class="row"><span class="m">ยอดที่ต้องชำระ</span>${statusPill(b.status)}</div>
+      <div class="huge" style="margin-top:4px">${fmt(b.total)} <span class="unit" style="font-size:16px">บาท</span></div>
+      <div class="m">ครบกำหนด ${dateTh(b.due)}</div>
+      <div class="rows" style="margin-top:12px">
+        <div class="row"><span class="m">ค่าเช่า</span><span>${fmt(b.rent)}</span></div>
+        <div class="row"><span class="m">ค่าน้ำ ${fmt(b.waterUnits)} หน่วย</span><span>${fmt(b.water)}</span></div>
+        <div class="row"><span class="m">ค่าไฟ ${fmt(b.elecUnits)} หน่วย</span><span>${fmt(b.elec)}</span></div>
+      </div>
+      ${note ? `<div class="hint" style="margin-top:12px">${esc(note)}</div>` : ""}
+    </div>
+    <div class="card">
+      <div class="qr">QR พร้อมเพย์</div>
+      <div class="hint" style="text-align:center;margin-top:10px">เจ้าของหอยังไม่ได้ใส่ QR · โอนตามช่องทางที่หอแจ้ง แล้วแนบสลิป</div>
+    </div>`;
+
+  const label = b.status === "pending" ? "ส่งสลิปใหม่" : "แนบสลิป";
+  bottom(`<button class="btn primary" id="toSlip" ${b.status === "paid" ? "disabled" : ""}>${label}</button>`);
+  $("toSlip").onclick = () => go("slip");
+}
+
+function tenantSlip() {
+  const b = T.bill;
+  header(`ห้อง ${b.room} · ${fmt(b.total)} บาท`, "แนบสลิป", "invoice");
+
+  view.innerHTML = `
+    <label class="pick" for="file" id="pick">
+      <b style="font-size:14px">แตะเพื่อเลือกรูปสลิป</b>
+      <span class="m">หรือถ่ายรูปจากกล้อง</span>
+    </label>
+    <input type="file" id="file" accept="image/*">
+    <div class="card"><div class="row"><span class="m">ยอดในบิล</span><b>${fmt(b.total)} บาท</b></div></div>
+    <div class="hint">สถานะจะเป็น “รอตรวจสอบ” จนกว่าเจ้าของหอจะยืนยัน</div>`;
+
+  bottom(`<button class="btn primary" id="send" disabled>ส่งสลิป</button>`);
+
+  $("file").onchange = () => {
+    const file = $("file").files[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    $("pick").innerHTML = `<img src="${url}" alt="สลิป">`;
+    $("send").disabled = false;
+  };
+
+  $("send").onclick = async () => {
+    const btn = $("send");
+    const file = $("file").files[0];
+    if (!file) return;
+    btn.disabled = true;
+    btn.textContent = "กำลังส่ง…";
+    try {
+      const image = await shrink(file);
+      await api("/api/slip", { method: "POST", body: JSON.stringify({ room: T.room, image }) });
+      toast("แจ้งชำระแล้ว — รอเจ้าของหอยืนยัน");
+      history.replaceState(null, "", location.pathname + location.search);
+      await loadTenant();
+    } catch (e) {
+      toast(e.message, true);
+      btn.disabled = false;
+      btn.textContent = "ส่งสลิป";
+    }
+  };
+}
+
 // ---------- owner ----------
-const TH_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
-const baht = (n) => Number(n || 0).toLocaleString("th-TH");
+// O holds the owner's data; the round's typed units live in a local draft until "ออกบิล".
+let O = null;
+const DUE_DAY = 16;
 const nextPeriod = (p) => {
   if (!p || !/^\d{4}-\d{2}$/.test(p)) return "";
   const y = Number(p.slice(0, 4));
   const m = Number(p.slice(5, 7));
   return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
 };
-const periodTh = (p) => (p ? `${TH_MONTHS[Number(p.slice(5, 7)) - 1]} ${p.slice(0, 4)}` : "—");
-const dateTh = (d) => (d ? `${Number(d.slice(8, 10))} ${TH_MONTHS[Number(d.slice(5, 7)) - 1]}` : "—");
-const DUE_DAY = 16;
+const floorOf = (room) => (room.length > 2 ? room.slice(0, -2) : room);
 
-async function ownerView(me) {
-  $("kick").textContent = "DormPlus · เจ้าของหอ";
-  $("title").textContent = "จดมิเตอร์ → ออกบิล";
-  const data = await api("/api/rooms");
+// The round in progress: the newest billed period while some rooms still carry an older
+// bill, otherwise the month after it. Rooms that never had a bill don't hold a round open.
+function currentRound(rooms, fallback) {
+  const periods = rooms.map((r) => r.bill?.period).filter(Boolean);
+  const newest = periods.slice().sort().pop();
+  if (!newest) return fallback || "";
+  return periods.some((p) => p < newest) ? newest : nextPeriod(newest);
+}
 
-  const cfg = Object.fromEntries(data.rooms.map((r) => [r.room, r.config]));
-  const newest = data.rooms.map((r) => r.bill?.period).filter(Boolean).sort().pop() || data.period;
-  const period = nextPeriod(newest) || data.period || "";
-  const due = period ? `${period}-${String(DUE_DAY).padStart(2, "0")}` : "";
+const draftKey = () => `dp_draft:${O.period}`;
+function loadDraft() {
+  try { return JSON.parse(localStorage.getItem(draftKey()) || "{}") || {}; } catch { return {}; }
+}
+function saveDraft() {
+  try { localStorage.setItem(draftKey(), JSON.stringify(O.draft)); } catch {}
+}
 
-  const rows = data.rooms
-    .map((r) => {
-      const w = r.bill?.waterUnits ?? r.meter?.water ?? "";
-      const e = r.bill?.elecUnits ?? r.meter?.elec ?? "";
-      const slip = r.bill?.slipPath
-        ? `<button class="btn ghost" style="width:auto;padding:3px 8px;font-size:10px;margin-top:3px" data-slip="${r.room}">ดูสลิป</button>`
-        : "";
-      return `<div class="mrow">
-        <div><div class="who">${r.room}</div><div class="m" style="font-size:10px">${r.tenant ? "ผูกแล้ว" : "—"}</div></div>
-        <input type="number" min="0" step="1" inputmode="numeric" data-room="${r.room}" data-kind="water" value="" placeholder="${w !== "" ? w : "น้ำ"}">
-        <input type="number" min="0" step="1" inputmode="numeric" data-room="${r.room}" data-kind="elec" value="" placeholder="${e !== "" ? e : "ไฟ"}">
-        <div style="text-align:right"><div class="mtotal" data-total="${r.room}">—</div>${slip}</div>
-      </div>`;
-    })
-    .join("");
+const billedNow = (r) => r.bill && r.bill.period === O.period;
+const isRead = (r) => billedNow(r) || !!O.draft[r.room];
+const lastUnits = (r) => ({
+  water: r.bill?.waterUnits ?? r.meter?.water ?? null,
+  elec: r.bill?.elecUnits ?? r.meter?.elec ?? null,
+});
+const isOverdue = (b) => b && b.status === "unpaid" && b.due && b.due < todayISO();
+const daysLate = (due) => Math.max(1, Math.round((new Date(todayISO()) - new Date(due)) / 86400000));
+
+function totalFor(room, units) {
+  const c = O.cfg[room] || {};
+  const water = Math.round(Number(units.water || 0) * Number(c.waterRate || 0));
+  const elec = Math.round(Number(units.elec || 0) * Number(c.elecRate || 0));
+  return { water, elec, rent: Number(c.rent || 0), total: Number(c.rent || 0) + water + elec };
+}
+
+function nextTodo(after) {
+  const list = O.rooms;
+  const start = after ? list.findIndex((r) => r.room === after) + 1 : 0;
+  const order = [...list.slice(start), ...list.slice(0, start)];
+  return order.find((r) => !isRead(r) && !O.skipped.has(r.room) && r.room !== after) || null;
+}
+
+async function startOwner(initial) {
+  O = { rooms: [], cfg: {}, period: "", due: "", draft: {}, skipped: new Set(), filter: "all", reviewTab: "pending" };
+  window.onhashchange = renderOwner;
+  if (route() !== initial) history.replaceState(null, "", "#" + initial);
+  await loadOwner();
+}
+
+async function loadOwner() {
+  header("DormPlus · เจ้าของหอ", "กำลังโหลด…");
+  try {
+    const data = await api("/api/rooms");
+    O.rooms = data.rooms;
+    O.cfg = Object.fromEntries(data.rooms.map((r) => [r.room, r.config]));
+    if (!O.period) {
+      O.period = currentRound(data.rooms, data.period);
+      O.due = O.period ? `${O.period}-${String(DUE_DAY).padStart(2, "0")}` : "";
+    }
+    O.draft = loadDraft();
+  } catch (e) {
+    header("DormPlus · เจ้าของหอ", "ใช้งานไม่ได้");
+    bottom("");
+    view.innerHTML = `<div class="card"><div class="err">ต่อ API ไม่ได้: ${esc(e.message)}</div></div>`;
+    return;
+  }
+  renderOwner();
+}
+
+function renderOwner() {
+  if (!O) return;
+  const r = route();
+  view.oninput = null;
+  window.scrollTo(0, 0);
+  if (r === "rooms") return ownerRooms();
+  if (r.startsWith("entry/")) return ownerEntry(decodeURIComponent(r.slice(6)));
+  if (r === "bill") return ownerBill();
+  if (r.startsWith("review")) return ownerReview(r.split("/")[1] || O.reviewTab);
+  return ownerHome();
+}
+
+function ownerHome() {
+  header(`รอบบิล ${periodTh(O.period)}`, "หอพัก");
+  bottom("");
+  const total = O.rooms.length;
+  const read = O.rooms.filter(isRead).length;
+  const bills = O.rooms.map((r) => r.bill).filter(Boolean);
+  const unpaid = bills.filter((b) => b.status === "unpaid").length;
+  const pending = bills.filter((b) => b.status === "pending").length;
+  const overdue = bills.filter(isOverdue).length;
 
   view.innerHTML = `
     <div class="card">
-      <div class="row">
-        <div>
-          <div class="m">รอบบิลที่จะออก</div>
-          <b style="font-size:16px">${periodTh(period)}</b>
-          <div class="m">ครบกำหนด ${dateTh(due)}</div>
-        </div>
-        <button class="btn ghost" id="editRound" style="width:auto;padding:8px 14px;font-size:12px">แก้ไข</button>
-      </div>
-      <div id="roundInputs" style="display:none;margin-top:10px;gap:6px;flex-direction:column">
-        <input type="text" id="period" value="${period}" placeholder="2026-12">
-        <input type="text" id="due" value="${due}" placeholder="2026-12-16">
-      </div>
+      <div class="m">จดมิเตอร์แล้ว</div>
+      <div class="big">${read} / ${total} ห้อง</div>
+      <div class="progress"><i style="width:${total ? (read / total) * 100 : 0}%"></i></div>
+    </div>
+    <div class="stats">
+      <button class="card" data-go="review/overdue"><div class="m">ยังไม่จ่าย</div><div class="big">${unpaid}</div></button>
+      <button class="card" data-go="review/pending"><div class="m">รอตรวจสลิป</div><div class="big">${pending}</div></button>
+      <button class="card" data-go="review/overdue"><div class="m">ค้างเกินกำหนด</div><div class="big">${overdue}</div></button>
+    </div>
+    <div class="section">ทำต่อ</div>
+    <div class="stack">
+      <button class="btn primary" data-go="rooms">จดมิเตอร์</button>
+      <button class="btn" data-go="bill">ออกบิลทั้งหอ</button>
+      <button class="btn" data-go="review/pending">สลิปรอตรวจ (${pending})</button>
+      <button class="btn" id="settings">ตั้งค่าหอ</button>
+    </div>`;
+
+  view.querySelectorAll("[data-go]").forEach((el) => (el.onclick = () => go(el.dataset.go)));
+  $("settings").onclick = () => toast("ตั้งค่าหอยังไม่เปิดใช้งานในเวอร์ชันนี้");
+}
+
+function ownerRooms() {
+  header(`รอบบิล ${periodTh(O.period)}`, "จดมิเตอร์", "home");
+  const all = O.rooms;
+  const todo = all.filter((r) => !isRead(r));
+  const done = all.filter(isRead);
+  const shown = O.filter === "todo" ? todo : O.filter === "done" ? done : all;
+  const next = nextTodo();
+
+  const floors = {};
+  shown.forEach((r) => (floors[floorOf(r.room)] ||= []).push(r));
+
+  const card = (r) => {
+    let pill;
+    if (billedNow(r)) pill = r.bill.status === "paid" ? `<span class="pill ok">ชำระแล้ว</span>` : `<span class="pill">ออกบิลแล้ว</span>`;
+    else if (O.draft[r.room]) pill = `<span class="pill ok">จดแล้ว</span>`;
+    else pill = `<span class="pill todo">ยังไม่จด</span>`;
+    const isNext = next && next.room === r.room;
+    const sub = isNext ? "ห้องถัดไป" : r.tenant ? "" : "ยังไม่ผูก LINE";
+    return `<button class="roomcard${isNext ? " next" : ""}" data-room="${esc(r.room)}">
+      <span><b>ห้อง ${esc(r.room)}</b>${sub ? `<div class="m">${sub}</div>` : ""}</span>${pill}</button>`;
+  };
+
+  view.innerHTML = `
+    <div class="chips">
+      <button class="chip ${O.filter === "all" ? "on" : ""}" data-f="all">ทั้งหมด ${all.length}</button>
+      <button class="chip ${O.filter === "todo" ? "on" : ""}" data-f="todo">ยังไม่จด ${todo.length}</button>
+      <button class="chip ${O.filter === "done" ? "on" : ""}" data-f="done">จดแล้ว ${done.length}</button>
+    </div>
+    ${Object.keys(floors).length ? Object.entries(floors).map(([f, list]) =>
+      `<div class="section">ชั้น ${esc(f)}</div><div class="stack">${list.map(card).join("")}</div>`).join("")
+      : `<div class="card empty m">ไม่มีห้องในหมวดนี้</div>`}`;
+
+  bottom(next
+    ? `<button class="btn primary" id="startNext">เริ่มจดห้อง ${esc(next.room)}</button>`
+    : `<button class="btn primary" id="toBill">จดครบแล้ว · ไปออกบิล</button>`);
+  if (next) $("startNext").onclick = () => go(`entry/${encodeURIComponent(next.room)}`);
+  else $("toBill").onclick = () => go("bill");
+
+  view.querySelectorAll("[data-f]").forEach((el) => (el.onclick = () => { O.filter = el.dataset.f; ownerRooms(); }));
+  view.querySelectorAll("[data-room]").forEach((el) => (el.onclick = () => go(`entry/${encodeURIComponent(el.dataset.room)}`)));
+}
+
+function ownerEntry(roomNo) {
+  const r = O.rooms.find((x) => x.room === roomNo);
+  if (!r) return go("rooms");
+  const c = O.cfg[r.room] || {};
+  const idx = O.rooms.indexOf(r) + 1;
+  header(`จดมิเตอร์ · ${idx} / ${O.rooms.length}`, `ห้อง ${r.room}`, "rooms");
+
+  const locked = billedNow(r);
+  const last = lastUnits(r);
+  const draft = O.draft[r.room];
+  const val = (k) => (locked ? r.bill[k === "water" ? "waterUnits" : "elecUnits"] : draft ? draft[k] : "");
+  const lastLabel = locked ? "เดือนนี้ (ออกบิลแล้ว)" : "เดือนก่อนใช้";
+  const shownLast = locked ? { water: r.bill.waterUnits, elec: r.bill.elecUnits } : last;
+
+  view.innerHTML = `
+    <div class="card">
+      <div class="m">${lastLabel}</div>
+      ${shownLast.water == null && shownLast.elec == null
+        ? `<div class="hint">ยังไม่มีข้อมูลเดือนก่อน</div>`
+        : `<div class="prev">
+            <div><div class="m">น้ำ</div><b>${fmt(shownLast.water)}</b> <span class="unit">หน่วย</span></div>
+            <div><div class="m">ไฟ</div><b>${fmt(shownLast.elec)}</b> <span class="unit">หน่วย</span></div>
+          </div>`}
+    </div>
+    <div class="field">
+      <label for="inW">น้ำเดือนนี้ (หน่วยที่ใช้)</label>
+      <div class="in"><input id="inW" type="number" min="0" step="1" inputmode="numeric" value="${esc(val("water"))}" placeholder="0" ${locked ? "disabled" : ""}><span class="unit">หน่วย</span></div>
+    </div>
+    <div class="field">
+      <label for="inE">ไฟเดือนนี้ (หน่วยที่ใช้)</label>
+      <div class="in"><input id="inE" type="number" min="0" step="1" inputmode="numeric" value="${esc(val("elec"))}" placeholder="0" ${locked ? "disabled" : ""}><span class="unit">หน่วย</span></div>
+    </div>
+    <div class="card rows" id="calc"></div>
+    <div class="hint warnText" id="hint"></div>
+    ${locked ? `<div class="hint">ห้องนี้ออกบิลรอบ ${periodTh(O.period)} แล้ว — แก้ไขไม่ได้</div>` : ""}`;
+
+  const units = () => ({ water: Number($("inW").value || 0), elec: Number($("inE").value || 0) });
+  const calc = () => {
+    const u = units();
+    const t = totalFor(r.room, u);
+    $("calc").innerHTML = `
+      <div class="row"><span class="m">น้ำ ${fmt(u.water)} หน่วย × ${fmt(c.waterRate)}</span><span>${fmt(t.water)} บาท</span></div>
+      <div class="row"><span class="m">ไฟ ${fmt(u.elec)} หน่วย × ${fmt(c.elecRate)}</span><span>${fmt(t.elec)} บาท</span></div>
+      <div class="row"><span class="m">ค่าเช่า</span><span>${fmt(t.rent)} บาท</span></div>
+      <div class="row total"><span>รวม</span><span>${fmt(t.total)} บาท</span></div>`;
+    const warn = [];
+    if (u.water < 0 || u.elec < 0) warn.push("หน่วยติดลบไม่ได้");
+    if (last.water > 0 && u.water > last.water * 3) warn.push("น้ำมากกว่าเดือนก่อนเกิน 3 เท่า");
+    if (last.elec > 0 && u.elec > last.elec * 3) warn.push("ไฟมากกว่าเดือนก่อนเกิน 3 เท่า");
+    $("hint").textContent = locked || !warn.length ? "" : warn.join(" · ") + " — ตรวจสอบก่อนบันทึก";
+    return warn;
+  };
+  if (!locked) view.oninput = calc;
+  calc();
+
+  const next = nextTodo(r.room);
+  if (locked) {
+    bottom(next
+      ? `<button class="btn primary" id="toNext">ไปห้อง ${esc(next.room)}</button>`
+      : `<button class="btn primary" id="toNext">กลับรายการห้อง</button>`);
+    $("toNext").onclick = () => go(next ? `entry/${encodeURIComponent(next.room)}` : "rooms");
+    return;
+  }
+
+  bottom(`
+    <button class="btn primary" id="save">${next ? `บันทึก แล้วไปห้อง ${esc(next.room)}` : "บันทึก"}</button>
+    <button class="btn" id="skip">ข้ามห้องนี้</button>`);
+
+  $("save").onclick = () => {
+    if ($("inW").value === "" && $("inE").value === "") return toast("กรอกหน่วยน้ำหรือไฟก่อน", true);
+    const u = units();
+    if (u.water < 0 || u.elec < 0) return toast("หน่วยติดลบไม่ได้", true);
+    O.draft[r.room] = u;
+    O.skipped.delete(r.room);
+    saveDraft();
+    const n = nextTodo(r.room);
+    toast(`บันทึกห้อง ${r.room} แล้ว`);
+    go(n ? `entry/${encodeURIComponent(n.room)}` : "bill");
+  };
+  $("skip").onclick = () => {
+    O.skipped.add(r.room);
+    if (O.draft[r.room]) { delete O.draft[r.room]; saveDraft(); }
+    const n = nextTodo(r.room);
+    go(n ? `entry/${encodeURIComponent(n.room)}` : "rooms");
+  };
+}
+
+function ownerBill() {
+  header(`รอบบิล ${periodTh(O.period)}`, "ออกบิลทั้งหอ", "home");
+  const open = O.rooms.filter((r) => !billedNow(r));
+  const ready = open.filter((r) => O.draft[r.room]);
+  const linked = ready.filter((r) => r.tenant).length;
+  const missing = open.length - ready.length;
+  const sum = ready.reduce((s, r) => s + totalFor(r.room, O.draft[r.room]).total, 0);
+  const billed = O.rooms.length - open.length;
+
+  view.innerHTML = `
+    <div class="card rows">
+      <div class="row"><span class="m">จดมิเตอร์แล้ว</span><span>${ready.length} / ${open.length} ห้อง</span></div>
+      <div class="row"><span class="m">ผูก LINE แล้ว (ได้รับการ์ดบิล)</span><span>${linked} ห้อง</span></div>
+      ${billed ? `<div class="row"><span class="m">ออกบิลรอบนี้ไปแล้ว</span><span>${billed} ห้อง</span></div>` : ""}
+      <div class="row"><span class="m">ครบกำหนดชำระ</span><span>${dateTh(O.due)}</span></div>
+      <div class="row total"><span>ยอดรวมทั้งหอ</span><span>${fmt(sum)} บาท</span></div>
     </div>
     <div class="card">
-      <div class="m" style="margin-bottom:6px">กรอกหน่วยที่ใช้เดือนนี้ (เว้นว่าง = ยังไม่จดห้องนั้น)</div>
-      <div class="mrow" style="border-bottom:1px solid var(--line);padding-bottom:6px">
-        <div class="m">ห้อง</div><div class="m" style="text-align:center">น้ำ</div>
-        <div class="m" style="text-align:center">ไฟ</div><div class="m" style="text-align:right">รวม</div>
+      <div class="row"><span class="m">รอบบิล / วันครบกำหนด</span><button class="btn sm" id="editRound">แก้ไข</button></div>
+      <div class="stack" id="roundInputs" style="display:none;margin-top:10px">
+        <div class="field"><label for="period">รอบบิล (ปี ค.ศ.-เดือน)</label><div class="in"><input id="period" type="text" value="${esc(O.period)}" placeholder="2026-12"></div></div>
+        <div class="field"><label for="due">ครบกำหนด (ปี ค.ศ.-เดือน-วัน)</label><div class="in"><input id="due" type="text" value="${esc(O.due)}" placeholder="2026-12-16"></div></div>
+        <button class="btn" id="applyRound">ใช้ค่านี้</button>
       </div>
-      ${rows}
     </div>
-    <button class="btn" id="run" style="position:sticky;bottom:14px" disabled>กรอกมิเตอร์ก่อน</button>
-    <div class="ok" id="msg"></div>
-    <div id="slipBox"></div>`;
+    ${missing ? `<div class="hint warnText">ยังไม่ได้จดอีก ${missing} ห้อง — ห้องที่ไม่จดจะไม่ถูกออกบิลรอบนี้</div>` : ""}
+    ${linked < ready.length ? `<div class="hint">${ready.length - linked} ห้องยังไม่ผูก LINE — บิลจะถูกสร้างแต่ไม่มีการ์ดส่งไป</div>` : ""}`;
 
   $("editRound").onclick = () => {
     const box = $("roundInputs");
     box.style.display = box.style.display === "none" ? "flex" : "none";
   };
-
-  const readingsOf = () =>
-    [...document.querySelectorAll("input[data-room]")]
-      .reduce((acc, el) => {
-        const cur = acc.find((x) => x.room === el.dataset.room) || { room: el.dataset.room };
-        if (el.value !== "") cur[el.dataset.kind] = Number(el.value);
-        if (!acc.includes(cur)) acc.push(cur);
-        return acc;
-      }, [])
-      .filter((r) => r.water !== undefined || r.elec !== undefined);
-
-  const totalOf = (r) => {
-    const c = cfg[r.room] || {};
-    return Number(c.rent || 0) + Number(r.water || 0) * Number(c.waterRate || 0) + Number(r.elec || 0) * Number(c.elecRate || 0);
+  $("applyRound").onclick = () => {
+    const p = $("period").value.trim();
+    const d = $("due").value.trim();
+    if (!/^\d{4}-\d{2}$/.test(p)) return toast("รอบบิลต้องเป็นรูปแบบ 2026-12", true);
+    if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) return toast("วันครบกำหนดต้องเป็นรูปแบบ 2026-12-16", true);
+    if (p !== O.period) { O.period = p; O.draft = loadDraft(); O.skipped.clear(); }
+    O.due = d;
+    ownerBill();
   };
 
-  const refresh = () => {
-    document.querySelectorAll("[data-total]").forEach((el) => (el.textContent = "—"));
-    const readings = readingsOf();
-    let sum = 0;
-    for (const r of readings) {
-      const total = totalOf(r);
-      sum += total;
-      const el = document.querySelector(`[data-total="${r.room}"]`);
-      if (el) el.textContent = `${baht(total)}.-`;
-    }
-    const btn = $("run");
-    btn.disabled = !readings.length;
-    btn.textContent = readings.length ? `ออกบิล ${readings.length} ห้อง · ${baht(sum)} บาท` : "กรอกมิเตอร์ก่อน";
-  };
-
-  view.oninput = refresh;
-
+  bottom(`<button class="btn primary" id="run" ${ready.length ? "" : "disabled"}>${ready.length ? `ออกบิลและส่งเข้า LINE · ${ready.length} ห้อง` : "ยังไม่มีห้องที่จดมิเตอร์"}</button>`);
   $("run").onclick = async () => {
-    const btn = $("run"), msg = $("msg");
-    const readings = readingsOf();
-    if (!readings.length) return;
+    const btn = $("run");
     btn.disabled = true;
-    msg.style.color = "";
-    msg.textContent = "กำลังออกบิลและส่งการ์ด…";
+    btn.textContent = "กำลังออกบิลและส่งการ์ด…";
     try {
       const out = await api("/api/run", {
         method: "POST",
         body: JSON.stringify({
-          period: ($("period")?.value || period).trim(),
-          due: ($("due")?.value || due).trim(),
-          readings,
+          period: O.period,
+          due: O.due,
+          readings: ready.map((r) => ({ room: r.room, ...O.draft[r.room] })),
         }),
       });
-      const sent = out.rooms.filter((r) => r.pushed).length;
-      await ownerView(me);
-      $("msg").textContent = `ออกบิลรอบ ${out.period} แล้ว ${out.rooms.length} ห้อง · ส่งการ์ด ${sent} ห้อง`;
+      const done = out.rooms.filter((x) => !x.error);
+      const sent = done.filter((x) => x.pushed).length;
+      done.forEach((x) => delete O.draft[x.room]);
+      saveDraft();
+      toast(`ออกบิลรอบ ${periodTh(out.period)} แล้ว ${done.length} ห้อง · ส่งการ์ด ${sent} ห้อง`);
+      history.replaceState(null, "", "#home");
+      await loadOwner();
     } catch (e) {
-      msg.style.color = "var(--bad)";
-      msg.textContent = e.message;
+      toast(e.message, true);
       btn.disabled = false;
+      btn.textContent = `ออกบิลและส่งเข้า LINE · ${ready.length} ห้อง`;
     }
   };
+}
 
-  document.querySelectorAll("[data-slip]").forEach((el) => {
-    el.onclick = () => showSlip(el.dataset.slip);
+function ownerReview(tab) {
+  O.reviewTab = tab === "overdue" ? "overdue" : "pending";
+  header("DormPlus · เจ้าของหอ", "ค้าง / รอตรวจ", "home");
+  bottom("");
+  const pending = O.rooms.filter((r) => r.bill?.status === "pending");
+  const overdue = O.rooms.filter((r) => isOverdue(r.bill));
+  const unpaidLater = O.rooms.filter((r) => r.bill?.status === "unpaid" && !isOverdue(r.bill));
+
+  const pendingCard = (r) => `
+    <div class="card">
+      <div class="slip">
+        <div class="thumb" data-slip="${esc(r.room)}">${r.bill.slipPath ? "…" : "ไม่มีรูป"}</div>
+        <div style="flex:1">
+          <b>ห้อง ${esc(r.room)}</b>
+          <div class="m">ยอดบิล ${fmt(r.bill.total)} บาท${r.bill.slipAt ? " · แจ้ง " + timeTh(r.bill.slipAt) : ""}</div>
+          <div class="m">รอบบิล ${periodTh(r.bill.period)}</div>
+        </div>
+      </div>
+      ${r.bill.slipPath ? `<button class="btn" style="margin-top:12px" data-open="${esc(r.room)}">ดูสลิป</button>` : ""}
+    </div>`;
+
+  const overdueCard = (r) => `
+    <div class="roomcard" style="cursor:default">
+      <span><b>ห้อง ${esc(r.room)}</b><div class="m">${fmt(r.bill.total)} บาท · ครบกำหนด ${dateTh(r.bill.due)}</div></span>
+      <span class="pill bad">เลย ${daysLate(r.bill.due)} วัน</span>
+    </div>`;
+
+  const body = O.reviewTab === "pending"
+    ? (pending.length
+        ? `${pending.map(pendingCard).join("")}<div class="hint">กด “ยืนยันการชำระ” ได้ที่การ์ดที่ส่งเข้าแชท LINE ของเจ้าของหอ</div>`
+        : `<div class="card empty m">ไม่มีสลิปที่รอตรวจ</div>`)
+    : (overdue.length
+        ? `<div class="stack">${overdue.map(overdueCard).join("")}</div>`
+        : `<div class="card empty m">ไม่มีห้องค้างเกินกำหนด</div>`)
+      + (unpaidLater.length ? `<div class="hint">ยังไม่ถึงกำหนดอีก ${unpaidLater.length} ห้อง (${unpaidLater.map((r) => esc(r.room)).join(", ")})</div>` : "");
+
+  view.innerHTML = `
+    <div class="seg">
+      <button class="${O.reviewTab === "pending" ? "on" : ""}" data-tab="pending">รอตรวจสลิป ${pending.length}</button>
+      <button class="${O.reviewTab === "overdue" ? "on" : ""}" data-tab="overdue">ค้างชำระ ${overdue.length}</button>
+    </div>
+    ${body}`;
+
+  view.querySelectorAll("[data-tab]").forEach((el) => (el.onclick = () => history.replaceState(null, "", "#review/" + el.dataset.tab) || ownerReview(el.dataset.tab)));
+  view.querySelectorAll("[data-open]").forEach((el) => (el.onclick = () => showSlip(el.dataset.open)));
+  view.querySelectorAll(".thumb[data-slip]").forEach(async (el) => {
+    const room = el.dataset.slip;
+    if (!O.rooms.find((r) => r.room === room)?.bill?.slipPath) return;
+    el.onclick = () => showSlip(room);
+    try { el.innerHTML = `<img src="${await slipUrl(room)}" alt="สลิป">`; } catch { el.textContent = "โหลดไม่ได้"; }
   });
-
-  refresh();
 }
 
 async function showSlip(room) {
-  const box = $("slipBox");
-  box.innerHTML = `<div class="card"><div class="m">กำลังโหลดสลิปห้อง ${room}…</div></div>`;
+  const sheet = document.createElement("div");
+  sheet.className = "sheet";
+  sheet.innerHTML = `<div class="card"><div class="row"><b>สลิปห้อง ${esc(room)}</b><button class="btn sm" id="closeSlip">ปิด</button></div>
+    <div class="m" id="slipBody" style="margin-top:10px">กำลังโหลด…</div></div>`;
+  document.body.appendChild(sheet);
+  const close = () => sheet.remove();
+  sheet.onclick = (e) => { if (e.target === sheet) close(); };
+  $("closeSlip").onclick = close;
   try {
-    const res = await fetch(`/api/slip-image?room=${encodeURIComponent(room)}`, {
-      headers: { Authorization: `Bearer ${idToken}` },
-    });
-    if (!res.ok) throw new Error("โหลดสลิปไม่สำเร็จ");
-    const url = URL.createObjectURL(await res.blob());
-    box.innerHTML = `<div class="card"><div class="row"><b>สลิปห้อง ${room}</b><a class="m" href="#" id="closeSlip">ปิด</a></div>
-      <img src="${url}" style="width:100%;border-radius:10px;margin-top:10px" alt="slip"></div>`;
-    $("closeSlip").onclick = (e) => { e.preventDefault(); box.innerHTML = ""; };
-    box.scrollIntoView({ behavior: "smooth" });
+    $("slipBody").outerHTML = `<img src="${await slipUrl(room)}" alt="สลิปห้อง ${esc(room)}">`;
   } catch (e) {
-    box.innerHTML = `<div class="card"><div class="err">${e.message}</div></div>`;
+    $("slipBody").className = "err";
+    $("slipBody").textContent = e.message;
   }
 }
 
