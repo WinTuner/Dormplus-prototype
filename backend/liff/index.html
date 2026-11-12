@@ -122,21 +122,37 @@ async function boot() {
 
     await liff.init({ liffId: cfg.liff_id });
     if (!liff.isLoggedIn()) {
-      liff.login();
+      // Come back to this exact URL so an invite's ?code= survives the LINE login round trip.
+      liff.login({ redirectUri: location.href });
       return;
     }
 
     const idToken = liff.getIDToken();
+    const code = new URLSearchParams(location.search).get('code');
     let login;
     try {
-      login = await api('/v1/auth/line', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id_token: idToken }),
-      });
+      if (code) {
+        // Opened from the owner's invite QR: bind this LINE account to the room first.
+        login = await api('/v1/auth/line/link', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id_token: idToken, code: code }),
+        });
+        // Drop the code from the address so a refresh or a shared screenshot does not reuse it.
+        history.replaceState(null, '', location.pathname);
+      } else {
+        login = await api('/v1/auth/line', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id_token: idToken }),
+        });
+      }
     } catch (e) {
       if (e.code === 'NOT_LINKED') {
-        return fail('LINE นี้ยังไม่ได้ผูกกับห้อง', 'ให้เจ้าของหอเพิ่ม LINE ของคุณเข้าห้องก่อน แล้วเปิดใหม่');
+        return fail('LINE นี้ยังไม่ได้ผูกกับห้อง', 'ขอ QR เชิญจากเจ้าของหอ แล้วสแกนเพื่อผูก LINE กับห้องของคุณ');
+      }
+      if (e.code === 'INVITE_NOT_FOUND' || e.code === 'INVITE_USED' || e.code === 'INVITE_EXPIRED') {
+        return fail('ใช้ QR เชิญนี้ไม่ได้', e.message);
       }
       throw e;
     }
