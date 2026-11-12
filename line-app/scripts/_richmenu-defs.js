@@ -1,27 +1,26 @@
 // Shared rich-menu definitions, so setup and image replacement cannot drift apart.
-// Both menus are 2500x1686 (LINE "large" size).
+// Sizes: owner = LINE "large" (2500x1686, 3x2), tenant = LINE "compact" (2500x843, 1x3).
 
 const cell = (x, y, w, h) => ({ x, y, width: w, height: h });
 const liff = (liffId, tab) => `https://liff.line.me/${liffId}?tab=${tab}`;
 
-// Tenant menu: 2x2 picture. The first three cells open the bill page (where the slip form is),
-// the last one is the dorm's contact entry.
+// Tenant menu: compact, one row of three. All three cells land on the bill page, which is where
+// the amount, the slip form and the paid state live (there is no receipt history yet).
 function tenantMenu(liffId) {
+  const w = 833;
   return {
-    size: { width: 2500, height: 1686 },
+    size: { width: 2500, height: 843 },
     selected: true,
     name: "ผู้เช่า",
     chatBarText: "เมนูผู้เช่า",
-    areas: [
-      { bounds: cell(0, 0, 1250, 843), action: { type: "uri", uri: liff(liffId, "bill") } },
-      { bounds: cell(1250, 0, 1250, 843), action: { type: "uri", uri: liff(liffId, "bill") } },
-      { bounds: cell(0, 843, 1250, 843), action: { type: "uri", uri: liff(liffId, "bill") } },
-      { bounds: cell(1250, 843, 1250, 843), action: { type: "message", text: "ติดต่อหอพัก" } },
-    ],
+    areas: [0, 1, 2].map((i) => ({
+      bounds: cell(i * w, 0, i === 2 ? 2500 - 2 * w : w, 843),
+      action: { type: "uri", uri: liff(liffId, "bill") },
+    })),
   };
 }
 
-// Owner menu: 3x2 picture, in the order the LIFF page understands.
+// Owner menu: large, 3x2, in the order the LIFF page understands.
 function ownerMenu(liffId) {
   const w = 833;
   const tabs = ["meter", "bill", "slips", "unpaid", "report", "rooms"];
