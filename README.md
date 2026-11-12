@@ -56,10 +56,13 @@ docs/richmenu-*.png  Rich Menu 2500×1686 (เจ้าของ / ผู้เ�
 | หน้าเจ้าของ + ผู้เช่า (web/) | ✅ ใช้ได้ |
 | API `/v1/*` (adapter บน SQLite) | ✅ ใช้ได้ |
 | คำนวณบิล · สถานะ · กันบิลซ้ำ | ✅ |
-| Backend จริง (FastAPI + Postgres) | 🟡 มีโครง + migration + seed ใน `backend/` · ยังไม่มี endpoint |
-| LINE OA / LIFF / webhook | ⬜ ต้องมี Channel ID |
-| Auth (LINE Login) | ⬜ |
+| Backend จริง (FastAPI + Postgres) | 🟡 ใช้ได้บางส่วนใน `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · แนบสลิป · ยืนยัน/ตีกลับ + ใบเสร็จ · test 58 ตัว |
+| Auth (LINE Login) | ✅ LIFF idToken → session cookie (`backend/app/routes/auth.py`) · RLS policy ยังไม่มี |
+| LIFF ผู้เช่า | ✅ ล็อกอิน · ดูบิล · แนบสลิป (`backend/liff/`) |
+| ส่งข้อความ LINE / webhook | ⬜ ยังไม่ส่งบิล ใบเสร็จ หรือข้อความทวงเข้าแชท |
+| คิวงาน + ทวงอัตโนมัติ (Procrastinate) | ⬜ |
 | ตรวจสลิปอัตโนมัติ | ⬜ ตอนนี้เจ้าของกดยืนยันเอง |
+| หน้าเจ้าของ (`web/`) ต่อ backend จริง | ⬜ ยังเรียก API ชั่วคราวบน SQLite |
 
 ## กติกาที่ใส่ไว้ในระบบ
 
@@ -135,4 +138,4 @@ docs/richmenu-*.png  Rich Menu 2500×1686 (เจ้าของ / ผู้เ�
 ## สิทธิ์การใช้งานและสถานะ
 
 โปรเจกต์นี้ไม่ใช่ open source และยังไม่มีไฟล์ `LICENSE` ในรีโป — สิทธิ์เป็นของเจ้าของโครงการ
-สถานะปัจจุบัน: **ต้นแบบ + frontend พร้อมใช้งาน** ส่วน backend จริง (FastAPI + Postgres), LINE OA/LIFF และ auth ยังไม่ได้เริ่ม ดูรายละเอียดและเกณฑ์ "เสร็จ" ที่ [`docs/HANDOFF.md`](docs/HANDOFF.md)
+สถานะปัจจุบัน: **ต้นแบบ + frontend พร้อมใช้งาน · backend จริงทำไปบางส่วน** (ห้อง มิเตอร์ ออกบิล สลิป และ LINE Login ผ่าน LIFF) ส่วนการส่งข้อความ LINE, คิวงาน, ทวงอัตโนมัติ และตรวจสลิปอัตโนมัติยังไม่ได้เริ่ม ดูรายละเอียดและเกณฑ์ "เสร็จ" ที่ [`docs/HANDOFF.md`](docs/HANDOFF.md)

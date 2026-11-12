@@ -1,6 +1,6 @@
 # DormPlus — Handoff: backend
 
-เอกสารส่งงานสำหรับคนรับช่วง back-end · อัปเดต 10 พ.ย. 2569
+เอกสารส่งงานสำหรับคนรับช่วง back-end · อัปเดต 12 พ.ย. 2569
 
 ## 1. ตอนนี้มีอะไรแล้ว
 
@@ -20,15 +20,16 @@
 
 ## 2. สิ่งที่ต้องสร้าง
 
-1. FastAPI app ตาม `docs/API.md` (ทุก endpoint + error code)
-2. Postgres ตาม `db/schema.sql` + migration (Alembic)
-3. Worker + Scheduler (Procrastinate หรือ ARQ) สำหรับ:
-   - `billing.run` — ออกบิลทั้งหอใน transaction เดียว
+1. 🟡 FastAPI app ตาม `docs/API.md` (ทุก endpoint + error code)
+   — มีแล้ว: rooms, readings, billing run, invoices, slip, confirm, reject, `/me/invoices`, auth · เหลือ `GET /properties/:id`, `GET /invoices/:id`, webhook
+2. ✅ Postgres ตาม `db/schema.sql` + migration (Alembic) — `backend/migrations/`
+3. ⬜ Worker + Scheduler (Procrastinate หรือ ARQ) สำหรับ:
+   - `billing.run` — ออกบิลทั้งหอใน transaction เดียว (ตอนนี้ทำใน request แบบ synchronous แล้ว `job_id` = `null`)
    - `notify.invoice` — ส่ง LINE ทีละห้อง + `message_log`
    - `dunning` — cron รายวัน 1/5/10 วันหลังครบกำหนด
-   - `slip.verify` — เรียก SlipOK แล้วอัปเดตสถานะ
-4. Auth: LINE Login → ตรวจ idToken → session cookie → resolve `property_id`
-5. Webhook LINE (ตรวจ signature, ตอบ 200 เร็ว, ประมวลผล async)
+   - `slip.verify` — เรียก SlipOK แล้วอัปเดตสถานะ (ตอนนี้ `verify.ok` = `null` เจ้าของกดยืนยันเอง)
+4. 🟡 Auth: LINE Login → ตรวจ idToken → session cookie → resolve `property_id` — เสร็จแล้ว · ยังไม่มี RLS policy
+5. ⬜ Webhook LINE (ตรวจ signature, ตอบ 200 เร็ว, ประมวลผล async)
 
 ## 3. กติกาที่ห้ามพลาด
 
@@ -50,12 +51,12 @@
 
 ## 5. เกณฑ์ว่า "เสร็จ"
 
-- [ ] ออกบิล 42 ห้องได้ใน 1 request และ rollback ทั้งก้อนถ้าล้ม
+- [x] ออกบิล 42 ห้องได้ใน 1 request และ rollback ทั้งก้อนถ้าล้ม — `backend/tests/test_billing.py`
 - [ ] ส่ง LINE ครบ 42 ห้อง และ `message_log` มี 42 แถว
-- [ ] กดออกบิลซ้ำ → 409 ไม่สร้างซ้ำ
-- [ ] ผู้เช่าแนบสลิป → `pending` → เจ้าของยืนยัน → `paid` + ใบเสร็จ
+- [x] กดออกบิลซ้ำ → 409 ไม่สร้างซ้ำ — `backend/tests/test_billing.py`
+- [x] ผู้เช่าแนบสลิป → `pending` → เจ้าของยืนยัน → `paid` + ใบเสร็จ — `backend/tests/test_slip_confirm_reject.py`
 - [ ] สลิปยอดไม่ตรง → ไม่ผ่านอัตโนมัติ
-- [ ] เรียก API ของหอ A ด้วย session หอ B → 403
+- [x] เรียก API ของหอ A ด้วย session หอ B → 403 — `backend/tests/test_rooms.py`
 - [ ] cron ทวงทำงาน 1/5/10 วัน และไม่ส่งซ้ำในวันเดียว
 
 ## 6. ลำดับงานที่แนะนำ (2 สัปดาห์)
