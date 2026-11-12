@@ -48,6 +48,20 @@ curl -X PUT -H "X-Dev-Property: p_1" -H "Content-Type: application/json" \
 
 **ห้ามเปิด `DEV_AUTH` บน server จริง** เพราะใครก็ส่ง header เป็นหอไหนก็ได้
 
+## ฐานข้อมูลจริง (Neon)
+
+ตอนนี้มี Postgres จริงอยู่แล้ว — สร้างผ่าน Vercel Marketplace (Neon, free tier) และผูกกับโปรเจกต์ `line-app`
+connection string อยู่ใน `backend/.env` (gitignored) `DATABASE_URL` ใช้ endpoint **unpooled** เพราะ alembic
+ต้องรัน DDL หลายคำสั่งใน transaction เดียว
+
+```bash
+python -m alembic upgrade head     # schema v1
+python -m app.seed                 # 42 ห้อง + มิเตอร์ ต.ค./พ.ย. + บิลค้าง 9 ใบ
+```
+
+**ห้ามตั้ง `TEST_DATABASE_URL` ชี้มาที่ฐานนี้** — pytest จะ truncate ทุกตารางทิ้ง
+ถ้าต้องรัน test ให้สร้าง Neon branch แยกแล้วใช้ connection string ของ branch นั้น
+
 ## รันในเครื่อง
 
 ต้องมี Python 3.11 ขึ้นไป และ Postgres 1 ตัว (Docker หรือ Supabase ก็ได้)
@@ -67,7 +81,7 @@ python -m app.seed              # หอ p_1 · 42 ห้อง · มิเต�
 uvicorn app.main:app --reload   # http://127.0.0.1:8000/healthz และ /docs
 ```
 
-seed รันซ้ำได้ ไม่สร้างข้อมูลซ้ำ ตัวเลขมิเตอร์ตรงกับ prototype (`server.py`)
+seed รันซ้ำได้ ไม่สร้างข้อมูลซ้ำ (ตัวเลขชุดเดียวกับที่ใช้ในเทสต์)
 
 ## Test
 
@@ -102,6 +116,22 @@ docker run --rm -p 8000:8000 \
 
 `PORT` ถูกอ่านจาก env (Railway / Cloud Run ใส่ให้เอง) ค่าเริ่มต้น 8000 · ยังไม่รัน migration อัตโนมัติ —
 ต้อง `alembic upgrade head` ก่อน start หรือทำเป็น release command ของผู้ให้บริการ
+
+## Deploy บน Vercel (ที่ใช้อยู่จริง)
+
+Production: **https://line-backend-ten.vercel.app** (โปรเจกต์ `line-backend`, root directory = `backend`)
+
+```bash
+cd backend
+vercel --prod        # deploy จากเครื่อง
+```
+
+- entrypoint คือ `api/index.py` ซึ่งแค่ `from app.main import app` → Vercel รู้จักว่าเป็น ASGI
+- dependency มาจาก `requirements.txt` (คู่กับ `pyproject.toml` ที่ยังใช้ตอนพัฒนาในเครื่อง)
+- env ที่ต้องตั้งบน Vercel: `DATABASE_URL` (pooled endpoint ของ Neon + `?sslmode=require`),
+  `LINE_CHANNEL_ID`, `LIFF_ID`, `SESSION_SECRET`, `COOKIE_SECURE=true`, `DEV_AUTH=false`
+- **ไม่ต้องรัน migration ตอน deploy** — schema ถูก apply ไปแล้ว ให้รัน `alembic upgrade head` จากเครื่องเมื่อมี migration ใหม่
+- ข้อจำกัดของ serverless: ไม่มี worker/cron ในโปรเซสนี้, cold start ~1–2 วิ, timeout 300 วิ
 
 ## โครงไฟล์
 

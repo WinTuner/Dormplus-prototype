@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DormPlus</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#0B0F14;--card:#121A22;--line:#24333F;--text:#E6EDF3;--muted:#8B9AAB;--accent:#4FD8D2;--warn:#F59E0B;--bad:#FF7A7A}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans Thai',system-ui,sans-serif;min-height:100vh;display:flex;justify-content:center}
+  .app{width:100%;max-width:430px;padding:28px 20px 40px;display:flex;flex-direction:column;gap:12px}
+  .kick{font-size:11px;color:var(--accent);font-weight:600}
+  h1{font-size:20px;font-weight:700;margin-top:2px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px}
+  .m{font-size:12px;color:var(--muted);line-height:1.6}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .big{font-size:34px;font-weight:700;color:var(--accent)}
+  .pill{font-size:11px;padding:3px 10px;border-radius:999px;border:1px solid rgba(79,216,210,.5);color:var(--accent);white-space:nowrap}
+  .pill.warn{border-color:rgba(245,158,11,.6);color:var(--warn)}
+  .btn{background:var(--accent);color:#062B14;font-weight:600;font-size:15px;text-align:center;padding:14px;border-radius:12px;border:none;width:100%;cursor:pointer;font-family:inherit}
+  .btn:disabled{opacity:.5}
+  .btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--line)}
+  .ok{color:var(--accent);font-size:13px;text-align:center;min-height:18px}
+  .err{color:var(--bad);font-size:13px;line-height:1.6}
+  input[type=file]{display:none}
+  .field{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+  input[type=number],input[type=text]{background:#0B0F14;border:1px solid var(--line);color:var(--text);border-radius:8px;padding:9px;font-family:inherit;font-size:14px;width:100%}
+  .mrow{display:grid;grid-template-columns:46px 1fr 1fr 78px;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid var(--line)}
+  .mrow:last-child{border-bottom:none}
+  .mrow input{text-align:center;padding:11px 6px;font-size:15px}
+  .who{font-weight:700;font-size:15px}
+  .mtotal{font-size:12px;color:var(--accent)}
+  .thumb{width:34px;height:34px;border-radius:8px;object-fit:cover;background:#0B0F14;border:1px solid var(--line)}
+</style>
+</head>
+<body>
+<div class="app">
+  <div>
+    <div class="kick" id="kick">DormPlus</div>
+    <h1 id="title">กำลังโหลด…</h1>
+  </div>
+  <div id="view"></div>
+</div>
+
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const view = $("view");
+const fmt = (n) => Number(n || 0).toLocaleString("th-TH");
+let idToken = null;
+
+// ---------- boot ----------
+async function boot() {
+  try {
+    const cfg = await (await fetch("/api/config")).json();
+    if (!cfg.liffId || !window.liff) throw new Error("no-liff");
+    await liff.init({ liffId: cfg.liffId });
+    if (!liff.isLoggedIn()) return liff.login({ redirectUri: location.href });
+
+    idToken = liff.getIDToken();
+    if (!idToken) {
+      // LIFF app ต้องเปิด scope "openid" ถึงจะได้ idToken
+      return fail("LIFF นี้ยังไม่ได้เปิด scope openid — เพิ่มใน LINE Developers → channel DormPlus LIFF → LIFF → แก้ไข → ติ๊ก openid");
+    }
+
+    const me = await api("/api/me");
+    const params = new URLSearchParams(location.search);
+    const tab = params.get("tab") || "";
+    const room = me.room || params.get("room");
+    const home = () => (me.owner ? ownerView(me) : room ? billView(room) : fail("ยังไม่ได้ผูกห้อง — พิมพ์ “ผูก 203” ในแชท LINE ก่อน"));
+
+    // Rich-menu tabs that are drawn but not built yet.
+    const soon = { slips: "ตรวจสอบสลิป", unpaid: "ค้างชำระ", report: "รายงานรายรับ", rooms: "จัดการห้อง" };
+    if (soon[tab]) return notice(soon[tab], "ส่วนนี้ยังไม่เปิดใช้งานในเวอร์ชันนี้", me.owner ? "ไปหน้าจดมิเตอร์" : "ดูบิลของฉัน", home);
+
+    if (tab === "meter") {
+      if (!me.owner) return notice("จดมิเตอร์", "หน้าจอนี้สำหรับเจ้าของหอ", "ดูบิลของฉัน", home);
+      return ownerView(me);
+    }
+    if (tab === "bill") {
+      if (me.owner) return notice("บิลค่าเช่า", "หน้าจอนี้สำหรับผู้เช่า — เจ้าของหอดูสถานะบิลและสลิปได้ที่หน้าจดมิเตอร์", "ไปหน้าจดมิเตอร์", home);
+      return room ? billView(room) : fail("ยังไม่ได้ผูกห้อง — พิมพ์ “ผูก 203” ในแชท LINE ก่อน");
+    }
+
+    return home();
+  } catch (e) {
+    console.error(e);
+    fail("เปิดหน้านี้จากปุ่มในแชท LINE เท่านั้น (LIFF)");
+  }
+}
+
+// A screen for "not built yet" / "wrong role", with one button back to what does work.
+function notice(title, message, ctaLabel, cta) {
+  $("title").textContent = title;
+  view.innerHTML = `<div class="card"><div class="m">${message}</div>
+    <button class="btn" id="cta" style="margin-top:12px">${ctaLabel}</button></div>`;
+  $("cta").onclick = cta;
+}
+
+function fail(msg) {
+  $("title").textContent = "ใช้งานไม่ได้";
+  view.innerHTML = `<div class="card"><div class="err">${msg}</div></div>`;
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    headers: { ...(opts.body ? { "Content-Type": "application/json" } : {}), Authorization: `Bearer ${idToken}` },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data?.error?.message || `HTTP ${res.status}`), { status: res.status });
+  return data;
+}
+
+// ---------- tenant ----------
+async function billView(room) {
+  let b;
+  try {
+    b = await api(`/api/bill?room=${encodeURIComponent(room)}`);
+  } catch (e) {
+    $("title").textContent = `ห้อง ${room}`;
+    view.innerHTML = `<div class="card"><div class="err">${e.message}</div></div>`;
+    return;
+  }
+
+  $("title").textContent = `ห้อง ${b.room}`;
+  const label = b.status === "paid" ? "ชำระแล้ว" : b.status === "pending" ? "รอตรวจสอบ" : "ยังไม่ชำระ";
+  const pillClass = b.status === "unpaid" ? "pill warn" : "pill";
+
+  view.innerHTML = `
+    <div class="card">
+      <div class="row"><span class="m">รอบบิล ${b.period}</span><span class="${pillClass}" id="pill">${label}</span></div>
+      <div class="big" style="margin-top:6px">${fmt(b.total)} <span style="font-size:14px;color:var(--muted)">บาท</span></div>
+      <div class="m" style="margin-top:10px">ค่าเช่า ${fmt(b.rent)} · ค่าน้ำ ${fmt(b.water)} · ค่าไฟ ${fmt(b.elec)}</div>
+      ${b.due ? `<div class="m" style="margin-top:4px">ครบกำหนด ${b.due}</div>` : ""}
+    </div>
+    <div class="card">
+      <div class="row"><b>แนบสลิป</b><span class="${pillClass}" id="slipStatus">${label}</span></div>
+      <div class="m" id="note" style="margin-top:6px">—</div>
+      <label class="btn ghost" for="file" style="display:block;margin-top:12px;${b.status === "paid" ? "opacity:.5;pointer-events:none" : ""}">
+        ${b.hasSlip ? "เปลี่ยนรูปสลิป" : "เลือกรูปสลิป"}
+      </label>
+      <input type="file" id="file" accept="image/*" capture="environment">
+      <button class="btn" id="send" style="margin-top:10px" ${b.status === "paid" ? "disabled" : ""}>แนบสลิป &amp; แจ้งชำระ</button>
+      <div class="ok" id="msg"></div>
+    </div>`;
+
+  const note = $("note");
+  if (b.status === "paid") note.textContent = "ใบเสร็จออกแล้ว";
+  else if (b.status === "pending") note.textContent = "แนบสลิปแล้ว — รอเจ้าของหอยืนยัน";
+  else note.textContent = "โอนเงินแล้วแนบสลิปเพื่อให้เจ้าของหอยืนยัน";
+
+  $("send").onclick = async () => {
+    const btn = $("send"), msg = $("msg");
+    btn.disabled = true;
+    msg.style.color = "";
+    msg.textContent = "กำลังส่ง…";
+    try {
+      const file = $("file").files[0];
+      const image = file ? await shrink(file) : undefined;
+      await api("/api/slip", { method: "POST", body: JSON.stringify({ room, image }) });
+      msg.textContent = "แจ้งชำระแล้ว — รอเจ้าของหอยืนยัน";
+      await billView(room);
+    } catch (e) {
+      msg.style.color = "var(--bad)";
+      msg.textContent = e.message;
+      btn.disabled = false;
+    }
+  };
+}
+
+// Downscale in the browser so the photo fits the 4.5MB function limit.
+async function shrink(file) {
+  const bmp = await createImageBitmap(file);
+  const scale = Math.min(1, 1280 / Math.max(bmp.width, bmp.height));
+  const c = document.createElement("canvas");
+  c.width = Math.round(bmp.width * scale);
+  c.height = Math.round(bmp.height * scale);
+  c.getContext("2d").drawImage(bmp, 0, 0, c.width, c.height);
+  return c.toDataURL("image/jpeg", 0.8);
+}
+
+// ---------- owner ----------
+const TH_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+const baht = (n) => Number(n || 0).toLocaleString("th-TH");
+const nextPeriod = (p) => {
+  if (!p || !/^\d{4}-\d{2}$/.test(p)) return "";
+  const y = Number(p.slice(0, 4));
+  const m = Number(p.slice(5, 7));
+  return m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, "0")}`;
+};
+const periodTh = (p) => (p ? `${TH_MONTHS[Number(p.slice(5, 7)) - 1]} ${p.slice(0, 4)}` : "—");
+const dateTh = (d) => (d ? `${Number(d.slice(8, 10))} ${TH_MONTHS[Number(d.slice(5, 7)) - 1]}` : "—");
+const DUE_DAY = 16;
+
+async function ownerView(me) {
+  $("kick").textContent = "DormPlus · เจ้าของหอ";
+  $("title").textContent = "จดมิเตอร์ → ออกบิล";
+  const data = await api("/api/rooms");
+
+  const cfg = Object.fromEntries(data.rooms.map((r) => [r.room, r.config]));
+  const newest = data.rooms.map((r) => r.bill?.period).filter(Boolean).sort().pop() || data.period;
+  const period = nextPeriod(newest) || data.period || "";
+  const due = period ? `${period}-${String(DUE_DAY).padStart(2, "0")}` : "";
+
+  const rows = data.rooms
+    .map((r) => {
+      const w = r.bill?.waterUnits ?? r.meter?.water ?? "";
+      const e = r.bill?.elecUnits ?? r.meter?.elec ?? "";
+      const slip = r.bill?.slipPath
+        ? `<button class="btn ghost" style="width:auto;padding:3px 8px;font-size:10px;margin-top:3px" data-slip="${r.room}">ดูสลิป</button>`
+        : "";
+      return `<div class="mrow">
+        <div><div class="who">${r.room}</div><div class="m" style="font-size:10px">${r.tenant ? "ผูกแล้ว" : "—"}</div></div>
+        <input type="number" min="0" step="1" inputmode="numeric" data-room="${r.room}" data-kind="water" value="" placeholder="${w !== "" ? w : "น้ำ"}">
+        <input type="number" min="0" step="1" inputmode="numeric" data-room="${r.room}" data-kind="elec" value="" placeholder="${e !== "" ? e : "ไฟ"}">
+        <div style="text-align:right"><div class="mtotal" data-total="${r.room}">—</div>${slip}</div>
+      </div>`;
+    })
+    .join("");
+
+  view.innerHTML = `
+    <div class="card">
+      <div class="row">
+        <div>
+          <div class="m">รอบบิลที่จะออก</div>
+          <b style="font-size:16px">${periodTh(period)}</b>
+          <div class="m">ครบกำหนด ${dateTh(due)}</div>
+        </div>
+        <button class="btn ghost" id="editRound" style="width:auto;padding:8px 14px;font-size:12px">แก้ไข</button>
+      </div>
+      <div id="roundInputs" style="display:none;margin-top:10px;gap:6px;flex-direction:column">
+        <input type="text" id="period" value="${period}" placeholder="2026-12">
+        <input type="text" id="due" value="${due}" placeholder="2026-12-16">
+      </div>
+    </div>
+    <div class="card">
+      <div class="m" style="margin-bottom:6px">กรอกหน่วยที่ใช้เดือนนี้ (เว้นว่าง = ยังไม่จดห้องนั้น)</div>
+      <div class="mrow" style="border-bottom:1px solid var(--line);padding-bottom:6px">
+        <div class="m">ห้อง</div><div class="m" style="text-align:center">น้ำ</div>
+        <div class="m" style="text-align:center">ไฟ</div><div class="m" style="text-align:right">รวม</div>
+      </div>
+      ${rows}
+    </div>
+    <button class="btn" id="run" style="position:sticky;bottom:14px" disabled>กรอกมิเตอร์ก่อน</button>
+    <div class="ok" id="msg"></div>
+    <div id="slipBox"></div>`;
+
+  $("editRound").onclick = () => {
+    const box = $("roundInputs");
+    box.style.display = box.style.display === "none" ? "flex" : "none";
+  };
+
+  const readingsOf = () =>
+    [...document.querySelectorAll("input[data-room]")]
+      .reduce((acc, el) => {
+        const cur = acc.find((x) => x.room === el.dataset.room) || { room: el.dataset.room };
+        if (el.value !== "") cur[el.dataset.kind] = Number(el.value);
+        if (!acc.includes(cur)) acc.push(cur);
+        return acc;
+      }, [])
+      .filter((r) => r.water !== undefined || r.elec !== undefined);
+
+  const totalOf = (r) => {
+    const c = cfg[r.room] || {};
+    return Number(c.rent || 0) + Number(r.water || 0) * Number(c.waterRate || 0) + Number(r.elec || 0) * Number(c.elecRate || 0);
+  };
+
+  const refresh = () => {
+    document.querySelectorAll("[data-total]").forEach((el) => (el.textContent = "—"));
+    const readings = readingsOf();
+    let sum = 0;
+    for (const r of readings) {
+      const total = totalOf(r);
+      sum += total;
+      const el = document.querySelector(`[data-total="${r.room}"]`);
+      if (el) el.textContent = `${baht(total)}.-`;
+    }
+    const btn = $("run");
+    btn.disabled = !readings.length;
+    btn.textContent = readings.length ? `ออกบิล ${readings.length} ห้อง · ${baht(sum)} บาท` : "กรอกมิเตอร์ก่อน";
+  };
+
+  view.oninput = refresh;
+
+  $("run").onclick = async () => {
+    const btn = $("run"), msg = $("msg");
+    const readings = readingsOf();
+    if (!readings.length) return;
+    btn.disabled = true;
+    msg.style.color = "";
+    msg.textContent = "กำลังออกบิลและส่งการ์ด…";
+    try {
+      const out = await api("/api/run", {
+        method: "POST",
+        body: JSON.stringify({
+          period: ($("period")?.value || period).trim(),
+          due: ($("due")?.value || due).trim(),
+          readings,
+        }),
+      });
+      const sent = out.rooms.filter((r) => r.pushed).length;
+      await ownerView(me);
+      $("msg").textContent = `ออกบิลรอบ ${out.period} แล้ว ${out.rooms.length} ห้อง · ส่งการ์ด ${sent} ห้อง`;
+    } catch (e) {
+      msg.style.color = "var(--bad)";
+      msg.textContent = e.message;
+      btn.disabled = false;
+    }
+  };
+
+  document.querySelectorAll("[data-slip]").forEach((el) => {
+    el.onclick = () => showSlip(el.dataset.slip);
+  });
+
+  refresh();
+}
+
+async function showSlip(room) {
+  const box = $("slipBox");
+  box.innerHTML = `<div class="card"><div class="m">กำลังโหลดสลิปห้อง ${room}…</div></div>`;
+  try {
+    const res = await fetch(`/api/slip-image?room=${encodeURIComponent(room)}`, {
+      headers: { Authorization: `Bearer ${idToken}` },
+    });
+    if (!res.ok) throw new Error("โหลดสลิปไม่สำเร็จ");
+    const url = URL.createObjectURL(await res.blob());
+    box.innerHTML = `<div class="card"><div class="row"><b>สลิปห้อง ${room}</b><a class="m" href="#" id="closeSlip">ปิด</a></div>
+      <img src="${url}" style="width:100%;border-radius:10px;margin-top:10px" alt="slip"></div>`;
+    $("closeSlip").onclick = (e) => { e.preventDefault(); box.innerHTML = ""; };
+    box.scrollIntoView({ behavior: "smooth" });
+  } catch (e) {
+    box.innerHTML = `<div class="card"><div class="err">${e.message}</div></div>`;
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

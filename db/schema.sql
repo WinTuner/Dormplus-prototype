@@ -1,5 +1,5 @@
 -- DormPlus — Postgres schema (v1)
--- อ้างอิง: docs/API.md · prototype: server.py
+-- อ้างอิง: docs/API.md · migrations: backend/migrations/
 
 create table properties (
   id            text primary key,

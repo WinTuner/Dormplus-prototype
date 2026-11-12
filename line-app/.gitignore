@@ -1,0 +1,7 @@
+.vercel
+node_modules/
+.planning/
+.env
+.env.*
+
+.env*

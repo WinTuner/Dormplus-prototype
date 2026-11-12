@@ -1,0 +1,12 @@
+{
+  "name": "domplus-line-app",
+  "private": true,
+  "version": "0.1.0",
+  "description": "DormPlus — LINE webhook + LIFF bill page (prototype)",
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@vercel/blob": "^2.9.0"
+  }
+}

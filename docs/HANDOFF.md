@@ -6,17 +6,14 @@
 
 | ส่วน | สถานะ | ที่อยู่ |
 |---|---|---|
-| เว็บแอปเจ้าของ + ผู้เช่า | ใช้ได้ | `web/` (รันที่ `/owner`, `/tenant`) |
-| UI prototype (LINE-style) | ใช้ได้ | `prototype.html` |
-| Mock backend (SQLite, stdlib) | ใช้ได้ | `server.py` |
-| API `/v1/*` (adapter) | ใช้ได้ | `api_v1.py` |
 | Rich menu 2 ชุด | เสร็จ | `docs/richmenu-*.png` |
 | API contract | เสร็จ | `docs/API.md` |
 | Schema Postgres | เสร็จ | `db/schema.sql` |
-| Backend จริง (FastAPI) | บางส่วน | `backend/` — rooms, readings, billing run, invoices, slip/confirm/reject, LINE Login |
-| LINE OA / LIFF / auth | บางส่วน | LIFF login + session cookie เสร็จ · webhook/ส่งข้อความยังไม่มี (`backend/app/routes/auth.py`, `backend/liff/`) |
+| Backend จริง (FastAPI + Postgres) | บางส่วน | `backend/` — rooms, readings, billing run, invoices, slip/confirm/reject, LINE Login |
+| LINE app ที่ deploy จริง | ใช้ได้ | `line-app/` (Vercel + Blob + LIFF) — ส่งบิล/แนบสลิป/ยืนยันในแชท · ดู `line-app/HANDOFF.md` |
+| LINE OA / LIFF / auth (backend) | บางส่วน | LIFF login + session cookie เสร็จ · webhook/ส่งข้อความยังไม่มี (`backend/app/routes/auth.py`, `backend/liff/`) |
 
-**`server.py` คือ reference implementation** — พฤติกรรมที่ถูกต้องดูจากไฟล์นี้ (คำนวณบิล, สถานะ, กันบิลซ้ำ) ไม่ใช่จาก UI
+**`line-app/` คือของที่รันจริงอยู่ตอนนี้** — พฤติกรรมที่ผู้ใช้เห็น (การ์ดบิล, LIFF, การ์ดยืนยัน) ดูจากที่นั่น · `backend/` คือเป้าหมายระยะยาวตาม `docs/API.md`
 
 ## 2. สิ่งที่ต้องสร้าง
 
@@ -42,7 +39,7 @@
 | `paid` แก้ไม่ได้ | ต้องมี void/ใบเสร็จใหม่ + audit_log |
 | ไม่คิดค่าปรับ | เจ้าของหอไม่เคยใช้ — อย่าเพิ่มโดยไม่ถาม |
 
-## 4. ค่าที่ใช้ (จาก prototype)
+## 4. ค่าที่ใช้ (จาก `backend/app/seed.py` และ `line-app/api/_rooms.js`)
 
 - น้ำ 25 บาท/หน่วย · ไฟ 7 บาท/หน่วย (ตั้งได้ต่อหอ)
 - ค่าเช่า 3,220 (มิเตอร์) / 3,500 (เหมา)
@@ -78,9 +75,19 @@
 - โดเมน + subdomain สำหรับ LIFF (ต้อง HTTPS)
 - สิทธิ์ Supabase/Railway
 
-## 8. วิธีรัน prototype เพื่อดูพฤติกรรม
+## 8. วิธีรันของจริง
+
+`line-app/` — ตัวที่ deploy อยู่:
 
 ```bash
-python server.py       # http://127.0.0.1:8777
+cd line-app && node smoke.js   # offline test
 ```
-ข้อมูลทดสอบจะถูก seed ให้อัตโนมัติ (42 ห้อง, 12 ห้องจดแล้ว)
+
+`backend/` — FastAPI + Postgres:
+
+```bash
+cd backend && docker compose up -d && alembic upgrade head
+python -m app.seed && uvicorn app.main:app --reload   # http://127.0.0.1:8000/docs
+```
+
+prototype เดิม (`server.py` + `web/` + `prototype.html`) ถูกลบแล้ว — ดูได้ใน git history

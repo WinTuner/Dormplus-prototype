@@ -1,68 +1,58 @@
-# DormPlus — prototype + frontend
+# DormPlus
 
 > ระบบออกบิลและทวงค่าเช่าหอพัก ที่เจ้าของแค่จดมิเตอร์
 
-ต้นแบบที่กดเล่นได้จริง + เว็บแอป (เจ้าของ/ผู้เช่า) ที่ต่อกับ API จริงตามสัญญา
-ข้อมูลเก็บใน SQLite ของจริง (ไม่ใช่ข้อมูลจำลองในหน้าเว็บ)
+Repo นี้มีของจริง 2 ส่วน — เลือกอ่านตามงานที่ทำ
 
-![หน้าจอเจ้าของ](docs/web-owner.png)
+| ส่วน | stack | deploy | เอกสาร |
+|---|---|---|---|
+| [`line-app/`](line-app/) | Node · Vercel serverless · Vercel Blob · LINE Messaging API + LIFF | **ใช้จริง** — https://line-app-iota.vercel.app | [`line-app/README.md`](line-app/README.md) · [`line-app/docs/`](line-app/docs/) |
+| [`backend/`](backend/) | Python · FastAPI · Postgres (Alembic) | ยังไม่ deploy | [`backend/README.md`](backend/README.md) |
 
-## รันในเครื่อง (30 วินาที)
+ทั้งสองส่วนใช้สัญญา API เดียวกันเป็นเป้าหมาย: [`docs/API.md`](docs/API.md) · งานที่เหลือและเกณฑ์ "เสร็จ": [`docs/HANDOFF.md`](docs/HANDOFF.md)
+
+```text
+line-app/     LINE OA → webhook → Flex bill card → LIFF (บิล/แนบสลิป) → postback ยืนยัน
+backend/      FastAPI + Postgres: ห้อง · มิเตอร์ · ออกบิล · สลิป · confirm/reject · LINE Login
+db/schema.sql Postgres DDL (migrations ของ backend มาจากไฟล์นี้)
+docs/         สัญญา API + handoff
+```
+
+## เริ่มใช้งาน LINE app (ของที่ deploy อยู่)
 
 ```bash
-python server.py
+cd line-app
+node smoke.js          # offline test, ไม่ต้อง npm install
 ```
 
-| หน้า | URL | ใครใช้ |
-|---|---|---|
-| เจ้าของหอ | http://127.0.0.1:8777/owner | จดมิเตอร์ · ออกบิล · ดูรายรับ |
-| ผู้เช่า | http://127.0.0.1:8777/tenant | ดูบิล · แนบสลิป |
-| prototype เดิม (LINE-style) | http://127.0.0.1:8777/ | สาธิตทั้ง flow ในหน้าเดียว |
+ต้องมี LINE OA + LIFF + Vercel + Blob ก่อน — ทำตาม [`line-app/README.md`](line-app/README.md) ข้อ 2–6 (สร้าง OA → deploy → ตั้ง env → seed → LIFF → ทดสอบ)
 
-ไม่ต้องติดตั้งอะไรเพิ่ม — Python 3 standard library ล้วน
-บน Windows ดับเบิลคลิก `start-prototype.bat`
+## เริ่มพัฒนา backend
 
-## โครงไฟล์
-
-```
-server.py          HTTP server + SQLite + seed 42 ห้อง
-api_v1.py          adapter /v1/* ตาม docs/API.md
-prototype.html     หน้าสาธิต LINE-style (ใช้ /api/*)
-web/
-  app.css          design tokens (ฟ้า #4FD8D2 / พื้น #0B0F14)
-  api.js           API client — แก้ base URL จุดเดียวตอนต่อ backend จริง
-  owner.html       หน้าเจ้าของหอ
-  tenant.html      หน้าผู้เช่า
-backend/           backend จริง (FastAPI + Postgres) — ดู backend/README.md
-db/schema.sql      Postgres DDL (สำหรับ backend จริง)
-docs/API.md        สัญญา API + error code + state machine
-docs/HANDOFF.md    เอกสารส่งงาน back-end + เกณฑ์ "เสร็จ"
-docs/richmenu-*.png  Rich Menu 2500×1686 (เจ้าของ / ผู้เช่า)
+```bash
+cd backend
+python -m venv .venv && .venv/Scripts/activate
+pip install -e ".[dev]"
+docker compose up -d          # Postgres 17 (พอร์ต 5432)
+alembic upgrade head
+python -m app.seed
+uvicorn app.main:app --reload # http://127.0.0.1:8000/docs
+pytest
 ```
 
-## ลองตามลำดับนี้ (หน้า /owner)
+รายละเอียด endpoint, session/cookie, DEV_AUTH และ test ทั้งหมดอยู่ใน [`backend/README.md`](backend/README.md)
 
-1. กด **“เริ่มจากห้อง … (ยังไม่จด)”**
-2. กรอกเลขน้ำ/ไฟ → ยอดคำนวณสด (น้ำ 25 · ไฟ 7 ต่อหน่วย)
-3. กด **“บันทึก แล้วไปห้องถัดไป”** → ระบบพาไปห้องถัดไปเอง
-4. กด **“ออกบิลทั้งหอ”** → สร้างใบแจ้งหนี้จริงใน DB
-5. เปิด **/tenant** → กด **“แนบสลิป & แจ้งชำระ”** → สถานะเป็น `pending`
-6. กลับ /owner → ดูยอดในหน้ารายรับ (ยังไม่ชำระ/รอตรวจ)
-
-## สถานะของแต่ละส่วน
+## สถานะ
 
 | ส่วน | สถานะ |
 |---|---|
-| หน้าเจ้าของ + ผู้เช่า (web/) | ✅ ใช้ได้ |
-| API `/v1/*` (adapter บน SQLite) | ✅ ใช้ได้ |
-| คำนวณบิล · สถานะ · กันบิลซ้ำ | ✅ |
-| Backend จริง (FastAPI + Postgres) | 🟡 ใช้ได้บางส่วนใน `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · แนบสลิป · ยืนยัน/ตีกลับ + ใบเสร็จ · test 58 ตัว |
-| Auth (LINE Login) | ✅ LIFF idToken → session cookie (`backend/app/routes/auth.py`) · RLS policy ยังไม่มี |
-| LIFF ผู้เช่า | ✅ ล็อกอิน · ดูบิล · แนบสลิป (`backend/liff/`) |
-| ส่งข้อความ LINE / webhook | ⬜ ยังไม่ส่งบิล ใบเสร็จ หรือข้อความทวงเข้าแชท |
+| `line-app/` — ส่งบิลใน LINE · LIFF แนบสลิป · เจ้าของยืนยัน/จดมิเตอร์ | ✅ ใช้งานได้ (มีข้อจำกัดเรื่อง auth อ่านใน [`line-app/HANDOFF.md`](line-app/HANDOFF.md)) |
+| `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · สลิป · confirm/reject + ใบเสร็จ · LINE Login ผ่าน LIFF | 🟡 ใช้ได้บางส่วน · test 58 ตัว |
+| RLS policy (กรอง `property_id` ที่ระดับ DB) | ⬜ ตอนนี้กรองในโค้ด |
+| ส่งข้อความ LINE / webhook ฝั่ง backend | ⬜ `line-app/` ทำแล้ว แต่ backend ยังไม่ส่งเอง |
 | คิวงาน + ทวงอัตโนมัติ (Procrastinate) | ⬜ |
-| ตรวจสลิปอัตโนมัติ | ⬜ ตอนนี้เจ้าของกดยืนยันเอง |
-| หน้าเจ้าของ (`web/`) ต่อ backend จริง | ⬜ ยังเรียก API ชั่วคราวบน SQLite |
+| ตรวจสลิปอัตโนมัติ (SlipOK) | ⬜ เจ้าของกดยืนยันเอง |
+| หน้าจอเจ้าของของ backend (Thai web UI) | ⬜ `line-app/` มีหน้าจดมิเตอร์ของเจ้าของแล้ว |
 
 ## กติกาที่ใส่ไว้ในระบบ
 
@@ -78,64 +68,20 @@ docs/richmenu-*.png  Rich Menu 2500×1686 (เจ้าของ / ผู้เ�
 |---|---|
 | ![owner](docs/richmenu-owner.png) | ![tenant](docs/richmenu-tenant.png) |
 
-ขนาด 2500×1686 px (LINE large rich menu)
+ขนาด 2500×1686 px (LINE large rich menu) — ใช้กับ `line-app/` ได้เลย
 
-## เอกสารประกอบ
+## เอกสาร
 
-- [`docs/API.md`](docs/API.md) — สัญญา API ที่ frontend ใช้อยู่
-- [`docs/HANDOFF.md`](docs/HANDOFF.md) — งานที่เหลือและเกณฑ์เสร็จสำหรับ back-end
+- [`line-app/README.md`](line-app/README.md) — ตั้งค่า OA/LIFF/deploy + troubleshooting ของ app ที่ใช้จริง
+- [`line-app/docs/`](line-app/docs/) — architecture · API · configuration · deployment · development · testing
+- [`backend/README.md`](backend/README.md) — endpoint, session, test
+- [`docs/API.md`](docs/API.md) — สัญญา API v1 (เป้าหมายที่ backend ยึด)
+- [`docs/HANDOFF.md`](docs/HANDOFF.md) — งานที่เหลือและเกณฑ์ "เสร็จ"
 - [`db/schema.sql`](db/schema.sql) — โครงฐานข้อมูล Postgres
 
-## ข้อกำหนดเบื้องต้น
+> prototype ตัวเดิม (`server.py` + `web/` + `prototype.html` บน SQLite) ถูกลบออกจาก master แล้ว —
+> ดูย้อนหลังได้ใน git history ก่อน commit ที่ลบ
 
-| ต้องมี | เวอร์ชัน | หมายเหตุ |
-|---|---|---|
-| Python | 3.8 ขึ้นไป | ใช้ standard library ล้วน (`http.server`, `sqlite3`, `json`) — ไม่มี `requirements.txt` และไม่ต้อง `pip install` |
-| SQLite | 3.24 ขึ้นไป | มากับ Python อยู่แล้ว (ต้องมี UPSERT `ON CONFLICT ... DO UPDATE`) |
-| เบราว์เซอร์ | รุ่นใหม่ | ต้องเปิดผ่าน `http://` ไม่ใช่ `file://` เพราะหน้าเว็บเรียก API ด้วย `fetch` |
+## สิทธิ์การใช้งาน
 
-ไม่ต้องมี Node.js, ฐานข้อมูลแยก, หรือ Docker — ฐานข้อมูลคือไฟล์ `domplus.db` ที่สร้างเองตอนสตาร์ทครั้งแรก
-
-## ฟีเจอร์หลัก
-
-- **จดมิเตอร์ทีละห้อง** — กรอกเลขน้ำ/ไฟแล้วยอดคำนวณสด (น้ำ 25 · ไฟ 7 ต่อหน่วย) พร้อมเทียบ "ครั้งก่อน" จากฐานข้อมูลจริง
-- **ไปห้องถัดไปอัตโนมัติ** — ปุ่ม "บันทึก แล้วไปห้องถัดไป" พาไปห้องที่ยังไม่จดโดยไม่ต้องกลับมาเลือกใหม่
-- **ออกบิลทั้งหอในคลิกเดียว** — ออกเฉพาะห้องที่จดมิเตอร์รอบนั้นแล้ว, ครบกำหนด +5 วัน, `UNIQUE(room_id, period)` + `ON CONFLICT DO NOTHING` กันบิลซ้ำที่ระดับฐานข้อมูล
-- **ผู้เช่าแนบสลิป** — `unpaid` → `pending` (กดซ้ำไม่เพิ่มรายการ)
-- **เจ้าของยืนยันการชำระ** — `pending` → `paid`
-- **สรุปรายรับ** — ยอดยังไม่ชำระ / รอตรวจ / ชำระแล้ว จาก `/v1/reports/summary`
-- **ข้อมูลตั้งต้น 42 ห้อง** — ชั้น 2 (12) · 3 (12) · 4 (10) · 5 (8) พร้อมมิเตอร์รอบก่อน และหนี้ค้างจำลอง 5 ห้องสำหรับหน้าทวง
-- **UI 2 แบบ** — เว็บแอปจริง (`/owner`, `/tenant`) และ prototype LINE-style หน้าเดียว (`/`)
-
-ยังไม่มี auth ในต้นแบบนี้ — ทุก request เปิดได้บนเครื่องตัวเอง สัญญาจริงที่ต้องมี session cookie อยู่ใน [`docs/API.md`](docs/API.md)
-
-## การตั้งค่า
-
-ต้นแบบนี้ไม่มีไฟล์ `.env` — ค่าทั้งหมดฝังอยู่ในโค้ด แก้ที่จุดเดียวตามตารางนี้
-
-| ค่า | ไฟล์ | ค่าเริ่มต้น |
-|---|---|---|
-| พอร์ต | `server.py` — `ThreadingHTTPServer(("127.0.0.1", 8777), Handler)` | `8777` (แก้แล้ว URL ใน README นี้เปลี่ยนตาม) |
-| ไฟล์ฐานข้อมูล | `server.py` — `DB = os.path.join(BASE, "domplus.db")` | `domplus.db` ในโฟลเดอร์โปรเจกต์ |
-| รอบบิล | `server.py` — `PERIOD` | `"2026-11"` |
-| "วันนี้" ของเดโม | `server.py` — `TODAY` | `date(2026, 11, 4)` (ใช้คำนวณวันครบกำหนด) |
-| ค่าเช่า (มิเตอร์ / เหมา) | `server.py` — `RENT_METER`, `RENT_FLAT` | `3220` / `3500` |
-| ค่าน้ำ / ค่าไฟ | `server.py` — `WATER_RATE`, `ELEC_RATE` | `25` / `7` ต่อหน่วย |
-| API base URL | `web/api.js` — `const base = ""` | ว่าง = same-origin |
-
-`web/api.js` ตั้ง `base` เป็น URL ของ backend จริงเมื่อแยก frontend ออกจาก API <!-- VERIFY: https://api.domplus.app/v1 เป็น base ที่วางแผนไว้ใน docs/API.md แต่ยังไม่มี backend จริงให้ตรวจสอบ --> — แก้จุดเดียวพอ เพราะทุกหน้าอ่านผ่าน `API.*` ในไฟล์นี้
-
-## แก้ปัญหาเบื้องต้น
-
-| อาการ | สาเหตุ | วิธีแก้ |
-|---|---|---|
-| `OSError: [WinError 10048]` / `Address already in use` | พอร์ต 8777 ถูกใช้อยู่ (อาจมีเซิร์ฟเวอร์รอบก่อนค้าง) | ปิด process เดิม หรือเปลี่ยนเลขพอร์ตใน `server.py` |
-| อยากเริ่มข้อมูลใหม่ทั้งหมด | มี `domplus.db` เดิมอยู่แล้ว `seed()` จะไม่รันซ้ำ | ปิดเซิร์ฟเวอร์ → ลบ `domplus.db` → `python server.py` (สร้าง 42 ห้องใหม่) |
-| `'python' is not recognized` (Windows) | Python ไม่ได้อยู่ใน PATH — `start-prototype.bat` เรียก `python` ตรง ๆ | ลอง `py server.py` หรือติดตั้ง Python ใหม่โดยติ๊ก "Add to PATH" |
-| หน้า `/owner` หรือ `/tenant` เปิดแล้วโหลดข้อมูลไม่ได้ | เปิดไฟล์ HTML ตรง ๆ ด้วย `file://` ทำให้ `fetch` ถูกบล็อก | เปิดผ่าน `http://127.0.0.1:8777/owner` และ `/tenant` เท่านั้น |
-| เปิด `/` แล้วเห็นคนละหน้าตากับที่คาด | `/` เสิร์ฟ `prototype.html` (LINE-style) ไม่ใช่เว็บแอป | เว็บแอปจริงอยู่ที่ `/owner` และ `/tenant` |
-
-## สิทธิ์การใช้งานและสถานะ
-
-โปรเจกต์นี้ไม่ใช่ open source และยังไม่มีไฟล์ `LICENSE` ในรีโป — สิทธิ์เป็นของเจ้าของโครงการ
-สถานะปัจจุบัน: **ต้นแบบ + frontend พร้อมใช้งาน · backend จริงทำไปบางส่วน** (ห้อง มิเตอร์ ออกบิล สลิป และ LINE Login ผ่าน LIFF) ส่วนการส่งข้อความ LINE, คิวงาน, ทวงอัตโนมัติ และตรวจสลิปอัตโนมัติยังไม่ได้เริ่ม ดูรายละเอียดและเกณฑ์ "เสร็จ" ที่ [`docs/HANDOFF.md`](docs/HANDOFF.md)
+โปรเจกต์นี้ไม่ใช่ open source และไม่มีไฟล์ `LICENSE` ในรีโป — สิทธิ์เป็นของเจ้าของโครงการ
