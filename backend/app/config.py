@@ -17,6 +17,13 @@ class Settings(BaseSettings):
     # LINE Login channel that issues the LIFF idToken (app/routes/auth.py). Empty = LIFF login off.
     line_channel_id: str = ""
     liff_id: str = ""
+    # Messaging API token: the backend pushes reminders itself (app/line_push.py).
+    line_channel_access_token: str = ""
+
+    # Shared secret for the daily dunning cron (?token= on POST /v1/dunning/run).
+    dunning_token: str = ""
+    # Which dorm this deployment serves (one property per deploy).
+    property_id: str = "p_1"
 
     # Signs the session cookie (app/session.py). Set a long random value in production.
     session_secret: str = "dev-only-change-me"

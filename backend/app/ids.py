@@ -1,4 +1,9 @@
-"""Readable string ids, as in docs/API.md (r_203, inv_..., rd_...)."""
+"""Ids and kinds that show up in logs, so they read the same everywhere."""
+from typing import Literal
+
+ReminderKind = Literal["reminder_1", "reminder_5", "reminder_10"]
+
+_REMINDER_KINDS: dict[int, ReminderKind] = {1: "reminder_1", 5: "reminder_5", 10: "reminder_10"}
 
 
 def reading_id(room_id: str, period: str) -> str:
@@ -14,3 +19,8 @@ def invoice_id(room_id: str, period: str) -> str:
 def payment_id(invoice_id: str) -> str:
     """One slip per invoice: inv_201_2026-11 -> pay_201_2026-11."""
     return f"pay_{invoice_id.removeprefix('inv_')}"
+
+
+def reminder_kind(days_late: int) -> ReminderKind:
+    """The message_log kind for dunning: reminder_1 / _5 / _10."""
+    return _REMINDER_KINDS[days_late]

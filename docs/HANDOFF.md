@@ -26,7 +26,7 @@
 1. 🟡 FastAPI app ตาม `docs/API.md` (ทุก endpoint + error code)
    — มีแล้ว: rooms, readings, billing run, invoices, slip, confirm, reject, `/me/invoices`, auth · เหลือ `GET /properties/:id`, `GET /invoices/:id`, webhook
 2. ✅ Postgres ตาม `db/schema.sql` + migration (Alembic) — `backend/migrations/`
-3. ⬜ Worker + Scheduler (Procrastinate หรือ ARQ) สำหรับ:
+3. 🟡 Worker + Scheduler (Procrastinate) — โค้ดพร้อม (`app/queue.py` · `app/tasks.py` · `app/dunning.py`) แต่ **worker ยังไม่มี host** (Vercel รันไม่ได้) สำหรับ:
    - `billing.run` — ออกบิลทั้งหอใน transaction เดียว (ตอนนี้ทำใน request แบบ synchronous แล้ว `job_id` = `null`)
    - `notify.invoice` — ส่ง LINE ทีละห้อง + `message_log`
    - `dunning` — cron รายวัน 1/5/10 วันหลังครบกำหนด
