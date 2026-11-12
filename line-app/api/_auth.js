@@ -12,10 +12,14 @@ async function verifyIdToken(idToken) {
   return payload.sub || null;
 }
 
+// The token bypass is denied by default and must be opted into: preview/dev deploys only,
+// or a self-hosted box that sets ALLOW_SEED_BYPASS=true. Production never gets it.
+const BYPASS_ALLOWED =
+  process.env.ALLOW_SEED_BYPASS === "true" || ["development", "preview"].includes(process.env.VERCEL_ENV || "");
+
 // Resolves the caller to a LINE userId, or answers 401/403 and returns null.
-// shortcut: x-seed-token bypass for curl/tests; remove it once there is a real admin login.
 async function requireUser(req, res) {
-  if (process.env.SEED_TOKEN && req.headers["x-seed-token"] === process.env.SEED_TOKEN) {
+  if (BYPASS_ALLOWED && process.env.SEED_TOKEN && req.headers["x-seed-token"] === process.env.SEED_TOKEN) {
     return process.env.OWNER_USER_ID || "dev";
   }
   const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
@@ -33,4 +37,4 @@ async function requireUser(req, res) {
 
 const isOwner = (userId) => !!process.env.OWNER_USER_ID && userId === process.env.OWNER_USER_ID;
 
-module.exports = { requireUser, isOwner, CHANNEL_ID };
+module.exports = { requireUser, isOwner, CHANNEL_ID, BYPASS_ALLOWED };

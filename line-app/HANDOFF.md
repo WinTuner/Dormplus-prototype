@@ -28,9 +28,9 @@
 
 | ไฟล์ | หน้าที่ |
 |---|---|
-| `api/webhook.js` | รับ event LINE: `follow`, ข้อความ "บิล"/"ผูก 203", postback ยืนยันการชำระ |
+| `api/webhook.js` | รับ event LINE: `follow`, ข้อความ "บิล"/"ผูก 203", postback ยืนยันการชำระ (ตรวจ `isOwner` ก่อนปิดบิล) |
 | `api/_line.js` | signature verify, reply/push, `billBubble()` (การ์ดบิล), `confirmBubble()` (การ์ดเจ้าของ) |
-| `api/_auth.js` | ตรวจ idToken → userId, `isOwner()`, dev bypass ด้วย header `x-seed-token` |
+| `api/_auth.js` | ตรวจ idToken → userId, `isOwner()`, bypass `x-seed-token` เฉพาะ preview/dev หรือ `ALLOW_SEED_BYPASS=true` |
 | `api/_store.js` | `get(key)` / `set(key, value)` บน Blob (`useCache:false` สำคัญ — ดูข้อ 6) |
 | `api/_rooms.js` | รายชื่อห้อง + ค่าเช่า/เรตน้ำไฟต่อห้อง |
 | `api/config.js` | คืน `{ liffId }` ให้หน้า LIFF เอาไป `liff.init()` — public โดยตั้งใจ (ไม่มี auth) |
@@ -117,7 +117,7 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "$B/api/bill?room=203"
 | เก็บประวัติหลายรอบบิล | `_store.js` | ตอนนี้ `bill:<room>` ถูกทับทุกรอบ — ควรเป็น `bill:<period>:<room>` |
 | cron ออกรอบบิลอัตโนมัติ | Vercel Cron → `/api/run` | ต้องมี secret ป้องกัน endpoint |
 | หลายเจ้าของ/ผู้ช่วย | `_auth.js` | `OWNER_USER_ID` เป็นคนเดียว — เปลี่ยนเป็น list หรือ role ใน Blob |
-| ลบ `x-seed-token` bypass | `_auth.js` | **ไม่มีการเช็ก `NODE_ENV`** — ใครมีค่า `SEED_TOKEN` ก็สวมสิทธิ์เจ้าของได้ทุก endpoint รวม production ถ้า `SEED_TOKEN` ยังถูกตั้งอยู่ ต้องปิด/ลบก่อนใช้จริง |
+| ~~ลบ `x-seed-token` bypass~~ | `_auth.js` | ✅ ปิดแล้ว — ค่าเริ่มต้นคือปฏิเสธ เปิดเฉพาะ `ALLOW_SEED_BYPASS=true` หรือ Vercel env `preview`/`development` |
 | LINE Notify/แจ้งเตือนก่อนครบกำหนด | Vercel Cron | push ข้อความเตือนจาก `room-user:` map |
 | UI หลายภาษา / หลายหอใน deploy เดียว | ทั้งหมด | ตอนนี้ 1 deploy = 1 หอ (ตั้งใจ) |
 
@@ -126,5 +126,6 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "$B/api/bill?room=203"
 - แตะ Blob ผ่าน `_store.js` เท่านั้น (อย่าเรียก `@vercel/blob` ตรง ๆ ยกเว้น `slip.js`/`slip-image.js` ที่เก็บไฟล์)
 - endpoint ที่อ่านข้อมูลผู้ใช้ ต้องเรียก `requireUser()` ก่อนเสมอ
 - ก่อน deploy: `node smoke.js` ต้องผ่าน
-- หลัง deploy: ทดสอบด้วย `x-seed-token` 1 ครั้ง + ทดสอบใน LINE 1 ครั้ง (path ที่แตะ)
+- หลัง deploy: ทดสอบผ่าน LINE 1 ครั้ง (path ที่แตะ) — `x-seed-token` ใช้ได้เฉพาะ preview/dev
+- production ไม่มี bypass: endpoint ที่ต้อง auth ใช้ idToken จาก LIFF เท่านั้น
 - อย่าใส่ token/secret ลงใน URL ที่ส่งให้ผู้ใช้เห็น

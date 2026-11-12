@@ -14,7 +14,7 @@
 | `LINE_CHANNEL_ACCESS_TOKEN` | ✅ | — | `api/_line.js` | ตอบ/ส่งการ์ดไม่ได้เลย LINE ตอบ 401 — `webhook`/`run`/`slip` ดัก error ไว้จึงยังคืน 200 แต่ `api/sendbill.js` ไม่มี try/catch จึงคืน **500** |
 | `LIFF_ID` | ✅ | `null` | `api/config.js`, `api/_line.js`, `api/_auth.js` | `/api/config` คืน `liffId: null` → หน้าเว็บขึ้น "เปิดหน้านี้จากปุ่มในแชท LINE เท่านั้น"; ปุ่มในการ์ดเปิดเป็น URL ตรงแทน `liff.line.me`; และถ้าไม่มี `LOGIN_CHANNEL_ID` ด้วย ทุก endpoint ที่ต้องล็อกอินจะตอบ 401 |
 | `OWNER_USER_ID` | ✅ | — | `api/_auth.js`, `api/slip.js` | ไม่มีใครเป็น owner → `/api/rooms`, `/api/run` ตอบ 403 และไม่มีการส่งการ์ด "ยืนยันการชำระ" ให้ใคร |
-| `SEED_TOKEN` | ✅ (prod ควรตั้งแล้วปิด bypass) | — | `api/seed.js`, `api/sendbill.js`, `api/_auth.js` | `/api/seed` และ `/api/sendbill` ตอบ 403 ทุกครั้ง และ dev bypass ด้วย header `x-seed-token` ถูกปิด |
+| `SEED_TOKEN` | ✅ | — | `api/seed.js`, `api/sendbill.js`, `api/_auth.js` | `/api/seed` และ `/api/sendbill` ตอบ 403 ทุกครั้ง · bypass `x-seed-token` ไม่ทำงานบน production อยู่แล้ว |
 | `PUBLIC_BASE_URL` | ไม่บังคับ | `` `https://${req.headers.host}` `` | `api/run.js`, `api/sendbill.js`, `api/webhook.js` | ใช้ host ของ request แทน (บน Vercel ปกติใช้ได้) |
 | `ROOMS` | ไม่บังคับ | `201,202,203,204,205,206,207,208,209,210,211,212` | `api/_rooms.js` | ใช้ห้อง 201–212 |
 | `DEFAULT_RENT` | ไม่บังคับ | `3500` | `api/_rooms.js` | ค่าเช่าเริ่มต้น 3,500 บาท/ห้อง |
@@ -56,9 +56,9 @@
 **`SEED_TOKEN`** — รหัสลับสำหรับงาน dev/ทดสอบ มีผลสามที่:
 - `POST /api/seed?token=<SEED_TOKEN>` — สร้างบิลตัวอย่างทุกห้อง (idempotent)
 - `POST /api/sendbill?token=<SEED_TOKEN>` — ยิงการ์ดบิลหาหนึ่ง userId
-- header `x-seed-token: <SEED_TOKEN>` — bypass การตรวจ idToken ใน `requireUser()` แล้วคืน `OWNER_USER_ID` (หรือ `"dev"` ถ้าไม่ได้ตั้ง `OWNER_USER_ID`)
+- header `x-seed-token: <SEED_TOKEN>` — bypass การตรวจ idToken ใน `requireUser()` แล้วคืน `OWNER_USER_ID` (หรือ `"dev"` ถ้าไม่ได้ตั้ง) · **ทำงานเฉพาะ preview/dev หรือเมื่อตั้ง `ALLOW_SEED_BYPASS=true`**
 
-> ⚠️ bypass นี้เป็น **ช่องโหว่ที่ตั้งใจไว้ชั่วคราว** (คอมเมนต์ใน `api/_auth.js` เขียนว่า `shortcut:`) ใครถือ token นี้ก็เรียก API ได้ในนามเจ้าของ และค่า token จะติดไปใน access log เพราะส่งทาง query string — ต้องลบก่อนใช้กับหอจริง
+> ⚠️ ค่า token ติดไปใน access log เพราะส่งทาง query string · production ปิด bypass ไว้แล้ว (`BYPASS_ALLOWED` = false) เหลือความเสี่ยงเฉพาะ `/api/seed` และ `/api/sendbill` ที่ยังใช้ `?token=` อยู่ — อย่าแชร์ URL พวกนี้
 
 ### 2.2 กลุ่มข้อมูลห้องและบิล
 

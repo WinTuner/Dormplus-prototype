@@ -130,7 +130,7 @@ curl -X POST "https://<โดเมน>/api/sendbill?token=<SEED_TOKEN>" ^
 
 ## ข้อจำกัดของ prototype นี้
 
-- **auth เป็นแบบ prototype** — ตรวจ LIFF idToken จริง แต่ยังมี bypass ด้วย header `x-seed-token` **ที่ไม่ได้ผูกกับ `NODE_ENV`** → ถ้า `SEED_TOKEN` ถูกตั้งบน production ใครมีค่านั้นสวมสิทธิ์เจ้าของได้ทุก endpoint (ลบ `SEED_TOKEN` ออกเมื่อใช้กับหอจริง)
+- **auth เป็นแบบ prototype** — ตรวจ LIFF idToken จริง · bypass `x-seed-token` **ปิดอยู่โดยค่าเริ่มต้น** เปิดเฉพาะเมื่อ `ALLOW_SEED_BYPASS=true` หรือรันบน Vercel env `preview`/`development` (production ไม่มีทางเปิด)
 - **ไม่มีหน้าจอสรุปยอด/ทวงหนี้** — เจ้าของจดมิเตอร์ + ดูสลิป + ยืนยันได้ แต่ยังไม่มี dashboard สรุป
 - **บิลถูกทับทุกรอบ** — `bill:<room>` เก็บรอบล่าสุดเท่านั้น ยังไม่มีประวัติ
 - **1 deploy = 1 หอ** — `OWNER_USER_ID` คนเดียว, รายชื่อห้องมาจาก env `ROOMS`
@@ -165,9 +165,9 @@ curl -X POST "https://<โดเมน>/api/sendbill?token=<SEED_TOKEN>" ^
 
 | ไฟล์ | หน้าที่ |
 |---|---|
-| `api/webhook.js` | รับ event จาก LINE: `follow`, ข้อความ (`บิล`, `ผูก 203`), postback ยืนยันการชำระ |
+| `api/webhook.js` | รับ event จาก LINE: `follow`, ข้อความ (`บิล`, `ผูก 203`), postback ยืนยันการชำระ (เฉพาะ `OWNER_USER_ID`) |
 | `api/_line.js` | ตรวจ signature, `reply()` / `push()`, `billBubble()` (การ์ดบิล), `confirmBubble()` (การ์ดเจ้าของ) |
-| `api/_auth.js` | ตรวจ LIFF idToken → userId, `isOwner()`, bypass `x-seed-token` (เปิดเมื่อมี `SEED_TOKEN` — ไม่เช็ก env) |
+| `api/_auth.js` | ตรวจ LIFF idToken → userId, `isOwner()`, bypass `x-seed-token` (เฉพาะ preview/dev หรือ `ALLOW_SEED_BYPASS=true`) |
 | `api/_store.js` | `get(key)` / `set(key, value)` ลง Blob |
 | `api/_rooms.js` | รายชื่อห้องจาก env `ROOMS` + ค่าเช่า/ค่ามิเตอร์ต่อห้อง |
 | `api/me.js`, `bill.js`, `slip.js`, `slip-image.js`, `rooms.js`, `run.js`, `seed.js`, `sendbill.js`, `config.js` | endpoints ตามตาราง "API ที่มี" ด้านบน |

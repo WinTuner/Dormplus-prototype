@@ -44,6 +44,20 @@ curl -X PUT -H "X-Dev-Property: p_1" -H "Content-Type: application/json" \
 
 **ห้ามเปิด `DEV_AUTH` บน server จริง** เพราะใครก็ส่ง header เป็นหอไหนก็ได้
 
+## ฐานข้อมูลจริง (Neon)
+
+ตอนนี้มี Postgres จริงอยู่แล้ว — สร้างผ่าน Vercel Marketplace (Neon, free tier) และผูกกับโปรเจกต์ `line-app`
+connection string อยู่ใน `backend/.env` (gitignored) `DATABASE_URL` ใช้ endpoint **unpooled** เพราะ alembic
+ต้องรัน DDL หลายคำสั่งใน transaction เดียว
+
+```bash
+python -m alembic upgrade head     # schema v1
+python -m app.seed                 # 42 ห้อง + มิเตอร์ ต.ค./พ.ย. + บิลค้าง 9 ใบ
+```
+
+**ห้ามตั้ง `TEST_DATABASE_URL` ชี้มาที่ฐานนี้** — pytest จะ truncate ทุกตารางทิ้ง
+ถ้าต้องรัน test ให้สร้าง Neon branch แยกแล้วใช้ connection string ของ branch นั้น
+
 ## รันในเครื่อง
 
 ต้องมี Python 3.11 ขึ้นไป และ Postgres 1 ตัว (Docker หรือ Supabase ก็ได้)
