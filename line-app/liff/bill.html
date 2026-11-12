@@ -185,11 +185,11 @@ async function boot() {
     const home = () => (me.owner ? startOwner("home") : room ? startTenant(room) : fail("ยังไม่ได้ผูกห้อง — พิมพ์ “ผูก 203” ในแชท LINE ก่อน"));
 
     // Rich-menu tabs that are drawn but not built yet.
-    const soon = { report: "รายงานรายรับ", rooms: "จัดการห้อง" };
+    const soon = { report: "รายงานรายรับ" };
     if (soon[tab]) return notice(soon[tab], "ส่วนนี้ยังไม่เปิดใช้งานในเวอร์ชันนี้", me.owner ? "ไปหน้าหลัก" : "ดูบิลของฉัน", home);
 
     // Owner rich-menu tabs map onto owner screens.
-    const ownerTabs = { meter: "rooms", slips: "review/pending", unpaid: "review/overdue" };
+    const ownerTabs = { meter: "rooms", rooms: "rooms", slips: "review/pending", unpaid: "review/overdue" };
     if (ownerTabs[tab]) {
       if (!me.owner) return notice("เฉพาะเจ้าของหอ", "หน้าจอนี้สำหรับเจ้าของหอ", "ดูบิลของฉัน", home);
       return startOwner(ownerTabs[tab]);
