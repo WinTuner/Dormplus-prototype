@@ -575,7 +575,7 @@ function ownerInvite() {
     btn.disabled = true;
     btn.textContent = "กำลังสร้าง…";
     try {
-      const r = await api("/api/owner-invite", { method: "POST" });
+      const r = await api("/api/owner", { method: "POST" });
       $("out").innerHTML = `
         <div class="card">
           <div class="m">ให้เขาสแกน QR นี้ในแอป LINE (หรือส่งลิงก์ให้เปิดใน LINE)</div>
@@ -599,7 +599,7 @@ async function acceptOwner(code, me) {
   bottom("");
   view.innerHTML = `<div class="card"><div class="m">กำลังตรวจรหัส…</div></div>`;
   try {
-    await api("/api/owner-accept", { method: "POST", body: JSON.stringify({ code }) });
+    await api("/api/owner", { method: "POST", body: JSON.stringify({ code }) });
     history.replaceState(null, "", location.pathname);
     const fresh = await api("/api/me");
     if (!fresh.owner) throw new Error("ยังไม่ได้สิทธิ์เจ้าของ — ขอรหัสใหม่จากเจ้าของหอ");
@@ -637,7 +637,7 @@ function ownerQr(room) {
     $("rotate").onclick = async () => {
       if (!confirm(`สร้าง QR ใหม่ให้ห้อง ${room}? ใบที่แปะอยู่จะใช้ไม่ได้ทันที`)) return;
       try {
-        show(await api(`/api/room-qr?room=${encodeURIComponent(room)}`, { method: "POST" }));
+        show(await api(`/api/qr?room=${encodeURIComponent(room)}`, { method: "POST" }));
         toast("สร้าง QR ใหม่แล้ว");
       } catch (e) {
         toast(e.message, true);
@@ -645,7 +645,7 @@ function ownerQr(room) {
     };
   };
 
-  api(`/api/room-qr?room=${encodeURIComponent(room)}`)
+  api(`/api/qr?room=${encodeURIComponent(room)}`)
     .then(show)
     .catch((e) => {
       view.innerHTML = `<div class="card"><div class="err">${esc(e.message)}</div></div>`;
@@ -658,7 +658,7 @@ async function acceptBind(code, me) {
   bottom("");
   view.innerHTML = `<div class="card"><div class="m">กำลังตรวจ QR…</div></div>`;
   try {
-    const r = await api("/api/tenant-bind", { method: "POST", body: JSON.stringify({ code }) });
+    const r = await api("/api/qr", { method: "POST", body: JSON.stringify({ code }) });
     history.replaceState(null, "", location.pathname);
     toast(`ผูกกับห้อง ${r.room} แล้ว`);
     return startTenant(r.room);
