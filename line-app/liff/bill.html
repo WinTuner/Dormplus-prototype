@@ -184,12 +184,8 @@ async function boot() {
     const room = me.room || params.get("room");
     const home = () => (me.owner ? startOwner("home") : room ? startTenant(room) : fail("ยังไม่ได้ผูกห้อง — พิมพ์ “ผูก 203” ในแชท LINE ก่อน"));
 
-    // Rich-menu tabs that are drawn but not built yet.
-    const soon = { report: "รายงานรายรับ" };
-    if (soon[tab]) return notice(soon[tab], "ส่วนนี้ยังไม่เปิดใช้งานในเวอร์ชันนี้", me.owner ? "ไปหน้าหลัก" : "ดูบิลของฉัน", home);
-
-    // Owner rich-menu tabs map onto owner screens.
-    const ownerTabs = { meter: "rooms", rooms: "rooms", slips: "review/pending", unpaid: "review/overdue" };
+    // Every rich-menu tab now has a screen; a tab we do not know falls back to home.
+    const ownerTabs = { meter: "rooms", rooms: "rooms", slips: "review/pending", unpaid: "review/overdue", report: "report" };
     if (ownerTabs[tab]) {
       if (!me.owner) return notice("เฉพาะเจ้าของหอ", "หน้าจอนี้สำหรับเจ้าของหอ", "ดูบิลของฉัน", home);
       return startOwner(ownerTabs[tab]);
@@ -449,6 +445,7 @@ function renderOwner() {
   if (r === "rooms") return ownerRooms();
   if (r.startsWith("entry/")) return ownerEntry(decodeURIComponent(r.slice(6)));
   if (r === "bill") return ownerBill();
+  if (r === "report") return ownerReport();
   if (r.startsWith("review")) return ownerReview(r.split("/")[1] || O.reviewTab);
   return ownerHome();
 }
@@ -479,11 +476,74 @@ function ownerHome() {
       <button class="btn primary" data-go="rooms">จดมิเตอร์</button>
       <button class="btn" data-go="bill">ออกบิลทั้งหอ</button>
       <button class="btn" data-go="review/pending">สลิปรอตรวจ (${pending})</button>
+      <button class="btn" data-go="report">รายงานรายรับ</button>
       <button class="btn" id="settings">ตั้งค่าหอ</button>
     </div>`;
 
   view.querySelectorAll("[data-go]").forEach((el) => (el.onclick = () => go(el.dataset.go)));
   $("settings").onclick = () => toast("ตั้งค่าหอยังไม่เปิดใช้งานในเวอร์ชันนี้");
+}
+
+// Money view: what was billed, what came in, what is still out there.
+function ownerReport() {
+  header("รายงานรายรับ", "สรุปยอด", "home");
+  bottom("");
+  const bills = O.rooms.filter((r) => r.bill).map((r) => r.bill);
+  if (!bills.length) {
+    view.innerHTML = `<div class="card empty m">ยังไม่มีบิลในระบบ — จดมิเตอร์แล้วออกบิลก่อน</div>`;
+    return;
+  }
+
+  // Report on the newest period that actually has bills, not on the round being prepared.
+  const period = bills.map((b) => b.period).sort().pop();
+  const of = bills.filter((b) => b.period === period);
+  const sum = (list) => list.reduce((n, b) => n + Number(b.total || 0), 0);
+  const paid = of.filter((b) => b.status === "paid");
+  const pending = of.filter((b) => b.status === "pending");
+  const unpaid = of.filter((b) => b.status === "unpaid");
+  const overdue = of.filter(isOverdue);
+  const billed = sum(of);
+  const collected = sum(paid);
+  const pct = billed ? Math.round((collected / billed) * 100) : 0;
+
+  const money = (n) => fmt(n) + " บาท";
+  const line = (label, value, cls = "") =>
+    `<div class="row"><span class="m">${label}</span><span class="${cls}">${money(value)}</span></div>`;
+
+  const worst = overdue
+    .slice()
+    .sort((a, b) => (a.due < b.due ? -1 : a.due > b.due ? 1 : 0))
+    .slice(0, 5);
+
+  view.innerHTML = `
+    <div class="card">
+      <div class="m">รอบบิล ${periodTh(period)} · ${of.length} ห้อง</div>
+      <div class="big">${money(billed)}</div>
+      <div class="progress"><i style="width:${pct}%"></i></div>
+      <div class="row"><span class="m">เก็บได้ ${money(collected)}</span><span class="m">${pct}%</span></div>
+    </div>
+    <div class="card rows">
+      ${line(`ชำระแล้ว (${paid.length} ห้อง)`, sum(paid))}
+      ${line(`รอตรวจสลิป (${pending.length} ห้อง)`, sum(pending))}
+      ${line(`ยังไม่ชำระ (${unpaid.length} ห้อง)`, sum(unpaid))}
+      ${overdue.length ? `<div class="row"><span class="m">ค้างเกินกำหนด ${overdue.length} ห้อง</span><span class="pill bad">${money(sum(overdue))}</span></div>` : ""}
+    </div>
+    ${
+      worst.length
+        ? `<div class="section">ค้างนานที่สุด</div><div class="stack">${worst
+            .map(
+              (b) => `<button class="roomcard" data-room="${esc(b.room)}">
+                <span><b>ห้อง ${esc(b.room)}</b><div class="m">${money(b.total)} · ครบกำหนด ${dateTh(b.due)}</div></span>
+                <span class="pill bad">เลย ${daysLate(b.due)} วัน</span></button>`
+            )
+            .join("")}</div>`
+        : ""
+    }
+    <div class="hint">ยอดนับจากบิลล่าสุดของแต่ละห้อง · รอบที่ยังไม่ได้ออกบิลจะไม่ถูกรวม</div>`;
+
+  view.querySelectorAll("[data-room]").forEach((el) => {
+    el.onclick = () => go(`review/overdue`);
+  });
 }
 
 function ownerRooms() {
