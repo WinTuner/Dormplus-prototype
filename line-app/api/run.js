@@ -9,7 +9,7 @@ module.exports = async (req, res) => {
   if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
   const userId = await requireUser(req, res);
   if (!userId) return;
-  if (!isOwner(userId)) return res.status(403).json({ error: { code: "FORBIDDEN", message: "เฉพาะเจ้าของหอ" } });
+  if (!await isOwner(userId)) return res.status(403).json({ error: { code: "FORBIDDEN", message: "เฉพาะเจ้าของหอ" } });
 
   const { period, due, readings } = req.body || {};
   if (!Array.isArray(readings) || !readings.length) {

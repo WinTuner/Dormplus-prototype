@@ -78,6 +78,8 @@
   .slip{display:flex;gap:12px;align-items:flex-start}
   .thumb{width:52px;height:64px;border-radius:8px;background:var(--card2);border:1px solid var(--line);object-fit:cover;flex:none;display:grid;place-items:center;font-size:10px;color:var(--muted);cursor:pointer;overflow:hidden}
   .thumb img{width:100%;height:100%;object-fit:cover}
+.qr{margin-top:12px;background:#fff;border-radius:12px;padding:10px;display:grid;place-items:center}
+.qr svg{width:100%;max-width:280px;height:auto;display:block}
   .qr{width:132px;height:132px;margin:0 auto;border:1px solid var(--line);border-radius:10px;display:grid;place-items:center;font-size:12px;color:var(--muted);text-align:center}
   .pick{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:240px;border:1px dashed var(--line);border-radius:var(--radius);background:var(--card);cursor:pointer;text-align:center;overflow:hidden}
   .pick img{width:100%;max-height:420px;object-fit:contain;display:block}
@@ -183,6 +185,10 @@ async function boot() {
     const tab = params.get("tab") || "";
     const room = me.room || params.get("room");
     const home = () => (me.owner ? startOwner("home") : room ? startTenant(room) : fail("ยังไม่ได้ผูกห้อง — พิมพ์ “ผูก 203” ในแชท LINE ก่อน"));
+
+    // Opened from an owner invite QR: redeem the code, then continue as an owner.
+    const ownerCode = params.get("owner");
+    if (ownerCode) return acceptOwner(ownerCode, me);
 
     // Every rich-menu tab now has a screen; a tab we do not know falls back to home.
     const ownerTabs = { meter: "rooms", rooms: "rooms", slips: "review/pending", unpaid: "review/overdue", report: "report" };
@@ -446,6 +452,7 @@ function renderOwner() {
   if (r.startsWith("entry/")) return ownerEntry(decodeURIComponent(r.slice(6)));
   if (r === "bill") return ownerBill();
   if (r === "report") return ownerReport();
+  if (r === "owners") return ownerInvite();
   if (r.startsWith("review")) return ownerReview(r.split("/")[1] || O.reviewTab);
   return ownerHome();
 }
@@ -477,6 +484,7 @@ function ownerHome() {
       <button class="btn" data-go="bill">ออกบิลทั้งหอ</button>
       <button class="btn" data-go="review/pending">สลิปรอตรวจ (${pending})</button>
       <button class="btn" data-go="report">รายงานรายรับ</button>
+      <button class="btn" data-go="owners">เพิ่มเจ้าของหอ (QR)</button>
       <button class="btn" id="settings">ตั้งค่าหอ</button>
     </div>`;
 
@@ -544,6 +552,62 @@ function ownerReport() {
   view.querySelectorAll("[data-room]").forEach((el) => {
     el.onclick = () => go(`review/overdue`);
   });
+}
+
+// Owner-only: mint a one-time code + QR so a second person becomes an owner.
+function ownerInvite() {
+  header("เพิ่มเจ้าของหอ", "เจ้าของ", "home");
+  bottom("");
+  view.innerHTML = `
+    <div class="card">
+      <div class="m">สร้างรหัสให้ผู้ช่วยหรือเจ้าของอีกคนสแกนในแอป LINE — ใช้ได้ครั้งเดียว หมดอายุใน 10 นาที</div>
+      <button class="btn primary" id="mk" style="margin-top:12px">สร้างรหัส + QR</button>
+    </div>
+    <div id="out"></div>`;
+
+  $("mk").onclick = async () => {
+    const btn = $("mk");
+    btn.disabled = true;
+    btn.textContent = "กำลังสร้าง…";
+    try {
+      const r = await api("/api/owner-invite", { method: "POST" });
+      $("out").innerHTML = `
+        <div class="card">
+          <div class="m">ให้เขาสแกน QR นี้ในแอป LINE (หรือส่งลิงก์ให้เปิดใน LINE)</div>
+          ${r.qr ? `<div class="qr">${r.qr}</div>` : ""}
+          <div class="row" style="margin-top:10px"><span class="m">รหัส</span><b style="font-size:18px;letter-spacing:2px">${esc(r.code)}</b></div>
+          ${r.url ? `<div class="m" style="margin-top:6px;word-break:break-all">${esc(r.url)}</div>` : `<div class="m warnText" style="margin-top:6px">ยังไม่ได้ตั้ง LIFF_ID — ส่งรหัสให้เขาพิมพ์เองไม่ได้</div>`}
+          <div class="m" style="margin-top:6px">หมดอายุ ${timeTh(r.expiresAt)}</div>
+        </div>`;
+      $("out").scrollIntoView({ behavior: "smooth" });
+    } catch (e) {
+      toast(e.message, true);
+      btn.disabled = false;
+      btn.textContent = "สร้างรหัส + QR";
+    }
+  };
+}
+
+// Someone opened the QR link: redeem the code, then land on the owner home.
+async function acceptOwner(code, me) {
+  header("DormPlus", "กำลังยืนยันสิทธิ์เจ้าของ");
+  bottom("");
+  view.innerHTML = `<div class="card"><div class="m">กำลังตรวจรหัส…</div></div>`;
+  try {
+    await api("/api/owner-accept", { method: "POST", body: JSON.stringify({ code }) });
+    history.replaceState(null, "", location.pathname);
+    const fresh = await api("/api/me");
+    if (!fresh.owner) throw new Error("ยังไม่ได้สิทธิ์เจ้าของ — ขอรหัสใหม่จากเจ้าของหอ");
+    toast("เพิ่มคุณเป็นเจ้าของหอแล้ว");
+    return startOwner("home");
+  } catch (e) {
+    return notice(
+      "ยืนยันไม่สำเร็จ",
+      e.message,
+      me.owner ? "ไปหน้าหลัก" : "ดูบิลของฉัน",
+      () => (me.owner ? startOwner("home") : me.room ? startTenant(me.room) : fail("ยังไม่ได้ผูกห้อง"))
+    );
+  }
 }
 
 function ownerRooms() {

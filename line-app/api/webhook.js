@@ -87,7 +87,7 @@ async function handleEvent(event, baseUrl) {
     const data = new URLSearchParams(event.postback.data);
     if (data.get("action") === "confirm") {
       // Only the owner may close a bill: anyone holding the card (or forging the postback) is refused.
-      if (!isOwner(userId)) {
+      if (!await isOwner(userId)) {
         return reply(event.replyToken, [{ type: "text", text: "เฉพาะเจ้าของหอกดยืนยันได้ครับ" }]);
       }
       const room = data.get("room");

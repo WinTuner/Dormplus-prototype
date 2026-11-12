@@ -50,14 +50,30 @@ assert.strictEqual(bypassAllowed({ VERCEL_ENV: "production", ALLOW_SEED_BYPASS: 
 assert.strictEqual(bypassAllowed({ VERCEL_ENV: "preview" }), true, "preview -> allowed");
 assert.strictEqual(bypassAllowed({ VERCEL_ENV: "development" }), true, "development -> allowed");
 
-// 5) only the configured owner counts as owner
+// 5) owner = OWNER_USER_ID, plus anyone admitted later with an owner invite
+const owners = new Map([["owner:U_coowner", { addedAt: "2026-11-12T00:00:00Z" }]]);
+const storeStub = {
+  get: async (k) => (owners.has(k) ? owners.get(k) : null),
+  set: async (k, v) => owners.set(k, v),
+};
+const storePath = require.resolve("./api/_store");
+require.cache[storePath] = { id: storePath, filename: storePath, loaded: true, exports: storeStub };
+
 process.env.OWNER_USER_ID = "Uowner";
 delete require.cache[require.resolve("./api/_auth")];
 const auth = require("./api/_auth");
-assert.strictEqual(auth.isOwner("Uowner"), true);
-assert.strictEqual(auth.isOwner("Usomeone-else"), false, "a tenant is never the owner");
-delete process.env.OWNER_USER_ID;
-delete require.cache[require.resolve("./api/_auth")];
-assert.strictEqual(require("./api/_auth").isOwner("Uowner"), false, "no OWNER_USER_ID -> nobody is owner");
 
-console.log("smoke OK — signature + flex card + confirm card + auth guards");
+(async () => {
+  assert.strictEqual(await auth.isOwner("Uowner"), true, "the configured owner");
+  assert.strictEqual(await auth.isOwner("U_coowner"), true, "an owner admitted by invite");
+  assert.strictEqual(await auth.isOwner("Usomeone-else"), false, "a tenant is never the owner");
+  assert.strictEqual(await auth.isOwner(null), false, "no user is not the owner");
+
+  delete process.env.OWNER_USER_ID;
+  delete require.cache[require.resolve("./api/_auth")];
+  const noRoot = require("./api/_auth");
+  assert.strictEqual(await noRoot.isOwner("Uowner"), false, "without OWNER_USER_ID that account is not an owner");
+  assert.strictEqual(await noRoot.isOwner("U_coowner"), true, "but an invited owner still is");
+
+  console.log("smoke OK — signature + flex card + confirm card + auth guards");
+})();

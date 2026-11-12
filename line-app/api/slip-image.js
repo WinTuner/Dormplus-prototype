@@ -9,7 +9,7 @@ module.exports = async (req, res) => {
 
   const room = String(req.query.room || "").trim();
   const bound = await store.get(`user-room:${userId}`);
-  if (!isOwner(userId) && bound !== room) {
+  if (!await isOwner(userId) && bound !== room) {
     return res.status(403).json({ error: { code: "FORBIDDEN", message: "เข้าถึงสลิปห้องนี้ไม่ได้" } });
   }
 

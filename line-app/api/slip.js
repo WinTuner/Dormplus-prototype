@@ -16,7 +16,7 @@ module.exports = async (req, res) => {
   if (!room) return res.status(400).json({ error: { code: "VALIDATION", message: "ต้องระบุ room" } });
 
   const bound = await store.get(`user-room:${userId}`);
-  if (!isOwner(userId) && bound !== room) {
+  if (!await isOwner(userId) && bound !== room) {
     return res.status(403).json({ error: { code: "FORBIDDEN", message: `บัญชีนี้ยังไม่ได้ผูกกับห้อง ${room}` } });
   }
 
