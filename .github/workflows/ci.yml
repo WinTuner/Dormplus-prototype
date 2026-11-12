@@ -6,6 +6,25 @@ on:
   pull_request:
 
 jobs:
+  # The deployed LINE app (line-app/): plain Node, no dependencies, no network.
+  line-app:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Syntax check every handler
+        working-directory: line-app
+        run: |
+          for f in api/*.js; do node --check "$f"; done
+
+      - name: Offline smoke test (signature, Flex cards, auth guards)
+        working-directory: line-app
+        run: node smoke.js
+
   # The real backend (FastAPI + Postgres). Skips itself until backend/ exists on the branch,
   # so this file is safe to merge before the backend lands.
   backend:
