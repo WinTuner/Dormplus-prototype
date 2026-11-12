@@ -10,7 +10,11 @@ LINE Login ผ่าน LIFF และ flow แนบสลิป → เจ้�
 | `GET /healthz` | ทุกคน | ตรวจว่า DB ตอบ |
 | `GET /v1/liff-config` | ทุกคน | `{ "liff_id": ... }` ให้หน้า LIFF เอาไป `liff.init()` (public โดยตั้งใจ) |
 | `POST /v1/auth/line` | หน้า LIFF | รับ `id_token` → ตรวจกับ LINE → ตั้ง cookie `dp_session` (7 วัน) · ยังไม่ผูกห้อง → 403 `NOT_LINKED` · ยังไม่ตั้ง `LINE_CHANNEL_ID` → 503 |
+| `POST /v1/auth/line/link` | หน้า LIFF (จาก QR เชิญ) | รับ `id_token` + `code` → ผูก LINE กับห้องของรหัส → ตั้ง cookie · รหัสผิด 404 · ใช้แล้ว 409 · หมดอายุ 410 |
 | `POST /v1/auth/logout` | ใครก็ได้ | ลบ cookie (204) |
+| `POST /v1/rooms/:id/invite` | เจ้าของหอ | สร้างรหัสเชิญ 8 ตัว อายุ 7 วัน ใช้ได้ 1 คน + `link_url` สำหรับทำ QR |
+| `DELETE /v1/rooms/:id/invite` | เจ้าของหอ | ยกเลิกรหัสเชิญที่ยังไม่ใช้ของห้อง |
+| `DELETE /v1/tenants/:id/line` | เจ้าของหอ | ยกเลิกการผูก LINE ของผู้เช่า (204) |
 | `GET /v1/me/invoices` | ผู้เช่า | บิลของห้องตัวเอง 12 รอบล่าสุด — ห้องมาจาก session ไม่ใช่ request |
 | `GET /v1/rooms?period=YYYY-MM` | เจ้าของหอ | ห้องทั้งหมดของหอใน session พร้อมผู้เช่า มิเตอร์ และบิลของรอบนั้น ไม่ส่ง `period` = เดือนนี้ (เวลาไทย) |
 | `PUT /v1/rooms/:id/reading` | เจ้าของหอ | ส่งซ้ำทับค่าเดิมได้ · ออกบิลรอบนั้นแล้ว → 409 · ห้องของหออื่น → 403 |
@@ -85,6 +89,7 @@ test ที่ต้องใช้ฐานข้อมูลจะอ่าน
 - รายการบิล: `days_overdue` ไม่นับบิลรอตรวจ · `summary` · กรองสถานะ · หอ B ไม่เห็นบิลหอ A
 - session cookie: ปลอมแล้วไม่ผ่าน · secret อื่นไม่ผ่าน · หมดอายุไม่ผ่าน · idToken `aud` ไม่ตรง OA → 401 · ยังไม่ตั้ง `LINE_CHANNEL_ID` → 503
 - สลิป/ยืนยัน/ตีกลับ: ผู้เช่าแนบได้เฉพาะบิลห้องตัวเอง (ห้องอื่น 404) · สถานะไม่ใช่ `unpaid` → 409 · ยืนยันแล้วได้ `receipt_no` ไม่ซ้ำ · หออื่นยืนยันไม่ได้ · ตีกลับแล้วกลับเป็น `unpaid` + ลง `audit_log`
+- ผูก LINE กับห้อง (`tests/test_line_link.py`): ผูกแล้วได้ cookie ใช้ `/me/invoices` ได้ทันที · login ครั้งต่อไปไม่ต้องใช้รหัส · รหัสพิมพ์ตัวเล็ก/เว้นวรรคได้ · คนเดิมเปิดซ้ำได้ · คนอื่นใช้ซ้ำ 409 · หมดอายุ/ยกเลิก 410 · รหัสผิด 404 · ออกรหัสใหม่แล้วรหัสเก่าใช้ไม่ได้ · เชิญรูมเมทเพิ่มผู้เช่าใหม่ · หออื่นเชิญ/ยกเลิกการผูกไม่ได้ · ยกเลิกการผูกแล้ว login ได้ `NOT_LINKED` · เก็บแค่ hash ของรหัส
 
 ## Docker
 
@@ -104,7 +109,9 @@ docker run --rm -p 8000:8000 \
 app/main.py        create_app() + /healthz + /v1/liff-config (+ mount /liff)
 app/routes/rooms.py    GET /v1/rooms · PUT /v1/rooms/:id/reading
 app/routes/billing.py  POST /v1/billing/run · GET /v1/invoices · POST /v1/invoices/:id/{slip,confirm,reject}
-app/routes/auth.py     POST /v1/auth/line · POST /v1/auth/logout
+app/routes/auth.py     POST /v1/auth/line · POST /v1/auth/line/link · POST /v1/auth/logout
+app/routes/invites.py  POST/DELETE /v1/rooms/:id/invite · DELETE /v1/tenants/:id/line
+app/invites.py         สร้างรหัสเชิญ + hash + ลิงก์ LIFF
 app/routes/me.py       GET /v1/me/invoices (ผู้เช่าเห็นบิลตัวเอง)
 app/auth.py        current_session (cookie หรือ X-Dev-*) + owner_session / tenant_session
 app/session.py     เซ็น/ตรวจ cookie dp_session (stdlib HMAC)
@@ -116,7 +123,7 @@ app/db.py          engine (routes รับผ่าน Depends(get_engine) เ�
 app/errors.py      ApiError + แปลง error ทุกแบบเป็นรูปแบบในสัญญา
 app/seed.py        หอตัวอย่าง 42 ห้อง (python -m app.seed)
 liff/index.html    หน้า LIFF ผู้เช่า (เสิร์ฟที่ /liff)
-migrations/        Alembic · 0001 = db/schema.sql v1
+migrations/        Alembic · 0001 = db/schema.sql v1 · 0002 = link_codes (รหัสเชิญผูก LINE)
 tests/
 Dockerfile         image สำหรับ deploy (context = root ของ repo)
 ```
