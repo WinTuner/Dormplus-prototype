@@ -183,6 +183,58 @@ def test_unlink_makes_the_next_login_not_linked(owner, client_for, seeded, line_
     assert res.json()["error"]["code"] == "NOT_LINKED"
 
 
+# --- invite lifetime and one-room-per-account ------------------------------------------------------
+
+def test_an_expired_code_cannot_be_replayed_even_by_the_person_who_used_it(owner, client_for, seeded, line_ready):
+    code = invite(owner)["code"]
+    assert link(client_for(seeded), code).status_code == 200
+    with seeded.begin() as conn:
+        conn.execute(text("update link_codes set expires_at = now() - interval '1 day'"))
+    res = link(client_for(seeded), code)
+    assert res.status_code == 410
+    assert res.json()["error"]["code"] == "INVITE_EXPIRED"
+
+
+def test_a_revoked_code_cannot_be_replayed_even_by_the_person_who_used_it(owner, client_for, seeded, line_ready):
+    code = invite(owner)["code"]
+    assert link(client_for(seeded), code).status_code == 200
+    with seeded.begin() as conn:
+        conn.execute(text("update link_codes set revoked_at = now()"))
+    res = link(client_for(seeded), code)
+    assert res.status_code == 410
+    assert res.json()["error"]["code"] == "INVITE_EXPIRED"
+
+
+def test_one_line_account_cannot_hold_two_rooms(owner, client_for, seeded, line_ready):
+    assert link(client_for(seeded), invite(owner)["code"]).status_code == 200
+    res = link(client_for(seeded), invite(owner, room="r_204")["code"])
+    assert res.status_code == 409
+    assert res.json()["error"]["code"] == "LINE_ON_ANOTHER_ROOM"
+    with seeded.connect() as conn:
+        linked = conn.execute(text(
+            "select count(*) from tenants where line_user_id = 'U_somchai'"
+        )).scalar_one()
+    assert linked == 1
+
+
+def test_an_invite_needs_no_request_body(owner, seeded):
+    res = owner.post("/v1/rooms/r_203/invite")
+    assert res.status_code == 201, res.json()
+    assert res.json()["tenant_id"] == "t_203"
+
+
+def test_reissuing_revokes_the_old_code_and_writes_an_audit_row(owner, client_for, seeded, line_ready):
+    old = invite(owner)["code"]
+    new = invite(owner)["code"]
+    assert link(client_for(seeded), old).status_code == 410
+    assert link(client_for(seeded), new).status_code == 200
+
+    row = one(seeded, "select payload from audit_log where action = 'invite.revoke' order by id desc limit 1")
+    assert row is not None, "re-issuing must leave an audit trail"
+    assert row.payload["reason"] == "reissued"
+    assert row.payload["room_id"] == "r_203"
+
+
 def test_another_dorm_cannot_unlink(client_for, seeded, line_ready):
     with seeded.begin() as conn:
         conn.execute(text("insert into properties (id, name) values ('p_2', 'หอพักอีกแห่ง')"))

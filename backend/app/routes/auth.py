@@ -127,14 +127,16 @@ def link_with_line(
             {"room": room.id, "uid": line_user_id, "today": day},
         ).first()
 
+        if invite.dead:
+            # A revoked or expired code is dead even for the person who already used it:
+            # otherwise the invite URL would be a permanent login credential.
+            raise ApiError(410, "INVITE_EXPIRED", "รหัสเชิญหมดอายุหรือถูกยกเลิกแล้ว — ขอรหัสใหม่จากเจ้าของหอ")
         if invite.used_at is not None:
             if invite.used_by == line_user_id and already is not None:
                 start_tenant_session(response, line_user_id, room.property_id, room.id)
                 return LineLoginOut(user=LineUserOut(room_no=room.room_no, name=already.name,
                                                      property_id=room.property_id))
             raise ApiError(409, "INVITE_USED", "รหัสเชิญนี้ถูกใช้ไปแล้ว — ขอรหัสใหม่จากเจ้าของหอ")
-        if invite.dead:
-            raise ApiError(410, "INVITE_EXPIRED", "รหัสเชิญหมดอายุหรือถูกยกเลิกแล้ว — ขอรหัสใหม่จากเจ้าของหอ")
 
         tenant_id, name = bind(conn, invite, room.id, line_user_id, profile.get("name"), already, day)
 
@@ -160,6 +162,19 @@ def bind(conn: Connection, invite, room_id: str, line_user_id: str, line_name: s
         return already.id, already.name  # this LINE account is already in the room: nothing to change
 
     current = "(moved_out is null or moved_out > :today)"
+
+    # One LINE account lives in one room: otherwise /v1/auth/line would have to guess which dorm
+    # to sign the caller into (it orders by moved_in and picks one).
+    elsewhere = conn.execute(
+        text(f"""select r.room_no from tenants t join rooms r on r.id = t.room_id
+                 where t.line_user_id = :uid and t.room_id <> :room and {current}
+                 limit 1"""),
+        {"uid": line_user_id, "room": room_id, "today": day},
+    ).first()
+    if elsewhere is not None:
+        raise ApiError(409, "LINE_ON_ANOTHER_ROOM",
+                       f"LINE นี้ผูกกับห้อง {elsewhere.room_no} อยู่ — ให้เจ้าของหอยกเลิกการผูกเดิมก่อน")
+
     if invite.tenant_id:
         tenant = conn.execute(
             text(f"""select id, name, line_user_id from tenants

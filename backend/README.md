@@ -166,7 +166,7 @@ Dockerfile         image สำหรับ deploy (context = root ของ rep
 alembic revision -m "add xyz"   # แล้วเขียน op.execute(...) เอง (ไม่มี autogenerate เพราะไม่ใช้ ORM model)
 ```
 
-RLS เปิดไว้ที่ตาราง rooms, readings, invoices, invoice_items, payments แต่ยังไม่มี policy
+RLS เปิดไว้ที่ตาราง rooms, readings, invoices, invoice_items, payments และ link_codes แต่ยังไม่มี policy
 ตอนนี้ app ต่อด้วย user เจ้าของตาราง จึงยังไม่โดน RLS กรอง ทุก query กรอง `property_id` จาก session ในโค้ดแทน
 
 ## งานถัดไป (HANDOFF ข้อ 6)

@@ -53,7 +53,7 @@ def audit(conn: Connection, session: Session, action: str, payload: dict) -> Non
 @router.post("/rooms/{room_id}/invite", status_code=201, response_model=InviteOut)
 def create_invite(
     room_id: str,
-    body: InviteIn,
+    body: InviteIn | None = None,
     session: Session = Depends(owner_session),
     engine: Engine = Depends(get_engine),
     day: date = Depends(today),
@@ -63,7 +63,7 @@ def create_invite(
         own_room(conn, room_id, session)
         current = "(moved_out is null or moved_out > :today)"
 
-        tenant_id = body.tenant_id
+        tenant_id = body.tenant_id if body else None
         if tenant_id:
             tenant = conn.execute(
                 text(f"select line_user_id from tenants where id = :id and room_id = :room and {current}"),
@@ -82,11 +82,15 @@ def create_invite(
 
         if tenant_id:
             # One live invite per tenant: a new one replaces any earlier unused one.
-            conn.execute(
+            replaced = conn.execute(
                 text("""update link_codes set revoked_at = now()
-                        where tenant_id = :t and used_at is null and revoked_at is null"""),
+                        where tenant_id = :t and used_at is null and revoked_at is null
+                        returning id"""),
                 {"t": tenant_id},
-            )
+            ).fetchall()
+            for old in replaced:
+                audit(conn, session, "invite.revoke",
+                      {"invite_id": old.id, "room_id": room_id, "tenant_id": tenant_id, "reason": "reissued"})
 
         row = conn.execute(
             text("""insert into link_codes (id, code_hash, property_id, room_id, tenant_id, created_by, expires_at)

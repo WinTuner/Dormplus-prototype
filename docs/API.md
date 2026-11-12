@@ -13,11 +13,16 @@
 | `GET /v1/invoices` | ✅ |
 | `POST /v1/invoices/:id/slip` | ✅ (ตรวจสลิปเป็น manual) |
 | `POST /v1/invoices/:id/confirm` | ✅ |
-| `GET /v1/reports/summary` | ✅ |
-| `POST /auth/line` · `POST /auth/logout` | ⬜ |
+| `POST /v1/invoices/:id/reject` | ✅ |
+| `GET /v1/me/invoices` | ✅ (ผู้เช่าเห็นบิลห้องตัวเอง) |
+| `GET /v1/liff-config` | ✅ |
+| `POST /auth/line` · `POST /auth/logout` | ✅ |
+| `POST /auth/line/link` | ✅ (รหัสเชิญ) |
+| `POST /rooms/:id/invite` · `DELETE /rooms/:id/invite` | ✅ |
+| `DELETE /tenants/:id/line` | ✅ |
 | `GET /properties/:id` | ⬜ |
 | `GET /invoices/:id` (รายละเอียด + items) | ⬜ |
-| `POST /invoices/:id/reject` | ⬜ |
+| `GET /v1/reports/summary` | ⬜ |
 | `POST /webhooks/line/:property_id` | ⬜ |
 
 ## กติกากลาง
@@ -65,9 +70,10 @@
 { "user": { "room_no": "203", "name": "สมชาย", "property_id": "p_1" } }
 ```
 - หอและห้องมาจากรหัสเชิญเท่านั้น ไม่รับจาก client
-- รหัสใช้ได้ครั้งเดียว · คนเดิมเปิดลิงก์ซ้ำ = เข้าสู่ระบบอีกครั้ง (200)
+- รหัสใช้ได้ครั้งเดียว · คนเดิมเปิดลิงก์ซ้ำ = เข้าสู่ระบบอีกครั้ง (200) **ตราบใดที่รหัสยังไม่หมดอายุ/ไม่ถูกยกเลิก** — รหัสที่ตายแล้วตอบ 410 แม้เป็นคนที่เคยใช้
 - รหัสไม่ถูกต้อง → `404 INVITE_NOT_FOUND` · คนอื่นใช้ไปแล้ว → `409 INVITE_USED` · หมดอายุ/ถูกยกเลิก/ผู้เช่าย้ายออก → `410 INVITE_EXPIRED`
 - ผู้เช่าที่รหัสเชิญผูก LINE อื่นไว้แล้ว → `409 TENANT_ALREADY_LINKED`
+- LINE บัญชีนี้ผูกกับห้องอื่นอยู่แล้ว (คนละห้อง) → `409 LINE_ON_ANOTHER_ROOM` (ต้องยกเลิกการผูกเดิมก่อน)
 - รหัสไม่ระบุผู้เช่า (เชิญรูมเมท) → เพิ่มผู้เช่าใหม่ในห้อง ชื่อจากโปรไฟล์ LINE
 
 ---
