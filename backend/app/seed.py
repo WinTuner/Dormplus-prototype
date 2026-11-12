@@ -1,4 +1,4 @@
-"""Seed one demo dorm with 42 rooms, ported from seed() and seed_overdue() in ../server.py.
+"""Seed one demo dorm with 42 rooms, ported from the original prototype's seed().
 
 Safe to run again: every insert is ON CONFLICT DO NOTHING, and invoice items are only added
 for invoices this run actually created.

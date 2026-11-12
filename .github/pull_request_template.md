@@ -5,14 +5,14 @@
 
 ## เกี่ยวกับ
 - [ ] frontend (`web/`)
-- [ ] API (`api_v1.py`, `/v1/*`)
+- [ ] API (`backend/`, `/v1/*`)
 - [ ] docs (`README.md`, `docs/`)
-- [ ] data / schema (`db/schema.sql`, `server.py` seed)
+- [ ] data / schema (`db/schema.sql`, `backend/app/seed.py`)
 - [ ] repo / CI (`.github/`)
 
 ## ทดสอบแล้วอย่างไร
 <!-- คำสั่งที่รัน หรือหน้าที่กดดู + ผลที่เห็น เช่น
-     python -m py_compile server.py api_v1.py
+     cd backend && pytest -q
      เปิด /owner กดจดมิเตอร์ห้อง 203 → total 3,842 -->
 
 ## กระทบข้อมูลหรือไม่
