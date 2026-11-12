@@ -51,7 +51,10 @@ assert.strictEqual(bypassAllowed({ VERCEL_ENV: "preview" }), true, "preview -> a
 assert.strictEqual(bypassAllowed({ VERCEL_ENV: "development" }), true, "development -> allowed");
 
 // 5) owner = OWNER_USER_ID, plus anyone admitted later with an owner invite
-const owners = new Map([["owner:U_coowner", { addedAt: "2026-11-12T00:00:00Z" }]]);
+const owners = new Map([
+  ["owner:U_coowner", { addedAt: "2026-11-12T00:00:00Z" }],
+  ["owner:U_viewer", { addedAt: "2026-11-12T00:00:00Z", role: "viewer" }],
+]);
 const storeStub = {
   get: async (k) => (owners.has(k) ? owners.get(k) : null),
   set: async (k, v) => owners.set(k, v),
@@ -67,6 +70,9 @@ const auth = require("./api/_auth");
   assert.strictEqual(await auth.isOwner("Uowner"), true, "the configured owner");
   assert.strictEqual(await auth.isOwner("U_coowner"), true, "an owner admitted by invite");
   assert.strictEqual(await auth.isOwner("Usomeone-else"), false, "a tenant is never the owner");
+  assert.strictEqual(await auth.isOwner("U_viewer"), false, "a viewer is not an owner");
+  assert.strictEqual(await auth.canView("U_viewer"), true, "a viewer may look at owner screens");
+  assert.strictEqual(await auth.canView("Usomeone-else"), false, "a tenant may not");
   assert.strictEqual(await auth.isOwner(null), false, "no user is not the owner");
 
   delete process.env.OWNER_USER_ID;

@@ -37,12 +37,18 @@ async function requireUser(req, res) {
 
 // Owner = the userId in OWNER_USER_ID (the dorm's first owner, set by hand) or anyone the
 // owner later admitted with an owner invite code (store key `owner:<userId>`).
-async function isOwner(userId) {
-  if (!userId) return false;
-  if (process.env.OWNER_USER_ID && userId === process.env.OWNER_USER_ID) return true;
+// Who is this? "owner" (full), "viewer" (can look, cannot bill or invite), or null (tenant/unknown).
+async function roleOf(userId) {
+  if (!userId) return null;
+  if (process.env.OWNER_USER_ID && userId === process.env.OWNER_USER_ID) return "owner";
   // Lazy require: keeps `node smoke.js` runnable with no node_modules installed.
   const store = require("./_store");
-  return !!(await store.get(`owner:${userId}`));
+  const record = await store.get(`owner:${userId}`);
+  if (!record) return null;
+  return record.role === "viewer" ? "viewer" : "owner"; // records written before roles existed are full owners
 }
 
-module.exports = { requireUser, isOwner, CHANNEL_ID, BYPASS_ALLOWED };
+const isOwner = async (userId) => (await roleOf(userId)) === "owner";
+const canView = async (userId) => (await roleOf(userId)) !== null;
+
+module.exports = { requireUser, isOwner, canView, roleOf, CHANNEL_ID, BYPASS_ALLOWED };

@@ -214,7 +214,7 @@ $J = @{ "x-seed-token" = $S; "Content-Type" = "application/json" }
 |---|---|---|---|
 | `x-seed-token: <SEED_TOKEN>` | ทุก endpoint ที่เรียก `requireUser` (`/api/me`, `/api/bill`, `/api/slip`, `/api/slip-image`, `/api/rooms`, `/api/run`) | `OWNER_USER_ID` ถ้าตั้งไว้, ไม่งั้น `"dev"` | **ได้สิทธิ์เจ้าของเสมอ** → เทสต์เคส 403 ของผู้เช่าไม่ได้ |
 | `Authorization: Bearer <idToken>` | endpoint เดียวกัน | LINE userId จริงจาก `sub` | ต้องเอา idToken จาก LIFF ที่ล็อกอินแล้ว |
-| `?token=<SEED_TOKEN>` | `/api/seed`, `/api/sendbill` เท่านั้น | ไม่มีตัวตน | สองตัวนี้ไม่เรียก `requireUser` เลย |
+| `?token=<SEED_TOKEN>` | `/api/dev?do=seed`, `/api/dev?do=sendbill` เท่านั้น | ไม่มีตัวตน | สองตัวนี้ไม่เรียก `requireUser` เลย |
 
 **วิธีทดสอบเคส "ผู้ใช้ทั่วไป" (non-owner) โดยไม่ต้องมี LINE:** `requireUser` คืน `OWNER_USER_ID || "dev"` (บรรทัด 19) และ `isOwner` เป็น `false` เมื่อ `OWNER_USER_ID` ว่าง → ถ้า **ถอด `OWNER_USER_ID` ออกแล้ว redeploy** ตัว bypass จะกลายเป็น `"dev"` ซึ่งไม่ใช่เจ้าของ ทำให้เทสต์ 403 ของ `/api/rooms`, `/api/run`, `/api/bill` (ห้องอื่น) ได้ อย่าลืมใส่ค่ากลับแล้ว redeploy อีกครั้ง (env ถูกอ่านตอน module load — ต้อง deploy ใหม่ถึงจะมีผล)
 
@@ -300,21 +300,21 @@ curl.exe -s -X POST $B/api/run -H "x-seed-token: $S" -H "Content-Type: applicati
 | เรียกด้วย GET | `405` | |
 | บิลเดิมถูกทับไหม | รันซ้ำด้วย period เดิม | บิลถูกเขียนทับทั้งใบ, `status` กลับเป็น `unpaid` แม้เพิ่ง `paid` — ประวัติหาย (ตามดีไซน์) |
 
-### 6.8 `POST /api/seed?token=...`
+### 6.8 `POST /api/dev?do=seed&token=...`
 
 | เคส | คำสั่ง | คาดหวัง | ดูอะไร |
 |---|---|---|---|
-| token ถูก | `curl.exe -s -X POST "$B/api/seed?token=$S"` | `200` `{ok, period:"2026-11", rooms:[12]}` | หน่วยน้ำ/ไฟมาจากสูตร `4+(i%4)` / `28+(i%6)*7` |
-| token ผิด/ไม่ส่ง | `-X POST "$B/api/seed?token=wrong"` | `403` `FORBIDDEN` "ต้องมี token" | ถ้าได้ 200 แปลว่า `SEED_TOKEN` ไม่ได้ตั้ง — ห้ามใช้ production |
+| token ถูก | `curl.exe -s -X POST "$B/api/dev?do=seed&token=$S"` | `200` `{ok, period:"2026-11", rooms:[12]}` | หน่วยน้ำ/ไฟมาจากสูตร `4+(i%4)` / `28+(i%6)*7` |
+| token ผิด/ไม่ส่ง | `-X POST "$B/api/dev?do=seed&token=wrong"` | `403` `FORBIDDEN` "ต้องมี token" | ถ้าได้ 200 แปลว่า `SEED_TOKEN` ไม่ได้ตั้ง — ห้ามใช้ production |
 | idempotent | รันสองครั้ง | ครั้งที่สองไม่ทับ `room:<room>` ที่มีอยู่ | `bill:<room>` ถูกทับทุกครั้ง |
-| GET | `$B/api/seed?token=$S` | `405` | |
+| GET | `$B/api/dev?do=seed&token=$S` | `405` | |
 
 ตัวอย่างยอดที่ควรเห็นถ้า Blob ยังว่าง: ห้อง `203` (index 2) → rent `3500`, น้ำ 6 หน่วย `150`, ไฟ 42 หน่วย `294`, รวม `3944`; ห้อง `201` (index 0) → rent `3220`, รวม `3516`
 
-### 6.9 `POST /api/sendbill?token=...`
+### 6.9 `POST /api/dev?do=sendbill&token=...`
 
 ```powershell
-curl.exe -s -X POST "$B/api/sendbill?token=$S" -H "Content-Type: application/json" --data-binary '{"to":"U<userId>","room":"203"}'
+curl.exe -s -X POST "$B/api/dev?do=sendbill&token=$S" -H "Content-Type: application/json" --data-binary '{"to":"U<userId>","room":"203"}'
 ```
 
 | เคส | คาดหวัง | ดูอะไร |
@@ -355,7 +355,7 @@ node -e "const c=require('crypto');const b=JSON.stringify({events:[]});const s=c
 - LINE OA ของหอ (HANDOFF ระบุชื่อ `P'CAT HOUSE` / `@218nhslf`) ที่ผูก LIFF แล้ว และ **เปิด webhook**
 - LIFF app ที่ endpoint `https://<โดเมน>/liff/bill.html`, size Tall, **scope `openid` ติ๊กแล้ว**
 - บัญชี LINE 2 บัญชี: เจ้าของ (ต้องเป็น `OWNER_USER_ID` เป๊ะ) และผู้เช่า
-- มีบิลของห้องนั้นอยู่ก่อน (`/api/seed` หรือ `/api/run`)
+- มีบิลของห้องนั้นอยู่ก่อน (`/api/dev?do=seed` หรือ `/api/run`)
 
 <!-- VERIFY: ชื่อ OA, LIFF id และการตั้งค่า scope openid มาจาก HANDOFF.md/README ไม่ได้ตรวจกับ LINE Developers Console ในรอบนี้ -->
 
@@ -394,7 +394,7 @@ node -e "const c=require('crypto');const b=JSON.stringify({events:[]});const s=c
 `api/_auth.js` บรรทัด 17–20: ถ้า header ตรงกับ `SEED_TOKEN` จะข้ามการตรวจ idToken ทั้งหมดแล้วคืน `OWNER_USER_ID` (หรือ `"dev"`)
 
 - ไม่มีเทสต์ใด ๆ ทั้งอัตโนมัติและ manual ที่ยืนยันว่า **production ปิด bypass นี้แล้ว**
-- ความเสี่ยง: ใครถือ token เรียก API ในนามเจ้าของได้ทุก endpoint; token ยังเดินทางใน query string ของ `/api/seed` และ `/api/sendbill` → ติดใน access log ของ Vercel
+- ความเสี่ยง: ใครถือ token เรียก API ในนามเจ้าของได้ทุก endpoint; token ยังเดินทางใน query string ของ `/api/dev?do=seed` และ `/api/dev?do=sendbill` → ติดใน access log ของ Vercel
 - วิธีเช็กขั้นต่ำ: `curl.exe -s -o NUL -w "%{http_code}" -H "x-seed-token: wrong" $B/api/me` ต้องได้ `401` และตั้ง `SEED_TOKEN` เป็นค่ายาว/สุ่ม ถ้าจะใช้กับหอจริงให้ลบบล็อกนั้นออกแล้ว redeploy
 
 <!-- VERIFY: สถานะจริงบน production ว่าตอนนี้ SEED_TOKEN ตั้งไว้หรือไม่ และ bypass ยังเปิดอยู่ไหม — ไม่มีไฟล์ในเรพยืนยัน ต้องดู Environment Variables ใน Vercel -->

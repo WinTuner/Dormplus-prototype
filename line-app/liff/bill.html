@@ -121,6 +121,7 @@ const view = $("view");
 const fmt = (n) => Number(n || 0).toLocaleString("th-TH");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 let idToken = null;
+let MYROLE = null; // owner | viewer | null
 
 // ---------- shared UI ----------
 const TH_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
@@ -181,6 +182,7 @@ async function boot() {
     }
 
     const me = await api("/api/me");
+    MYROLE = me.role || null;
     const params = new URLSearchParams(location.search);
     const tab = params.get("tab") || "";
     const room = me.room || params.get("room");
@@ -318,7 +320,31 @@ function tenantInvoice() {
     <div class="card">
       <div class="qr">QR พร้อมเพย์</div>
       <div class="hint" style="text-align:center;margin-top:10px">เจ้าของหอยังไม่ได้ใส่ QR · โอนตามช่องทางที่หอแจ้ง แล้วแนบสลิป</div>
+    </div>
+    <div class="card">
+      <div class="m">ประวัติการชำระ</div>
+      <button class="btn" id="histBtn" style="margin-top:10px">ดูใบเสร็จย้อนหลัง</button>
+      <div id="hist"></div>
     </div>`;
+
+  $("histBtn").onclick = async () => {
+    const btn = $("histBtn");
+    btn.disabled = true;
+    btn.textContent = "กำลังโหลด…";
+    try {
+      const h = await api(`/api/bill?room=${encodeURIComponent(b.room)}&history=1`);
+      $("hist").innerHTML = h.items.length
+        ? `<div class="rows" style="margin-top:10px">${h.items
+            .map((i) => `<div class="row"><span class="m">${periodTh(i.period)}</span><span>${fmt(i.total)} บาท ${statusPill(i.status)}</span></div>`)
+            .join("")}</div>`
+        : `<div class="hint" style="margin-top:10px">ยังไม่มีประวัติ — ระบบเริ่มเก็บประวัติตั้งแต่รอบนี้</div>`;
+      btn.remove();
+    } catch (e) {
+      btn.disabled = false;
+      btn.textContent = "ดูใบเสร็จย้อนหลัง";
+      toast(e.message, true);
+    }
+  };
 
   const label = b.status === "pending" ? "ส่งสลิปใหม่" : "แนบสลิป";
   bottom(`<button class="btn primary" id="toSlip" ${b.status === "paid" ? "disabled" : ""}>${label}</button>`);
@@ -473,6 +499,7 @@ function ownerHome() {
   const overdue = bills.filter(isOverdue).length;
 
   view.innerHTML = `
+    ${MYROLE === "viewer" ? `<div class="card"><div class="m">บัญชีนี้เป็น <b>ผู้ช่วย (ดูอย่างเดียว)</b> — ดูบิล/สลิป/รายงานได้ แต่ออกบิลหรือยืนยันการชำระไม่ได้</div></div>` : ""}
     <div class="card">
       <div class="m">จดมิเตอร์แล้ว</div>
       <div class="big">${read} / ${total} ห้อง</div>
@@ -561,26 +588,31 @@ function ownerReport() {
 
 // Owner-only: mint a one-time code + QR so a second person becomes an owner.
 function ownerInvite() {
+  if (MYROLE === "viewer") {
+    return notice("เฉพาะเจ้าของหอ", "บัญชีผู้ช่วยเพิ่มเจ้าของไม่ได้", "ไปหน้าหลัก", () => go("home"));
+  }
   header("เพิ่มเจ้าของหอ", "เจ้าของ", "home");
   bottom("");
   view.innerHTML = `
     <div class="card">
-      <div class="m">สร้างรหัสให้ผู้ช่วยหรือเจ้าของอีกคนสแกนในแอป LINE — ใช้ได้ครั้งเดียว หมดอายุใน 10 นาที</div>
-      <button class="btn primary" id="mk" style="margin-top:12px">สร้างรหัส + QR</button>
+      <div class="m">สร้างรหัสให้คนที่สแกนในแอป LINE — ใช้ได้ครั้งเดียว หมดอายุใน 10 นาที</div>
+      <button class="btn primary" id="mk" style="margin-top:12px">เจ้าของหอ (แก้ไข/ออกบิลได้)</button>
+      <button class="btn" id="mkViewer" style="margin-top:8px">ผู้ช่วย (ดูอย่างเดียว)</button>
     </div>
     <div id="out"></div>`;
 
-  $("mk").onclick = async () => {
-    const btn = $("mk");
+  const mint = async (role) => {
+    const btn = role === "viewer" ? $("mkViewer") : $("mk");
     btn.disabled = true;
     btn.textContent = "กำลังสร้าง…";
     try {
-      const r = await api("/api/owner", { method: "POST" });
+      const r = await api("/api/owner", { method: "POST", body: JSON.stringify({ role }) });
       $("out").innerHTML = `
         <div class="card">
           <div class="m">ให้เขาสแกน QR นี้ในแอป LINE (หรือส่งลิงก์ให้เปิดใน LINE)</div>
           ${r.qr ? `<div class="qr">${r.qr}</div>` : ""}
-          <div class="row" style="margin-top:10px"><span class="m">รหัส</span><b style="font-size:18px;letter-spacing:2px">${esc(r.code)}</b></div>
+          <div class="row" style="margin-top:10px"><span class="m">สิทธิ์</span><b>${r.role === "viewer" ? "ผู้ช่วย (ดูอย่างเดียว)" : "เจ้าของหอ"}</b></div>
+          <div class="row" style="margin-top:6px"><span class="m">รหัส</span><b style="font-size:18px;letter-spacing:2px">${esc(r.code)}</b></div>
           ${r.url ? `<div class="m" style="margin-top:6px;word-break:break-all">${esc(r.url)}</div>` : `<div class="m warnText" style="margin-top:6px">ยังไม่ได้ตั้ง LIFF_ID — ส่งรหัสให้เขาพิมพ์เองไม่ได้</div>`}
           <div class="m" style="margin-top:6px">หมดอายุ ${timeTh(r.expiresAt)}</div>
         </div>`;
@@ -588,9 +620,12 @@ function ownerInvite() {
     } catch (e) {
       toast(e.message, true);
       btn.disabled = false;
-      btn.textContent = "สร้างรหัส + QR";
+      btn.textContent = role === "viewer" ? "ผู้ช่วย (ดูอย่างเดียว)" : "เจ้าของหอ (แก้ไข/ออกบิลได้)";
     }
   };
+
+  $("mk").onclick = () => mint("owner");
+  $("mkViewer").onclick = () => mint("viewer");
 }
 
 // Someone opened the QR link: redeem the code, then land on the owner home.
@@ -631,10 +666,10 @@ function ownerQr(room) {
       </div>
       <div class="card">
         <div class="m">ปริ้นแปะหน้าห้องได้เลย · รหัสนี้ใช้ได้ตลอดจนกว่าจะกดสร้างใหม่</div>
-        <button class="btn" id="rotate" style="margin-top:12px">สร้าง QR ใหม่ (รหัสเดิมใช้ไม่ได้)</button>
+        ${MYROLE === "viewer" ? "" : `<button class="btn" id="rotate" style="margin-top:12px">สร้าง QR ใหม่ (รหัสเดิมใช้ไม่ได้)</button>`}
       </div>`;
 
-    $("rotate").onclick = async () => {
+    if (!MYROLE || MYROLE === "owner") $("rotate").onclick = async () => {
       if (!confirm(`สร้าง QR ใหม่ให้ห้อง ${room}? ใบที่แปะอยู่จะใช้ไม่ได้ทันที`)) return;
       try {
         show(await api(`/api/qr?room=${encodeURIComponent(room)}`, { method: "POST" }));
@@ -846,7 +881,11 @@ function ownerBill() {
     ownerBill();
   };
 
-  bottom(`<button class="btn primary" id="run" ${ready.length ? "" : "disabled"}>${ready.length ? `ออกบิลและส่งเข้า LINE · ${ready.length} ห้อง` : "ยังไม่มีห้องที่จดมิเตอร์"}</button>`);
+  if (MYROLE === "viewer") {
+    bottom("");
+  } else {
+    bottom(`<button class="btn primary" id="run" ${ready.length ? "" : "disabled"}>${ready.length ? `ออกบิลและส่งเข้า LINE · ${ready.length} ห้อง` : "ยังไม่มีห้องที่จดมิเตอร์"}</button>`);
+  }
   $("run").onclick = async () => {
     const btn = $("run");
     btn.disabled = true;

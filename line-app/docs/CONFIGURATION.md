@@ -11,20 +11,20 @@
 | Variable | จำเป็น | Default ในโค้ด | ไฟล์ที่อ่าน | ถ้าไม่มี / ใส่ว่าง |
 |---|---|---|---|---|
 | `LINE_CHANNEL_SECRET` | ✅ | — | `api/_line.js` | webhook ทุก request ตอบ `401 bad signature` (`verify()` คืน `false`) |
-| `LINE_CHANNEL_ACCESS_TOKEN` | ✅ | — | `api/_line.js` | ตอบ/ส่งการ์ดไม่ได้เลย LINE ตอบ 401 — `webhook`/`run`/`slip` ดัก error ไว้จึงยังคืน 200 แต่ `api/sendbill.js` ไม่มี try/catch จึงคืน **500** |
+| `LINE_CHANNEL_ACCESS_TOKEN` | ✅ | — | `api/_line.js` | ตอบ/ส่งการ์ดไม่ได้เลย LINE ตอบ 401 — `webhook`/`run`/`slip` ดัก error ไว้จึงยังคืน 200 แต่ `api/dev.js` ไม่มี try/catch จึงคืน **500** |
 | `LIFF_ID` | ✅ | `null` | `api/config.js`, `api/_line.js`, `api/_auth.js` | `/api/config` คืน `liffId: null` → หน้าเว็บขึ้น "เปิดหน้านี้จากปุ่มในแชท LINE เท่านั้น"; ปุ่มในการ์ดเปิดเป็น URL ตรงแทน `liff.line.me`; และถ้าไม่มี `LOGIN_CHANNEL_ID` ด้วย ทุก endpoint ที่ต้องล็อกอินจะตอบ 401 |
 | `OWNER_USER_ID` | ✅ | — | `api/_auth.js`, `api/slip.js` | ไม่มีใครเป็น owner → `/api/rooms`, `/api/run` ตอบ 403 และไม่มีการส่งการ์ด "ยืนยันการชำระ" ให้ใคร |
-| `SEED_TOKEN` | ✅ | — | `api/seed.js`, `api/sendbill.js`, `api/_auth.js` | `/api/seed` และ `/api/sendbill` ตอบ 403 ทุกครั้ง · bypass `x-seed-token` ไม่ทำงานบน production อยู่แล้ว |
+| `SEED_TOKEN` | ✅ | — | `api/dev.js`, `api/dev.js`, `api/_auth.js` | `/api/dev?do=seed` และ `/api/dev?do=sendbill` ตอบ 403 ทุกครั้ง · bypass `x-seed-token` ไม่ทำงานบน production อยู่แล้ว |
 | `RICHMENU_OWNER_ID` | ไม่บังคับ | — | `api/owner-accept.js` | ไม่มีผล — เจ้าของที่รับสิทธิ์จะไม่ถูกสลับ rich menu |
 | `RICHMENU_TENANT_ID` | ไม่บังคับ | — | `api/webhook.js` | ไม่มีผล — ผู้เช่าที่ผูกห้องจะไม่ถูกสลับ rich menu |
 | `ALLOW_SEED_BYPASS` | ไม่บังคับ | — (ปิด) | `api/_auth.js` | ไม่มีผลบน production เว้นแต่ตั้งเป็น `true` — ใช้เปิด bypass บนเครื่องที่ไม่ได้รันบน Vercel |
-| `PUBLIC_BASE_URL` | ไม่บังคับ | `` `https://${req.headers.host}` `` | `api/run.js`, `api/sendbill.js`, `api/webhook.js` | ใช้ host ของ request แทน (บน Vercel ปกติใช้ได้) |
+| `PUBLIC_BASE_URL` | ไม่บังคับ | `` `https://${req.headers.host}` `` | `api/run.js`, `api/dev.js`, `api/webhook.js` | ใช้ host ของ request แทน (บน Vercel ปกติใช้ได้) |
 | `ROOMS` | ไม่บังคับ | `201,202,203,204,205,206,207,208,209,210,211,212` | `api/_rooms.js` | ใช้ห้อง 201–212 |
 | `DEFAULT_RENT` | ไม่บังคับ | `3500` | `api/_rooms.js` | ค่าเช่าเริ่มต้น 3,500 บาท/ห้อง |
 | `WATER_RATE` | ไม่บังคับ | `25` | `api/_rooms.js` | ค่าน้ำ 25 บาท/หน่วย |
 | `ELEC_RATE` | ไม่บังคับ | `7` | `api/_rooms.js` | ค่าไฟ 7 บาท/หน่วย |
-| `BILL_PERIOD` | ไม่บังคับ | `null` (แต่ `seed.js` ใช้ `2026-11`) | `api/run.js`, `api/rooms.js`, `api/seed.js` | `/api/run` บังคับให้ส่ง `period` มาใน body ไม่งั้น `400`; `/api/rooms` คืน `period: null` |
-| `BILL_DUE` | ไม่บังคับ | `null` (แต่ `seed.js` ใช้ `2026-11-16`) | `api/run.js`, `api/seed.js` | บิลมี `due: null` (การ์ดจะขึ้น "null") |
+| `BILL_PERIOD` | ไม่บังคับ | `null` (แต่ `seed.js` ใช้ `2026-11`) | `api/run.js`, `api/rooms.js`, `api/dev.js` | `/api/run` บังคับให้ส่ง `period` มาใน body ไม่งั้น `400`; `/api/rooms` คืน `period: null` |
+| `BILL_DUE` | ไม่บังคับ | `null` (แต่ `seed.js` ใช้ `2026-11-16`) | `api/run.js`, `api/dev.js` | บิลมี `due: null` (การ์ดจะขึ้น "null") |
 | `LOGIN_CHANNEL_ID` | ไม่บังคับ | อนุมานจาก `LIFF_ID` (ส่วนหน้า `-`) | `api/_auth.js` | ใช้ channel id ที่ derive จาก `LIFF_ID` |
 
 ตัวแปรที่ **โค้ดไม่เคยอ่านเอง** แต่จำเป็นต่อการทำงาน (อ่านโดย library / platform):
@@ -57,11 +57,11 @@
 **`OWNER_USER_ID`** — LINE userId ของเจ้าของหอ เป็นตัวตัดสินสิทธิ์ทั้งหมด (`isOwner()` เทียบตรงตัว) และเป็นปลายทางของการ์ด "ยืนยันการชำระ" ใน `api/slip.js` **1 deploy = 1 เจ้าของ** ยังไม่รองรับหลายคน
 
 **`SEED_TOKEN`** — รหัสลับสำหรับงาน dev/ทดสอบ มีผลสามที่:
-- `POST /api/seed?token=<SEED_TOKEN>` — สร้างบิลตัวอย่างทุกห้อง (idempotent)
-- `POST /api/sendbill?token=<SEED_TOKEN>` — ยิงการ์ดบิลหาหนึ่ง userId
+- `POST /api/dev?do=seed&token=<SEED_TOKEN>` — สร้างบิลตัวอย่างทุกห้อง (idempotent)
+- `POST /api/dev?do=sendbill&token=<SEED_TOKEN>` — ยิงการ์ดบิลหาหนึ่ง userId
 - header `x-seed-token: <SEED_TOKEN>` — bypass การตรวจ idToken ใน `requireUser()` แล้วคืน `OWNER_USER_ID` (หรือ `"dev"` ถ้าไม่ได้ตั้ง) · **ทำงานเฉพาะ preview/dev หรือเมื่อตั้ง `ALLOW_SEED_BYPASS=true`**
 
-> ⚠️ ค่า token ติดไปใน access log เพราะส่งทาง query string · production ปิด bypass ไว้แล้ว (`BYPASS_ALLOWED` = false) เหลือความเสี่ยงเฉพาะ `/api/seed` และ `/api/sendbill` ที่ยังใช้ `?token=` อยู่ — อย่าแชร์ URL พวกนี้
+> ⚠️ ค่า token ติดไปใน access log เพราะส่งทาง query string · production ปิด bypass ไว้แล้ว (`BYPASS_ALLOWED` = false) เหลือความเสี่ยงเฉพาะ `/api/dev?do=seed` และ `/api/dev?do=sendbill` ที่ยังใช้ `?token=` อยู่ — อย่าแชร์ URL พวกนี้
 
 ### 2.2 กลุ่มข้อมูลห้องและบิล
 
@@ -69,9 +69,9 @@
 
 **`DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE`** — ค่าเริ่มต้นต่อห้อง ถูก wrap ด้วย `Number()` ทั้งหมด ถ้าใส่อย่างที่แปลงเป็นตัวเลขไม่ได้จะได้ `NaN` แล้วยอดบิลทั้งหมดกลายเป็น `NaN` (ไม่ error) ค่าเฉพาะห้องเขียนทับได้ด้วย key `room:<room>` ใน Blob ซึ่ง `configFor(room)` จะ merge ให้ (`{...DEFAULTS, ...roomConfig}`)
 
-**`BILL_PERIOD`** — ค่าเริ่มต้นของรอบบิล (`2026-11`) ใช้ใน `api/run.js` (ถ้า body ไม่ส่ง `period` มา), `api/seed.js`, และแสดงใน `GET /api/rooms` ถ้าไม่ตั้งและไม่ส่งมา `/api/run` จะตอบ `400 VALIDATION` — คือ **เป็นตัวเดียวในกลุ่มนี้ที่ทำให้ endpoint หลักใช้ไม่ได้ถ้าไม่ตั้ง**
+**`BILL_PERIOD`** — ค่าเริ่มต้นของรอบบิล (`2026-11`) ใช้ใน `api/run.js` (ถ้า body ไม่ส่ง `period` มา), `api/dev.js`, และแสดงใน `GET /api/rooms` ถ้าไม่ตั้งและไม่ส่งมา `/api/run` จะตอบ `400 VALIDATION` — คือ **เป็นตัวเดียวในกลุ่มนี้ที่ทำให้ endpoint หลักใช้ไม่ได้ถ้าไม่ตั้ง**
 
-**`BILL_DUE`** — วันครบกำหนด ใช้ใน `api/run.js` และ `api/seed.js` ไม่บังคับ: ถ้าไม่มี บิลเก็บ `due: null` และการ์ด LINE จะแสดงคำว่า `null`
+**`BILL_DUE`** — วันครบกำหนด ใช้ใน `api/run.js` และ `api/dev.js` ไม่บังคับ: ถ้าไม่มี บิลเก็บ `due: null` และการ์ด LINE จะแสดงคำว่า `null`
 
 ### 2.3 กลุ่ม URL
 
@@ -81,9 +81,9 @@
 
 ตั้งแล้วระบบพังทันที/ใช้ไม่ได้: `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`, `LIFF_ID`, `OWNER_USER_ID`
 
-ตั้งแล้ว endpoint ป้องกันตัวเองปิด: `SEED_TOKEN` (ถ้าไม่ตั้ง `/api/seed` และ `/api/sendbill` ใช้ไม่ได้ ซึ่งปลอดภัยกว่า)
+ตั้งแล้ว endpoint ป้องกันตัวเองปิด: `SEED_TOKEN` (ถ้าไม่ตั้ง `/api/dev?do=seed` และ `/api/dev?do=sendbill` ใช้ไม่ได้ ซึ่งปลอดภัยกว่า)
 
-ที่เหลือมี default ในโค้ดทั้งหมด: `PUBLIC_BASE_URL`, `ROOMS`, `DEFAULT_RENT`, `WATER_RATE`, `ELEC_RATE`, `LOGIN_CHANNEL_ID` และ `BILL_PERIOD`/`BILL_DUE` ที่ default เป็น `null` (ยกเว้น path ของ `api/seed.js` ที่ hardcode `2026-11` / `2026-11-16`)
+ที่เหลือมี default ในโค้ดทั้งหมด: `PUBLIC_BASE_URL`, `ROOMS`, `DEFAULT_RENT`, `WATER_RATE`, `ELEC_RATE`, `LOGIN_CHANNEL_ID` และ `BILL_PERIOD`/`BILL_DUE` ที่ default เป็น `null` (ยกเว้น path ของ `api/dev.js` ที่ hardcode `2026-11` / `2026-11-16`)
 
 ## 4. ไม่มีไฟล์ config และไม่มี `.env`
 
@@ -99,11 +99,11 @@
 | ค่าเช่า/ห้อง | `3500` บาท | `api/_rooms.js` บรรทัด 10 |
 | ค่าน้ำ | `25` บาท/หน่วย | `api/_rooms.js` บรรทัด 11 |
 | ค่าไฟ | `7` บาท/หน่วย | `api/_rooms.js` บรรทัด 12 |
-| รอบบิลของ seed | `2026-11` | `api/seed.js` บรรทัด 11 |
-| ครบกำหนดของ seed | `2026-11-16` | `api/seed.js` บรรทัด 34 |
-| ค่าเช่าห้องที่ index หาร 3 ลงตัวตอน seed | `3220` บาท | `api/seed.js` บรรทัด 15 (สร้างความต่างของข้อมูลตัวอย่าง) |
-| หน่วยน้ำ/ไฟของ seed | `4 + (i % 4)` / `28 + (i % 6) * 7` | `api/seed.js` |
-| base URL | `https://<host ของ request>` | `api/run.js`, `api/sendbill.js`, `api/webhook.js` |
+| รอบบิลของ seed | `2026-11` | `api/dev.js` บรรทัด 11 |
+| ครบกำหนดของ seed | `2026-11-16` | `api/dev.js` บรรทัด 34 |
+| ค่าเช่าห้องที่ index หาร 3 ลงตัวตอน seed | `3220` บาท | `api/dev.js` บรรทัด 15 (สร้างความต่างของข้อมูลตัวอย่าง) |
+| หน่วยน้ำ/ไฟของ seed | `4 + (i % 4)` / `28 + (i % 6) * 7` | `api/dev.js` |
+| base URL | `https://<host ของ request>` | `api/run.js`, `api/dev.js`, `api/webhook.js` |
 | userId ตอนใช้ bypass และไม่ได้ตั้ง `OWNER_USER_ID` | `"dev"` | `api/_auth.js` บรรทัด 19 |
 
 ## 6. Runtime และการ deploy
