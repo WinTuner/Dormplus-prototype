@@ -1,4 +1,4 @@
--- DomPlus — Postgres schema (v1)
+-- DormPlus — Postgres schema (v1)
 -- อ้างอิง: docs/API.md · prototype: server.py
 
 create table properties (

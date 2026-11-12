@@ -1,4 +1,4 @@
-# DomPlus backend
+# DormPlus backend
 
 FastAPI + Postgres (Supabase) ตาม [`docs/API.md`](../docs/API.md) และ [`docs/HANDOFF.md`](../docs/HANDOFF.md)
 

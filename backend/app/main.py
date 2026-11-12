@@ -9,7 +9,7 @@ from app.routes import billing, rooms
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="DomPlus API", version="0.1.0")
+    app = FastAPI(title="DormPlus API", version="0.1.0")
     errors.install(app)
     app.include_router(rooms.router)
     app.include_router(billing.router)

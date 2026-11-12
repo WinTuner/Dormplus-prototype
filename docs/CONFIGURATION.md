@@ -1,5 +1,5 @@
 <!-- generated-by: gsd-doc-writer -->
-# DomPlus — Configuration
+# DormPlus — Configuration
 
 ทุกค่าตั้งต้นของ prototype เป็น **ค่าคงที่ระดับโมดูล (module-level constants)** ใน `server.py`
 ไม่มีไฟล์ `.env`, ไม่มี config loader, และไม่มี `os.environ` / `getenv` อยู่เลยในโปรเจกต์นี้

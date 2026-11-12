@@ -1,4 +1,4 @@
-# DomPlus — API Contract (v1)
+# DormPlus — API Contract (v1)
 
 สัญญาระหว่าง frontend (LIFF + เว็บเจ้าของ) กับ backend
 ทุก endpoint เป็น JSON · ทุก request ที่ไม่ใช่ public ต้องมี session cookie

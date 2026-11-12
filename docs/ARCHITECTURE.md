@@ -1,5 +1,5 @@
 <!-- generated-by: gsd-doc-writer -->
-# DomPlus — Architecture
+# DormPlus — Architecture
 
 **Status: prototype.** Everything in the "As-built" sections below runs today from `python server.py` on
 `127.0.0.1:8777`. The production stack in [Planned production topology](#planned-production-topology-not-built)
@@ -8,7 +8,7 @@ status — `docs/HANDOFF.md` says so explicitly, and the UI is not authoritative
 
 ## System overview
 
-DomPlus bills dorm rooms monthly from meter readings and chases the arrears. The owner records water and
+DormPlus bills dorm rooms monthly from meter readings and chases the arrears. The owner records water and
 electricity readings per room, runs billing for the whole property, and confirms tenant payment slips; the
 tenant sees one invoice and attaches a slip. There is no penalty/fine logic by design — dunning is reminders
 plus an arrears status.

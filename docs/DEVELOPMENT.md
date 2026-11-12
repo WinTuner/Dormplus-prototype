@@ -1,5 +1,5 @@
 <!-- generated-by: gsd-doc-writer -->
-# DomPlus — Development
+# DormPlus — Development
 
 เอกสารสำหรับคนที่มาแก้โค้ด prototype นี้ต่อ — โครงไฟล์, สไตล์โค้ดที่ใช้อยู่จริง, วิธีเพิ่ม endpoint
 ตั้งแต่ต้นจนจบ, วิธีจัดการฐานข้อมูล, การแบ่งงานกับคนทำ backend และ workflow ของ git
@@ -368,7 +368,7 @@ python -c "import sqlite3;c=sqlite3.connect('domplus.db');c.execute('ALTER TABLE
 ```
 Add frontend web app (owner + tenant) and v1 API adapter
 Add API contract, backend handoff doc and Postgres schema
-Rename to DomPlus; refresh README and database file name
+Rename to DormPlus; refresh README and database file name
 ```
 
 - หนึ่ง commit = หนึ่งเรื่องที่ปิดจบได้ (feature + เอกสารของมันอยู่ด้วยกัน) — ประวัติมี 7 commit

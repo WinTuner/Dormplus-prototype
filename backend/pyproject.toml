@@ -1,7 +1,7 @@
 [project]
 name = "domplus-backend"
 version = "0.1.0"
-description = "DomPlus API: FastAPI + Postgres (Supabase)"
+description = "DormPlus API: FastAPI + Postgres (Supabase)"
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.115",

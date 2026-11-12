@@ -1,4 +1,4 @@
-# DomPlus — Handoff: backend
+# DormPlus — Handoff: backend
 
 เอกสารส่งงานสำหรับคนรับช่วง back-end · อัปเดต 10 พ.ย. 2569
 

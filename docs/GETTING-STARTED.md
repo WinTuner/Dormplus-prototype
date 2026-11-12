@@ -1,7 +1,7 @@
 <!-- generated-by: gsd-doc-writer -->
-# DomPlus — Getting Started
+# DormPlus — Getting Started
 
-DomPlus bills dorm rooms from meter readings and chases the arrears. This repo is the runnable
+DormPlus bills dorm rooms from meter readings and chases the arrears. This repo is the runnable
 prototype: a Python standard-library HTTP server, a real SQLite database, and two web screens
 (owner / tenant). Five minutes from clone to a full billing round.
 
