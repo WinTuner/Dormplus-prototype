@@ -4,7 +4,7 @@
 
 เอกสารนี้เขียนจากไฟล์จริงในเรพ: `vercel.json`, `package.json`, `.vercel/project.json`, `api/*.js`, `liff/bill.html` และข้อความ error ที่โค้ดส่งออกจริง ทุกอย่างที่ยืนยันจากเรพไม่ได้จะถูกกำกับด้วย `<!-- VERIFY: ... -->`
 
-**สรุปสั้น:** deploy ขึ้น Vercel ด้วย CLI (ไม่มี CI, ไม่มี Docker, ไม่มีขั้นตอน build) → ตั้ง env 7–9 ตัว → Redeploy → ยิง smoke 6 คำสั่ง (ข้อ 5) → ไปกด 3 อย่างใน LINE Developers Console ที่ทำให้จากในเรพไม่ได้
+**สรุปสั้น:** โปรเจกต์ `line-app` ผูกกับ GitHub repo `WinTuner/domplus-prototype` แล้ว — **push เข้า `master` = deploy production อัตโนมัติ** (Root Directory = `line-app`, Branch Tracking = `master`) · deploy ด้วย CLI (`vercel --prod`) ก็ยังใช้ได้เมื่อไม่ได้มาจาก git
 
 ---
 
@@ -23,12 +23,13 @@
 
 **ไม่มีในเรพ (ตั้งใจไม่เดา):**
 - ไม่มี `Dockerfile`, `docker-compose.yml`, `fly.toml`, `netlify.toml`, `serverless.yml`
-- ไม่มี `.github/workflows/` → **ไม่มี CI/CD pipeline** การ deploy ทุกครั้งมาจากเครื่องคนสั่ง
+- ไม่มี `.github/workflows/` ในโฟลเดอร์นี้ — CI อยู่ที่ root ของ repo (`.github/workflows/ci.yml`, job `backend`) และไม่ครอบ `line-app/` · การ deploy มาจาก Git integration ของ Vercel หรือ CLI
 - ไม่มี `.env`, `.env.example`, `.env.production`, `.env.preview` → env ทั้งหมดถูกตั้งใน Vercel เท่านั้น (ดู `docs/CONFIGURATION.md` ข้อ 4)
 - ไม่มีสคริปต์ build → Vercel ไม่รัน build ใด ๆ
 
-<!-- VERIFY: โฟลเดอร์ `.vercel/` มี projectId/orgId อยู่จริง แต่สถานะของโปรเจกต์บน Vercel (plan, region, โดเมน) ยืนยันจากเรพไม่ได้ -->
-<!-- VERIFY: ไม่พบ `.git/` ในเครื่องนี้ — ถ้าทีม deploy จาก GitHub integration แทน CLI ให้เพิ่มขั้นตอน pull/push เอง เอกสารนี้เขียนตามเส้นทาง CLI ที่ README ระบุ -->
+โฟลเดอร์นี้ **ไม่ใช่ git repo ของตัวเอง** — เป็นโฟลเดอร์ย่อยใน `domplus-prototype` · `.vercel/` ยังใช้ผูกกับโปรเจกต์เมื่อสั่ง CLI และถูก gitignore ไว้
+
+<!-- VERIFY: plan/region/โดเมนของโปรเจกต์บน Vercel ยืนยันจากเรพไม่ได้ -->
 
 ---
 
