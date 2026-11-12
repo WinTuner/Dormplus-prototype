@@ -181,3 +181,23 @@ RLS เปิดไว้ที่ตาราง rooms, readings, invoices, inv
 - [ ] วัน 9–10 (ค้าง): ตรวจสลิปอัตโนมัติ (`slip.verify` + SlipOK)
 - [ ] วัน 11–12: ทวงอัตโนมัติ 1/5/10 วัน + รายงาน
 - [ ] วัน 13–14: error code ที่เหลือ, log, backup
+
+## คิวงาน + ทวงอัตโนมัติ (Procrastinate)
+
+reminders ไม่ถูกส่งจาก request — API แค่ **enqueue** แล้วมี worker ค่อยดึงไปส่ง (`app/queue.py`, `app/tasks.py`)
+
+```bash
+procrastinate schema --apply               # ครั้งเดียวต่อฐานข้อมูล (สร้างตารางของ Procrastinate)
+procrastinate -a app.queue.app worker      # process ที่ต้องรันค้างไว้ (Railway / Fly / VM)
+```
+
+**ทริกเกอร์ทวงรายวัน** — เรียก endpoint นี้จาก cron (Vercel Cron, GitHub Actions, host ไหนก็ได้):
+
+```bash
+curl -X POST "https://<host>/v1/dunning/run?token=$DUNNING_TOKEN"
+```
+
+- เลือกบิล `unpaid` ที่เลยกำหนด **1 / 5 / 10 วัน** และยังไม่เคยส่ง kind นั้น (กันซ้ำด้วย `message_log`)
+- ต้องมี `LINE_CHANNEL_ACCESS_TOKEN` (ตัวเดียวกับ OA) ไม่งั้น worker จะ log `skipped` แทนการส่ง
+- env เพิ่ม: `DUNNING_TOKEN` (สำหรับ cron) · `PROPERTY_ID` (ค่าเริ่มต้น `p_1`)
+- **Vercel รัน worker ไม่ได้** (serverless ไม่มี process ค้าง) — ต้องมี host ที่รัน `procrastinate worker` ชี้ Postgres ตัวเดียวกัน

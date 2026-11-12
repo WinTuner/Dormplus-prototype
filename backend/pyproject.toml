@@ -10,6 +10,7 @@ dependencies = [
     "sqlalchemy>=2.0.36",
     "psycopg[binary]>=3.2.10",
     "alembic>=1.14",
+    "procrastinate>=3.11",
 ]
 
 [project.optional-dependencies]
