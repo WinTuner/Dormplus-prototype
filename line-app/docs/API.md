@@ -76,6 +76,19 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 
 ---
 
+### 2.5 endpoint เพิ่มเจ้าของ (`owner-invite` / `owner-accept`)
+
+เจ้าของหอคนแรกมาจาก `OWNER_USER_ID` (ตั้งด้วยมือ) คนต่อไปรับสิทธิ์ด้วยรหัสที่เจ้าของเดิมสร้าง
+รหัสมีอายุ **10 นาที ใช้ได้ครั้งเดียว** — ใครสแกน QR และยืนยัน idToken ได้ จะถูกบันทึกเป็นเจ้าของ (`owner:<userId>`)
+
+| endpoint | auth | body | ผล |
+|---|---|---|---|
+| `POST /api/owner-invite` | เจ้าของเท่านั้น | — | `{code, url, qr, expiresAt}` · `qr` เป็น SVG string ของ `https://liff.line.me/<LIFF_ID>?owner=<code>` |
+| `POST /api/owner-accept` | ผู้ใช้ที่ล็อกอิน LINE | `{code}` | `{owner:true}` (หรือ `{owner:true, already:true}` ถ้าเป็นเจ้าของอยู่แล้ว) |
+
+- รหัสผิด → `404 NOT_FOUND` · หมดอายุ/ถูกใช้ → `410 INVITE_EXPIRED` · ไม่ได้ตั้ง `OWNER_USER_ID` → `409 INVALID_STATE`
+- endpoint ที่ตรวจ `isOwner()` ใช้ได้กับเจ้าของที่ได้สิทธิ์ทาง QR ด้วย (rooms, run, bill/slip ของห้องอื่น, ยืนยันการชำระในแชท)
+
 ## 3. `GET /api/config`
 
 `api/config.js` — public, ใช้ให้หน้า LIFF รู้ LIFF ID ก่อน `liff.init()`

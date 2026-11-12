@@ -9,7 +9,7 @@ module.exports = async (req, res) => {
 
   return res.status(200).json({
     userId,
-    owner: isOwner(userId),
+    owner: await isOwner(userId),
     room: (await store.get(`user-room:${userId}`)) || null,
   });
 };

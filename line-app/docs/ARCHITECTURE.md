@@ -62,7 +62,7 @@ graph TD
    - ถ้าไม่มี token หรือไม่มี `CHANNEL_ID` → `401 UNAUTHORIZED`
    - ถ้าไม่ตรง → `POST https://api.line.me/oauth2/v2.1/verify` ด้วย `id_token` + `client_id` = `CHANNEL_ID` แล้วเอา `payload.sub` เป็น userId; ผิด/หมดอายุ → `403 FORBIDDEN`
 6. `CHANNEL_ID` = `LOGIN_CHANNEL_ID` หรือถ้าไม่ตั้งก็ใช้ prefix ของ `LIFF_ID` (ตัดที่ `-`) — คำนวณตอน module load
-7. endpoint ที่ได้ userId แล้วจะตัดสินสิทธิ์เอง: `isOwner(userId)` เทียบกับ `OWNER_USER_ID` และเทียบ `user-room:<userId>` กับการเข้าถึงห้องนั้น
+7. endpoint ที่ต้อง userId ของผู้ใช้เอง: `isOwner(userId)` (async) = `OWNER_USER_ID` หรือมี key `owner:<userId>` (ได้สิทธิ์จาก QR ของเจ้าของเดิม) · ส่วนผู้เช่าเทียบ `user-room:<userId>` ว่าผูกห้องหรือยัง
 
 ### 3.3 ออกรอบบิล (เจ้าของ)
 
@@ -89,12 +89,12 @@ graph TD
 | บทบาท | นิยามในโค้ด | เห็นอะไร | ทำอะไรได้ |
 |---|---|---|---|
 | ผู้เช่า (tenant) | ผู้ใช้ที่ผูกห้องแล้ว (`user-room:<userId>` มีค่า) | บิลของห้องตัวเอง, สลิปของห้องตัวเอง | `GET /api/bill`, `POST /api/slip`, `GET /api/slip-image`, ดูบิลในแชท |
-| เจ้าของ (owner) | `userId === process.env.OWNER_USER_ID` (`_auth.isOwner`) | ทุกห้อง ทุกบิล ทุกสลิป | `GET /api/rooms`, `POST /api/run`, ดูบิล/สลิปทุกห้อง, ยืนยันการชำระ |
+| เจ้าของ (owner) | `OWNER_USER_ID` (คนแรก ตั้งด้วยมือ) หรือมี key `owner:<userId>` (ได้สิทธิ์จาก QR ของเจ้าของเดิม) — `_auth.isOwner()` เป็น async | ทุกห้อง ทุกบิล ทุกสลิป | `GET /api/rooms`, `POST /api/run`, ดูบิล/สลิปทุกห้อง, ยืนยันการชำระ, ออก QR เพิ่มเจ้าของ |
 | ผู้ใช้ที่ยังไม่ผูกห้อง | ไม่มี `user-room:<userId>` | หน้า LIFF ขึ้น "ยังไม่ได้ผูกห้อง" | `GET /api/me` เท่านั้น · `GET /api/bill` และ `POST /api/slip` → 400 (ไม่มี room) · `GET /api/slip-image` → 403 |
 | dev bypass (preview/dev เท่านั้น) | header `x-seed-token` = `SEED_TOKEN` และ `BYPASS_ALLOWED` | เท่ากับเจ้าของ | ทุก endpoint ที่ใช้ `requireUser` — production ปฏิเสธ |
 
 - `OWNER_USER_ID` มีคนเดียวต่อ deployment → 1 deploy = 1 หอ
-- `isOwner()` คืน `false` เสมอถ้าไม่ได้ตั้ง `OWNER_USER_ID` (เงื่อนไข `!!process.env.OWNER_USER_ID` มาก่อน)
+- `isOwner()` เป็น **async** (อ่าน Blob) — คืน `true` ถ้า userId ตรงกับ `OWNER_USER_ID` หรือมี key `owner:<userId>` · ถ้าไม่ได้ตั้ง `OWNER_USER_ID` จะไม่มีใครออก QR เพิ่มเจ้าของได้ (`owner-accept` ตอบ 409) แต่เจ้าของที่เคยได้สิทธิ์ยังใช้ได้
 - ตัว bypass ใน `_auth.js` ถูกจำกัดด้วย `BYPASS_ALLOWED` (preview/dev หรือ `ALLOW_SEED_BYPASS=true`) — production ปฏิเสธเสมอ
 
 ## 5. State machine ของบิล

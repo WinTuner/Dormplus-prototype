@@ -7,7 +7,7 @@ module.exports = async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   const userId = await requireUser(req, res);
   if (!userId) return;
-  if (!isOwner(userId)) return res.status(403).json({ error: { code: "FORBIDDEN", message: "เฉพาะเจ้าของหอ" } });
+  if (!await isOwner(userId)) return res.status(403).json({ error: { code: "FORBIDDEN", message: "เฉพาะเจ้าของหอ" } });
 
   const rooms = await Promise.all(
     ROOMS.map(async (room) => ({

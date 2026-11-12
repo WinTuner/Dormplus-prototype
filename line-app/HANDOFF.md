@@ -120,6 +120,7 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "$B/api/bill?room=203"
 | cron ออกรอบบิลอัตโนมัติ | Vercel Cron → `/api/run` | ต้องมี secret ป้องกัน endpoint |
 | หลายเจ้าของ/ผู้ช่วย | `_auth.js` | `OWNER_USER_ID` เป็นคนเดียว — เปลี่ยนเป็น list หรือ role ใน Blob |
 | ~~ลบ `x-seed-token` bypass~~ | `_auth.js` | ✅ ปิดแล้ว — ค่าเริ่มต้นคือปฏิเสธ เปิดเฉพาะ `ALLOW_SEED_BYPASS=true` หรือ Vercel env `preview`/`development` |
+| หลายเจ้าของ | `_auth.js` | ✅ มีแล้ว — เจ้าของคนแรกจาก `OWNER_USER_ID`, คนต่อ ๆ ไปรับสิทธิ์ด้วย QR (`/api/owner-invite` → `?owner=<code>`) |
 | LINE Notify/แจ้งเตือนก่อนครบกำหนด | Vercel Cron | push ข้อความเตือนจาก `room-user:` map |
 | UI หลายภาษา / หลายหอใน deploy เดียว | ทั้งหมด | ตอนนี้ 1 deploy = 1 หอ (ตั้งใจ) |
 
