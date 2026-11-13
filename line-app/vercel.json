@@ -2,6 +2,7 @@
   "git": {
     "deploymentEnabled": {
       "*": false,
+      "**": false,
       "master": true,
       "preview-*": true
     }
