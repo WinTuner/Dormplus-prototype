@@ -133,10 +133,10 @@ assert.ok(pb.data.includes("room=203"), "postback carries room");
 | `verify()` (สูตร HMAC) | ✅ 3 เคส | ครอบคลุมเฉพาะ happy path + ค่าเพี้ยน 2 แบบ |
 | `billBubble()` / `confirmBubble()` (โครงสร้าง JSON) | ✅ บางส่วน | ตรวจ presence ของ string ไม่ได้ตรวจ schema ทั้งก้อน |
 | `reply()` / `push()` | ❌ | ต้องมี `LINE_CHANNEL_ACCESS_TOKEN` จริงและยิง `api.line.me` — ไม่มีทางรัน offline |
-| `api/_auth.js` (`requireUser`, `isOwner`, การ verify idToken กับ LINE) | ❌ | ทั้งระบบ auth ไม่มีเทสต์อัตโนมัติเลย |
+| `api/_auth.js` (`requireUser`, `isOwner`, การ verify idToken กับ LINE) | ✅ บางส่วน | `smoke.js`: owner/viewer + เงื่อนไข bypass · `smoke-handlers.js`: idToken (fetch ปลอม) + `seedTokenOk` |
 | `api/_store.js` (Blob get/set, `useCache:false`, การ sanitize key) | ❌ | ต้องมี Blob credential → ทดสอบได้เฉพาะบน deployment |
 | endpoint ทั้ง 10 ตัว (method check, status code, error envelope) | ❌ | ไม่มี `req`/`res` ปลอม, ไม่มี HTTP layer ในเทสต์ |
-| `webhook.js` (follow/บิล/ผูก/postback → เปลี่ยน state) | ❌ | logic ที่สำคัญที่สุดของแอปไม่มีเทสต์ |
+| `webhook.js` (follow/บิล/postback → เปลี่ยน state) | ✅ บางส่วน | `smoke-handlers.js`: postback ยืนยัน (สิทธิ์, รอบบิล, `pending`, 2 key) + signature ปลอม · follow/บิล ยังไม่มี |
 | `liff/bill.html` (boot, `liff.init`, การแนบสลิป, หน้าจดมิเตอร์) | ❌ | ต้องเปิดใน LINE จริง |
 | env อื่น (`ROOMS`, `OWNER_USER_ID`, `BILL_PERIOD`, …) | ❌ | `smoke.js` ตั้งแค่ 2 ตัว |
 | branch ที่ใช้ `LIFF_ID` (ลิงก์ `liff.line.me`, ปุ่ม "ดูสลิป") | ❌ | เพราะ `LIFF_ID` ไม่ถูกตั้ง → ตรวจเฉพาะ fallback URL |
@@ -298,23 +298,23 @@ curl.exe -s -X POST $B/api/run -H "x-seed-token: $S" -H "Content-Type: applicati
 | ไม่มี `period` และไม่ได้ตั้ง `BILL_PERIOD` | `400` `VALIDATION` "ต้องระบุ period" | เช็กก่อนถึง loop |
 | ค่ามิเตอร์เสีย (`"water":"abc"`) | `200` + `{room, error:"ค่ามิเตอร์ไม่ถูกต้อง"}` | **ทั้ง request ยัง 200** — ต้องอ่าน `rooms[]` ทีละตัว ไม่ใช่ดูแค่ status |
 | เรียกด้วย GET | `405` | |
-| บิลเดิมถูกทับไหม | รันซ้ำด้วย period เดิม | บิลถูกเขียนทับทั้งใบ, `status` กลับเป็น `unpaid` แม้เพิ่ง `paid` — ประวัติหาย (ตามดีไซน์) |
+| บิลเดิมถูกทับไหม | รันซ้ำด้วย period เดิม | บิล `unpaid` ถูกเขียนทับได้ (แก้เลขผิด) · `pending`/`paid` ถูกปฏิเสธและคืน `error` ใน `rooms[]` |
 
-### 6.8 `POST /api/dev?do=seed&token=...`
+### 6.8 `POST /api/dev?do=seed` (header `x-seed-token`)
 
 | เคส | คำสั่ง | คาดหวัง | ดูอะไร |
 |---|---|---|---|
-| token ถูก | `curl.exe -s -X POST "$B/api/dev?do=seed&token=$S"` | `200` `{ok, period:"2026-11", rooms:[12]}` | หน่วยน้ำ/ไฟมาจากสูตร `4+(i%4)` / `28+(i%6)*7` |
-| token ผิด/ไม่ส่ง | `-X POST "$B/api/dev?do=seed&token=wrong"` | `403` `FORBIDDEN` "ต้องมี token" | ถ้าได้ 200 แปลว่า `SEED_TOKEN` ไม่ได้ตั้ง — ห้ามใช้ production |
+| token ถูก | `curl.exe -s -X POST "$B/api/dev?do=seed" -H "x-seed-token: $S"` | `200` `{ok, period:"2026-11", rooms:[12]}` | หน่วยน้ำ/ไฟมาจากสูตร `4+(i%4)` / `28+(i%6)*7` |
+| token ผิด/ไม่ส่ง | `-X POST "$B/api/dev?do=seed" -H "x-seed-token: wrong"` | `403` `FORBIDDEN` "ต้องส่ง x-seed-token" | ถ้าได้ 200 แปลว่า `SEED_TOKEN` ไม่ได้ตั้ง — ห้ามใช้ production |
 | idempotent | รันสองครั้ง | ครั้งที่สองไม่ทับ `room:<room>` ที่มีอยู่ | `bill:<room>` ถูกทับทุกครั้ง |
-| GET | `$B/api/dev?do=seed&token=$S` | `405` | |
+| GET | `$B/api/dev?do=seed` + header token | `405` | |
 
 ตัวอย่างยอดที่ควรเห็นถ้า Blob ยังว่าง: ห้อง `203` (index 2) → rent `3500`, น้ำ 6 หน่วย `150`, ไฟ 42 หน่วย `294`, รวม `3944`; ห้อง `201` (index 0) → rent `3220`, รวม `3516`
 
-### 6.9 `POST /api/dev?do=sendbill&token=...`
+### 6.9 `POST /api/dev?do=sendbill` (header `x-seed-token`)
 
 ```powershell
-curl.exe -s -X POST "$B/api/dev?do=sendbill&token=$S" -H "Content-Type: application/json" --data-binary '{"to":"U<userId>","room":"203"}'
+curl.exe -s -X POST "$B/api/dev?do=sendbill" -H "x-seed-token: $S" -H "Content-Type: application/json" --data-binary '{"to":"U<userId>","room":"203"}'
 ```
 
 | เคส | คาดหวัง | ดูอะไร |
@@ -393,8 +393,8 @@ node -e "const c=require('crypto');const b=JSON.stringify({events:[]});const s=c
 
 `api/_auth.js` บรรทัด 17–20: ถ้า header ตรงกับ `SEED_TOKEN` จะข้ามการตรวจ idToken ทั้งหมดแล้วคืน `OWNER_USER_ID` (หรือ `"dev"`)
 
-- ไม่มีเทสต์ใด ๆ ทั้งอัตโนมัติและ manual ที่ยืนยันว่า **production ปิด bypass นี้แล้ว**
-- ความเสี่ยง: ใครถือ token เรียก API ในนามเจ้าของได้ทุก endpoint; token ยังเดินทางใน query string ของ `/api/dev?do=seed` และ `/api/dev?do=sendbill` → ติดใน access log ของ Vercel
+- `smoke.js` ยืนยันว่า **production ปิด bypass เสมอ** (รวมกรณีตั้ง `ALLOW_SEED_BYPASS=true`) และ preview ปิดเป็นค่าเริ่มต้น · `smoke-handlers.js` ยืนยันว่า `/api/dev` ตอบ 404 เมื่อ dev tools ปิด
+- ความเสี่ยง: ใครถือ token เรียก API ในนามเจ้าของได้ทุก endpoint; token ส่งทาง header `x-seed-token` เท่านั้น (ไม่อ่านจาก query string แล้ว จึงไม่ติด access log ของ Vercel) และต้องยาว ≥ 16 ตัว
 - วิธีเช็กขั้นต่ำ: `curl.exe -s -o NUL -w "%{http_code}" -H "x-seed-token: wrong" $B/api/me` ต้องได้ `401` และตั้ง `SEED_TOKEN` เป็นค่ายาว/สุ่ม ถ้าจะใช้กับหอจริงให้ลบบล็อกนั้นออกแล้ว redeploy
 
 <!-- VERIFY: สถานะจริงบน production ว่าตอนนี้ SEED_TOKEN ตั้งไว้หรือไม่ และ bypass ยังเปิดอยู่ไหม — ไม่มีไฟล์ในเรพยืนยัน ต้องดู Environment Variables ใน Vercel -->

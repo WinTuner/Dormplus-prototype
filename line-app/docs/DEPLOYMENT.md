@@ -111,11 +111,11 @@ vercel storage connect domplus-bills --yes
 
 | Variable | Production | Preview | ค่า / ที่มา | ถ้าไม่ตั้ง |
 |---|---|---|---|---|
-| `LINE_CHANNEL_SECRET` | ✅ ต้องมี | ✅ ใส่ชุดเดียวกันได้ | Basic settings ของ Messaging API channel | webhook ตอบ `401 {"error":"bad signature"}` ทุกครั้ง (Verify ใน Console ไม่ผ่าน) |
+| `LINE_CHANNEL_SECRET` | ✅ ต้องมี | ✅ ใส่ชุดเดียวกันได้ | Basic settings ของ Messaging API channel | webhook ตอบ `401 {"error":{"code":"UNAUTHORIZED","message":"bad signature"}}` ทุกครั้ง (Verify ใน Console ไม่ผ่าน) |
 | `LINE_CHANNEL_ACCESS_TOKEN` | ✅ ต้องมี | ✅ ใส่ชุดเดียวกันได้ | Messaging API → Issue (long-lived) | บอทไม่ตอบ/ไม่ส่งการ์ด แต่ endpoint ยังคืน 200 (error ถูกกลืนไปที่ `console.error`) |
 | `LIFF_ID` | ✅ ต้องมี | ⚠️ ควรแยกถ้ามี LIFF คนละตัว | เช่น `2012575885-l35sh1N4` | `/api/config` → `{"liffId":null}` → หน้าเว็บขึ้น "เปิดหน้านี้จากปุ่มในแชท LINE เท่านั้น (LIFF)" และปุ่มในการ์ดเปิดเป็น URL ตรงแทน `liff.line.me` |
 | `OWNER_USER_ID` | ✅ ต้องมี | ⚠️ ควรเป็น userId ของคนทดสอบ | LINE userId ของเจ้าของหอ | ไม่มีใครเป็น owner → `/api/rooms`, `/api/run` ตอบ `403 เฉพาะเจ้าของหอ`, ไม่มีการ์ด "ยืนยันการชำระ" |
-| `SEED_TOKEN` | ⚠️ ตั้งแล้ว**ปิดก่อนใช้หอจริง** | ✅ ใช้ได้ | สุ่มเอง | `/api/dev?do=seed`, `/api/dev?do=sendbill` ตอบ `403 ต้องมี token` และ bypass `x-seed-token` ถูกปิด (ปลอดภัยกว่า) |
+| `SEED_TOKEN` | ⚠️ ตั้งแล้ว**ปิดก่อนใช้หอจริง** | ✅ ใช้ได้ | สุ่มเอง ยาว ≥ 16 ตัว | `/api/dev?do=seed`, `/api/dev?do=sendbill` ตอบ `403 ต้องส่ง x-seed-token` และ bypass `x-seed-token` ถูกปิด · production ตอบ `404` เสมอ |
 | `PUBLIC_BASE_URL` | แนะนำ | **ปล่อยว่าง** | `https://<โดเมน production>` | fallback เป็น `https://${req.headers.host}` ซึ่งถูกต้องตาม deployment นั้น — แต่ถ้าตั้งเป็นโดเมน production ใน Preview การ์ดจาก Preview จะลิงก์ไป production |
 | `ROOMS` | ถ้าหอไม่ใช่ 201–212 | เหมือนกัน | `101,102,103` | default `201…212` (12 ห้อง) |
 | `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` | ตามจริง | เหมือนกัน | 3500 / 25 / 7 | ใช้ค่า default ในโค้ด |
@@ -159,7 +159,7 @@ $T = "<SEED_TOKEN>"
 | 1 | `curl.exe -s "$B/api/config"` | `{"liffId":"<LIFF_ID>"}` | `{"liffId":null}` → ยังไม่ตั้ง `LIFF_ID` หรือยังไม่ Redeploy |
 | 2 | `curl.exe -s "$B/api/me"` | `{"error":{"code":"UNAUTHORIZED","message":"ต้องเปิดหน้านี้ผ่าน LINE"}}` | ได้ข้อมูล user กลับมา = ช่องโหว่ ตรวจ `x-seed-token` / `_auth.js` |
 | 3 | `curl.exe -s -H "x-seed-token: $T" "$B/api/me"` | `{"userId":"U...","owner":true,"room":null}` | `401 UNAUTHORIZED` → `SEED_TOKEN` ไม่ตรง · `owner:false` → `OWNER_USER_ID` ผิด · `500` → Blob ยังไม่ connect |
-| 4 | `curl.exe -s -X POST "$B/api/dev?do=seed&token=$T"` | `{"ok":true,"period":"2026-11","rooms":["201",...,"212"]}` | `403 ต้องมี token` → `SEED_TOKEN` ไม่ตรง/ไม่มี |
+| 4 | `curl.exe -s -X POST "$B/api/dev?do=seed" -H "x-seed-token: $T"` | `{"ok":true,"period":"2026-11","rooms":["201",...,"212"]}` | `403 ต้องส่ง x-seed-token` → `SEED_TOKEN` ไม่ตรง/สั้นกว่า 16 ตัว |
 | 5 | `curl.exe -s -H "x-seed-token: $T" "$B/api/bill?room=203"` | บิลเต็มก้อน `status:"unpaid"`, `hasSlip:false`, `total` เป็นตัวเลข | `404 ไม่พบบิลของห้อง 203` → ยังไม่รันข้อ 4 · `500` → Blob |
 | 6 | `curl.exe -s -o NUL -w "%{http_code}" -X POST "$B/api/webhook"` | `401` | `404` = function ยังไม่ขึ้น (deploy ไม่สำเร็จ/ชื่อไฟล์ผิด) · `405` = เรียกด้วย GET · `500` = โมดูลพังตอน import |
 | 7 | LINE Developers → Messaging API → **Verify** | `Success` / 200 | ดูข้อ 6.1 |
@@ -251,7 +251,7 @@ vercel rollback
 `api/_store.js` เขียนด้วย `allowOverwrite: true` และไม่มี versioning — key เดียวกันเขียนทับทันที (เช่น `kv/bill-203.json` เก็บได้แค่รอบล่าสุด) ถ้าข้อมูลเพี้ยน สิ่งที่ทำได้คือ:
 
 - บิลผิด: เรียก `POST /api/run` ใหม่ด้วยหน่วยมิเตอร์ที่ถูกต้องของห้องนั้น (`readings: [{room, water, elec}]`)
-- ข้อมูลทดสอบเพี้ยน: `POST /api/dev?do=seed&token=…` (เขียนทับ **ทุกห้อง** — อย่าทำบนหอจริง)
+- ข้อมูลทดสอบเพี้ยน: `POST /api/dev?do=seed` + header `x-seed-token` (เขียนทับ **ทุกห้อง** — อย่าทำบนหอจริง)
 - รูปสลิป (`slips/<room>-<ts>.<ext>`): เขียนทับไม่ได้ ส่งใหม่แล้วจะได้ไฟล์ใหม่ แต่ไฟล์เก่ายังค้างใน store
 
 <!-- VERIFY: Vercel Blob store ของโปรเจกต์นี้เปิด versioning/snapshot ไว้หรือไม่ — ไม่มีในเรพ ถ้าเปิดไว้จะกู้ไฟล์เก่าได้จาก dashboard -->
@@ -271,7 +271,7 @@ vercel rollback
 | `400 {"error":"invalid json"}` | `api/webhook.js` | body เสีย (ปกติ LINE ไม่ส่งแบบนี้) | อย่าเทสต์ webhook ด้วย body ที่ไม่ใช่ JSON |
 | `401 UNAUTHORIZED "ต้องเปิดหน้านี้ผ่าน LINE"` | `api/_auth.js` | ไม่มี `Authorization: Bearer` หรือ derive `CHANNEL_ID` ไม่ได้ (`LIFF_ID` ว่าง) | ตั้ง `LIFF_ID` หรือ `LOGIN_CHANNEL_ID` |
 | `403 FORBIDDEN "idToken ไม่ถูกต้องหรือหมดอายุ"` | `api/_auth.js` | idToken หมดอายุ / `client_id` ไม่ตรงกับ LIFF | ปกติเกิดตอน LIFF อยู่คนละ provider — ตั้ง `LOGIN_CHANNEL_ID` |
-| `403 FORBIDDEN "ต้องมี token"` | `api/dev.js`, `api/dev.js` | `?token=` ไม่ตรง `SEED_TOKEN` หรือ env ไม่มี | เรียกแบบ `?token=$T` |
+| `404` / `403 FORBIDDEN "ต้องส่ง x-seed-token"` | `api/dev.js` | production (ตอบ 404 เสมอ) · header `x-seed-token` ไม่ตรง หรือ `SEED_TOKEN` สั้นกว่า 16 ตัว | ใช้บน `vercel dev` แล้วส่ง `-H "x-seed-token: $T"` |
 | `403 FORBIDDEN "เฉพาะเจ้าของหอ"` | `api/rooms.js`, `api/run.js` | ผู้เรียกไม่ใช่ `OWNER_USER_ID` | ข้อ 5 ลำดับ 3: `owner` ต้องเป็น `true` |
 | `403 FORBIDDEN "บัญชีนี้ยังไม่ได้ผูกกับห้อง 203"` | `api/bill.js`, `api/slip.js` | ผู้ใช้ยังไม่ได้ผูกห้อง | สแกน QR หน้าห้อง (เจ้าของสร้างได้จากหน้าห้อง → "QR ผู้เช่า") |
 | `404 NOT_FOUND "ไม่พบบิลของห้อง 203"` | `api/bill.js` | ยังไม่ seed / ยังไม่ออกรอบบิล | รัน `/api/dev?do=seed` (ทดสอบ) หรือ `/api/run` (จริง) |

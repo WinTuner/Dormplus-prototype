@@ -27,7 +27,7 @@ require.cache[require.resolve(api("_store"))] = {
   exports: store,
 };
 
-// qrcode-svg is a real dependency; CI runs without node_modules, so hand out a stand-in.
+// qrcode-svg is a real dependency; this suite must also run without node_modules, so hand out a stand-in.
 const Module = require("module");
 const realLoad = Module._load;
 Module._load = function (request, ...rest) {

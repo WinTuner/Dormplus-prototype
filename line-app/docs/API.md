@@ -44,13 +44,13 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 | 409 | `INVALID_STATE` | แนบสลิปในบิลที่ `paid` แล้ว |
 | 413 | `TOO_LARGE` | รูปเกิน 3MB |
 
-ข้อยกเว้นที่ **ไม่ใช้ envelope** (โค้ดเขียนสตริงตรง ๆ) — ต้องระวังถ้าเขียน client:
+ทุก error ใช้ envelope เดียวกัน (ไม่มีข้อยกเว้นแล้ว) — ต้องระวังถ้าเขียน client:
 
 | HTTP | body | เกิดจาก |
 |---|---|---|
-| 405 | `{ "error": "POST only" }` | `slip`, `run`, `seed`, `sendbill`, `webhook` ถูกเรียกด้วย method อื่น |
-| 401 | `{ "error": "bad signature" }` | webhook signature ไม่ผ่าน |
-| 400 | `{ "error": "invalid json" }` | webhook body ไม่ใช่ JSON |
+| 405 | `{ "error": { "code": "METHOD_NOT_ALLOWED", "message": "POST only" } }` | `slip`, `run`, `seed`, `sendbill`, `webhook` ถูกเรียกด้วย method อื่น |
+| 401 | `{ "error": { "code": "UNAUTHORIZED", "message": "bad signature" } }` | webhook signature ไม่ผ่าน |
+| 400 | `{ "error": { "code": "VALIDATION", "message": "invalid json" } }` | webhook body ไม่ใช่ JSON |
 
 ### 2.2 การ auth 3 แบบ
 
@@ -194,7 +194,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 { "ok": true, "status": "pending", "total": 3796, "hasSlip": true }
 ```
 
-- **Error (ตามลำดับที่โค้ดเช็ก):** `405` (`{error:"POST only"}`) → `401`/`403` จาก `requireUser` → `400 VALIDATION` (ไม่มี room) → `403 FORBIDDEN` (ไม่ได้ผูกห้อง) → `404 NOT_FOUND` (ไม่พบบิล) → `409 INVALID_STATE` (บิล `paid` แล้ว) → `400 VALIDATION` (mime ไม่อยู่ใน 3 ชนิด) → `413 TOO_LARGE`
+- **Error (ตามลำดับที่โค้ดเช็ก):** `405 METHOD_NOT_ALLOWED` → `401`/`403` จาก `requireUser` → `400 VALIDATION` (ไม่มี room) → `403 FORBIDDEN` (ไม่ได้ผูกห้อง) → `404 NOT_FOUND` (ไม่พบบิล) → `409 INVALID_STATE` (บิล `paid` แล้ว) → `400 VALIDATION` (mime ไม่อยู่ใน 3 ชนิด) → `413 TOO_LARGE`
 - **เขียน Blob:** `slips/<room>-<Date.now()>.<ext>` (เฉพาะเมื่อมี `image`), `bill:<room>` = บิลเดิม + `status:"pending"`, `slipPath`, `slipNote`, `slipAt` (ISO)
 - **Side effect อื่น:** `push()` การ์ด `confirmBubble` ไปที่ `OWNER_USER_ID` — ถ้า push ล้มเหลวแค่ `console.error("owner push failed")` แล้วยังตอบ 200
 - ถ้าไม่ได้แนบรูปใหม่ `slipPath` เดิมถูกคงไว้ — ไฟล์เก่าไม่ถูกลบ
@@ -276,7 +276,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 `api/dev.js` — ใส่บิลตัวอย่างทุกห้องใน `ROOMS` (idempotent)
 
 - **Auth:** production → `404` เสมอ · ที่อื่นต้องเปิด dev tools (ดู 2.2) และส่ง header `x-seed-token` ที่ตรงกับ `SEED_TOKEN` (≥ 16 ตัว) ไม่งั้น `403 FORBIDDEN`
-- **Query:** `token` (string) เท่านั้น
+- **Header:** `x-seed-token` (ไม่อ่าน token จาก URL)
 - **Body:** ไม่มี
 - **200:**
 
@@ -284,7 +284,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 { "ok": true, "period": "2026-11", "rooms": ["201", "202", "..."] }
 ```
 
-- **Error:** `405` (`{error:"POST only"}`), `403 FORBIDDEN`
+- **Error:** `404` (production หรือ dev tools ปิด), `405 METHOD_NOT_ALLOWED`, `403 FORBIDDEN`
 - **เขียน Blob:** `room:<room>` = `{rent, waterRate, elecRate}` **เฉพาะเมื่อยังไม่มี** (ห้อง index หาร 3 ลงตัวได้ rent `3220`), `bill:<room>` เขียนทับทุกห้องด้วยข้อมูลตัวอย่าง `status:"unpaid"`
 - **Side effect อื่น:** ไม่มีการ push LINE
 - ค่า default ของ seed: `period` = `BILL_PERIOD || "2026-11"`, `due` = `BILL_DUE || "2026-11-16"`, หน่วยน้ำ `4 + (i % 4)`, หน่วยไฟ `28 + (i % 6) * 7`
@@ -294,7 +294,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 `api/dev.js` — ยิงการ์ดบิลหาหนึ่ง userId (เครื่องมือทดสอบ)
 
 - **Auth:** เหมือน `/api/dev?do=seed`
-- **Query:** `token` (string)
+- **Header:** `x-seed-token`
 - **Body (JSON):**
 
 | field | type | บังคับ |
@@ -303,7 +303,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 | `room` | string | ✅ |
 
 - **200:** `{ "ok": true, "sent": "203", "total": 3796 }`
-- **Error:** `405` (`{error:"POST only"}`), `403 FORBIDDEN` (token ผิด/ไม่ได้ตั้ง), `400 VALIDATION` (`to` หรือ `room` หาย), `404 NOT_FOUND` (ไม่พบบิลห้องนั้น)
+- **Error:** `404` (production หรือ dev tools ปิด), `405 METHOD_NOT_ALLOWED`, `403 FORBIDDEN` (token ผิด/สั้นกว่า 16 ตัว), `400 VALIDATION` (`to` หรือ `room` หาย), `404 NOT_FOUND` (ไม่พบบิลห้องนั้น)
 - **Side effect:** `push(to, [billBubble(bill, baseUrl)])` — **ไม่มี try/catch** ถ้า LINE ตอบไม่ 200 `_line.call()` throw แล้วหลุดเป็น error ที่ไม่ได้จัดการ (คาดว่า 500 จาก platform) <!-- VERIFY: รูปแบบ response 500 ของ Vercel function ที่ throw ไม่ออกมาเป็น JSON envelope — เป็นพฤติกรรมแพลตฟอร์ม ไม่มีในเรพ -->
 - **อ่าน Blob:** `bill:<room>`
 
@@ -311,10 +311,10 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 
 `api/webhook.js` — รับ event จาก LINE Messaging API
 
-- **Auth:** `x-line-signature` = base64(HMAC-SHA256(raw body, `LINE_CHANNEL_SECRET`)); ไม่มี secret = ปฏิเสธทุก request ถ้าไม่ผ่าน → `401 {error:"bad signature"}`
-- **Body:** JSON ของ LINE (`{events:[...]}`) — อ่านเป็น raw buffer ก่อนเพื่อคำนวณ signature; parse ไม่ได้ → `400 {error:"invalid json"}`
+- **Auth:** `x-line-signature` = base64(HMAC-SHA256(raw body, `LINE_CHANNEL_SECRET`)); ไม่มี secret = ปฏิเสธทุก request ถ้าไม่ผ่าน → `401 { error: { code: "UNAUTHORIZED", message: "bad signature" } }`
+- **Body:** JSON ของ LINE (`{events:[...]}`) — อ่านเป็น raw buffer ก่อนเพื่อคำนวณ signature; parse ไม่ได้ → `400 { error: { code: "VALIDATION", message: "invalid json" } }`
 - **200:** `{ "ok": true }` — **ตอบ 200 เสมอหลัง parse สำเร็จ** แม้ทุก event จะ throw (แต่ละ event มี `try/catch` ของตัวเองแล้ว `console.error("event failed", ...)`)
-- **Error:** `405` (`{error:"POST only"}`), `401`, `400`
+- **Error:** `405 METHOD_NOT_ALLOWED`, `401`, `400`
 - **Side effect:** ตาม event — ดู §13
 
 ## 13. การจัดการ event ของ webhook

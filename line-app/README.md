@@ -163,8 +163,8 @@ LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js
 | GET | `/api/slip-image?room=203` | ดูรูปสลิป (เฉพาะเจ้าของ/ผู้เช่าห้องนั้น) |
 | GET | `/api/rooms` | ทุกห้อง + มิเตอร์ล่าสุด (เจ้าของ/ผู้ช่วย) |
 | POST | `/api/run` | ออกรอบบิลจากหน่วยมิเตอร์ + ส่งการ์ด (เจ้าของเท่านั้น) |
-| POST | `/api/dev?do=seed&token=` | สร้างบิลทดสอบทุกห้อง |
-| POST | `/api/dev?do=sendbill&token=` | ยิงการ์ดบิลให้ userId หนึ่งคน |
+| POST | `/api/dev?do=seed` (header `x-seed-token`) | สร้างบิลทดสอบทุกห้อง |
+| POST | `/api/dev?do=sendbill` (header `x-seed-token`) | ยิงการ์ดบิลให้ userId หนึ่งคน |
 | POST | `/api/owner` | เจ้าของออก QR เพิ่มเจ้าของ · คนที่สแกนส่ง `{code}` มาแลกสิทธิ์ |
 | GET/POST | `/api/qr?room=203` | QR ประจำห้อง (GET อ่าน/สร้าง · POST = เปลี่ยนผู้เช่า: ถอดคนเดิม + รหัสใหม่) — เจ้าของเท่านั้น |
 | POST | `/api/qr` | ผู้เช่าแลกรหัสจาก QR หน้าห้อง (`{code}`) → ผูกห้อง · ห้องที่มีผู้เช่าผูกแล้ว → `409 ROOM_TAKEN` · ผิดเกิน 10 ครั้ง/ชม. → `429` |

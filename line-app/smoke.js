@@ -87,10 +87,14 @@ const auth = require("./api/_auth");
 
 // 6) QR helper actually renders (needs node_modules; skipped when running dependency-free)
 try {
-  const QR = require("qrcode-svg");
-  const svg = new QR({ content: "https://liff.line.me/test?bind=ABCDEFGHJK", width: 320, height: 320 }).svg();
-  assert.ok(svg.startsWith("<svg") || svg.includes("<svg"), "QR renders as SVG");
-  console.log("smoke OK — QR renders");
+  require.resolve("qrcode-svg");
+  const { qrSvg } = require("./api/_qr");
+  const svg = qrSvg("https://liff.line.me/test?bind=ABCDEFGHJK");
+  assert.ok(svg.startsWith("<svg"), "QR renders as inline SVG (no XML declaration)");
+  // Without a viewBox, CSS shrinking the SVG crops it instead of scaling it: phones cannot scan it.
+  assert.ok(/viewBox="0 0 \d+ \d+"/.test(svg), "QR SVG carries a viewBox so it scales");
+  assert.ok(!/<svg[^>]*\swidth="/.test(svg), "QR SVG has no fixed width that would fight the page CSS");
+  console.log("smoke OK — QR renders and scales");
 } catch (err) {
   if (err.code === "MODULE_NOT_FOUND") console.log("smoke: qrcode-svg not installed, QR check skipped");
   else throw err;
