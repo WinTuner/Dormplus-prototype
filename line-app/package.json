@@ -9,5 +9,8 @@
   "dependencies": {
     "@vercel/blob": "^2.9.0",
     "qrcode-svg": "^1.1.0"
+  },
+  "scripts": {
+    "test": "node smoke.js && node smoke-handlers.js && node smoke-reads.js"
   }
 }
