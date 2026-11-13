@@ -5,6 +5,9 @@ The database at that URL is wiped: every test session migrates it down to nothin
 import os
 from pathlib import Path
 
+# app/session.py refuses the placeholder secret shipped in .env.example, so the suite needs one.
+os.environ.setdefault("SESSION_SECRET", "test-secret")
+
 import pytest
 from alembic import command
 from alembic.config import Config
