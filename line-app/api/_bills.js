@@ -15,13 +15,16 @@ async function indexBill(room, period) {
 }
 
 async function saveBill(bill) {
-  await store.set(`bill:${bill.period}:${bill.room}`, bill);
+  // The three steps touch different keys, so they run together instead of one after another.
+  const [latest] = await Promise.all([
+    store.get(`bill:${bill.room}`),
+    store.set(`bill:${bill.period}:${bill.room}`, bill),
+    indexBill(bill.room, bill.period),
+  ]);
   // Never let an older period replace the newest bill.
-  const latest = await store.get(`bill:${bill.room}`);
   if (!latest || !latest.period || bill.period >= latest.period) {
     await store.set(`bill:${bill.room}`, bill);
   }
-  await indexBill(bill.room, bill.period);
 }
 
 module.exports = { indexBill, saveBill, PERIOD };

@@ -4,6 +4,7 @@
 Seed: 42 rooms, the first 12 (201-212) have a 2026-11 reading, so one billing run
 creates inv_201_2026-11 with total 3562 (rent 3220 + water 125 + elec 217).
 """
+import threading
 from datetime import date
 
 import pytest
@@ -116,6 +117,31 @@ def test_receipt_numbers_do_not_repeat(billed):
     owner = as_user(billed, OWNER_P1)
     assert owner.post(f"/v1/invoices/{INVOICE}/confirm", json={}).json()["receipt_no"] == "REC-2026-11-0001"
     assert owner.post(f"/v1/invoices/{other}/confirm", json={}).json()["receipt_no"] == "REC-2026-11-0002"
+
+
+def test_confirm_waits_for_the_dorm_lock(billed):
+    """Receipt numbers come from a count, so two confirms in one dorm must take turns: a confirm
+    waits while another transaction holds the dorm row, instead of counting alongside it."""
+    other = "inv_202_2026-11"
+    assert slip(billed, session=TENANT_202, invoice=other).status_code == 200
+    assert slip(billed).status_code == 200
+
+    results = {}
+    with billed.connect() as holder:
+        holder.execute(text("select id from properties where id = 'p_1' for update"))
+        worker = threading.Thread(
+            target=lambda: results.update(first=as_user(billed, OWNER_P1).post(f"/v1/invoices/{INVOICE}/confirm", json={}))
+        )
+        worker.start()
+        worker.join(timeout=1.0)
+        assert worker.is_alive(), "confirm must wait for the dorm lock"
+        holder.rollback()  # let it through
+    worker.join(timeout=10)
+    assert not worker.is_alive()
+
+    assert results["first"].json()["receipt_no"] == "REC-2026-11-0001"
+    second = as_user(billed, OWNER_P1).post(f"/v1/invoices/{other}/confirm", json={})
+    assert second.json()["receipt_no"] == "REC-2026-11-0002"
 
 
 # --- POST /v1/invoices/:id/reject ---------------------------------------------------------------

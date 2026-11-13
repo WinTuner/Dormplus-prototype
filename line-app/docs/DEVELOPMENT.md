@@ -177,7 +177,7 @@ const pathOf = (key) => `kv/${String(key).replace(/[^a-zA-Z0-9._-]/g, "-")}.json
 | `bill:<room>` | `kv/bill-<room>.json` |
 | `meter:<room>` | `kv/meter-<room>.json` |
 | `room:<room>` | `kv/room-<room>.json` |
-| `slips/<room>-<ts>.jpg` | pathname เดียวกัน (เขียนตรงด้วย `put()` ไม่ผ่าน `_store`) |
+| `slips/<room>-<ts>.jpg` | pathname เดียวกัน (เขียนผ่าน `_store.putFile()`) |
 
 ข้อควรระวัง:
 

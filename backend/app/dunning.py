@@ -14,11 +14,14 @@ from app.queue import app
 from app.tasks import reminder_text
 from app.ids import reminder_kind
 
-REMINDER_DAYS = (1, 5, 10)
-
 DUE_FOR_REMINDER_SQL = text("""
     select i.id, i.period, i.total, i.due_date, r.room_no, t.line_user_id,
-           (:today - i.due_date) as days_late
+           (:today - i.due_date) as days_late,
+           case
+             when (:today - i.due_date) >= 10 then :kind_10
+             when (:today - i.due_date) >= 5 then :kind_5
+             else :kind_1
+           end as kind
     from invoices i
     join rooms r on r.id = i.room_id
     join lateral (
@@ -32,30 +35,39 @@ DUE_FOR_REMINDER_SQL = text("""
     ) t on true
     where r.property_id = :property_id
       and i.status = 'unpaid'
-      and (:today - i.due_date) >= :days_late
-      and (:today - i.due_date) < :next_step
+      and (:today - i.due_date) >= 1
+      and (:today - i.due_date) < 1000000
       and not exists (
           select 1 from message_log m
-          where m.invoice_id = i.id and m.kind = :kind_for_day and m.line_status = 'ok'
+          where m.invoice_id = i.id
+            and m.kind = case
+              when (:today - i.due_date) >= 10 then :kind_10
+              when (:today - i.due_date) >= 5 then :kind_5
+              else :kind_1
+            end
+            and m.line_status = 'ok'
       )
-    order by i.due_date, r.room_no
+    order by case
+               when (:today - i.due_date) >= 10 then 10
+               when (:today - i.due_date) >= 5 then 5
+               else 1
+             end,
+             i.due_date, r.room_no
 """)
 
 
 def due_for_reminder(engine: Engine, property_id: str, today: date) -> list[dict]:
     """Rows that still need a reminder today (no queue involved — safe to unit test)."""
-    rows: list[dict] = []
-    for step, day in enumerate(REMINDER_DAYS):
-        kind = reminder_kind(day)
-        next_step = REMINDER_DAYS[step + 1] if step + 1 < len(REMINDER_DAYS) else 1_000_000
-        with engine.connect() as conn:
-            found = conn.execute(
-                DUE_FOR_REMINDER_SQL,
-                {"property_id": property_id, "today": today, "kind_for_day": kind,
-                 "days_late": day, "next_step": next_step},
-            ).mappings().all()
-        rows += [dict(row, kind=kind) for row in found]
-    return rows
+    params = {
+        "property_id": property_id,
+        "today": today,
+        "kind_1": reminder_kind(1),
+        "kind_5": reminder_kind(5),
+        "kind_10": reminder_kind(10),
+    }
+    with engine.connect() as conn:
+        found = conn.execute(DUE_FOR_REMINDER_SQL, params).mappings().all()
+    return [dict(row) for row in found]
 
 
 def queue_reminders(rows: list[dict]) -> int:

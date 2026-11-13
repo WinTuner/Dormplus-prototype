@@ -77,8 +77,8 @@ graph TD
 
 1. ผู้เช่ากด "แนบสลิป & แจ้งชำระ" → หน้าเว็บย่อรูปในเบราว์เซอร์ (`createImageBitmap` → canvas ด้านยาวสุด 1280px → `toDataURL("image/jpeg", 0.8)`) แล้ว `POST /api/slip` body `{room, image}`
 2. `slip.js` ตรวจสิทธิ์ห้องเดียวกับ `bill.js`; ถ้าบิล `paid` แล้ว → `409 INVALID_STATE`
-3. ถ้ามี `image`: ต้องตรง regex `data:image/(jpeg|png|webp);base64,...`, ถอด base64, เกิน 3MB → `413 TOO_LARGE`; เขียนไฟล์ด้วย `put()` ตรง ๆ (ไม่ผ่าน `_store`) ที่ `slips/<room>-<timestamp>.<ext>` แบบ private
-4. เขียน `bill:<room>` เป็นสถานะ `pending` พร้อม `slipPath`, `slipNote`, `slipAt`
+3. ถ้ามี `image`: ต้องตรง regex `data:image/(jpeg|png|webp);base64,...`, ถอด base64, เกิน 3MB → `413 TOO_LARGE`; เขียนไฟล์ด้วย `_store.putFile()` ที่ `slips/<room>-<timestamp>.<ext>` แบบ private
+4. เขียน `bill:<room>` และ `bill:<period>:<room>` เป็นสถานะ `pending` พร้อม `slipPath`, `slipNote`, `slipAt`, `slipCount` (ผู้เช่าส่งได้ 5 ครั้ง/บิล ห่างกัน ≥ 30 วินาที) แล้วลบรูปสลิปเก่าที่ถูกแทน
 5. `push()` การ์ด `confirmBubble()` หา `OWNER_USER_ID` — push พังไม่ทำให้ request ของผู้เช่าล้ม
 6. เจ้าของกดปุ่ม "ยืนยันการชำระ" → postback `action=confirm&room=<room>` → `POST /api/webhook`
 7. `webhook.js` (ไม่เช็กว่า userId เป็นเจ้าของ — ดูข้อจำกัดข้อ 6) เขียน `bill:<room>` เป็น `paid` + `paidAt` แล้ว `push()` แจ้งผู้เช่าจาก `room-user:<room>` และ `reply()` ยืนยันกลับ
@@ -89,12 +89,13 @@ graph TD
 | บทบาท | นิยามในโค้ด | เห็นอะไร | ทำอะไรได้ |
 |---|---|---|---|
 | ผู้เช่า (tenant) | ผู้ใช้ที่ผูกห้องแล้ว (`user-room:<userId>` มีค่า) | บิลของห้องตัวเอง, สลิปของห้องตัวเอง | `GET /api/bill`, `POST /api/slip`, `GET /api/slip-image`, ดูบิลในแชท |
-| เจ้าของ (owner) | `OWNER_USER_ID` (คนแรก ตั้งด้วยมือ) หรือมี key `owner:<userId>` (ได้สิทธิ์จาก QR ของเจ้าของเดิม) — `_auth.isOwner()` เป็น async | ทุกห้อง ทุกบิล ทุกสลิป | `GET /api/rooms`, `POST /api/run`, ดูบิล/สลิปทุกห้อง, ยืนยันการชำระ, ออก QR เพิ่มเจ้าของ |
+| เจ้าของ (owner) | `OWNER_USER_ID` (root: คนแรก ตั้งด้วยมือ) หรือมี key `owner:<userId>` role `owner` (ได้สิทธิ์จากรหัสของ root) — `_auth.isOwner()` เป็น async | ทุกห้อง ทุกบิล ทุกสลิป | `GET /api/rooms`, `POST /api/run`, ดูบิล/สลิปทุกห้อง, ยืนยันการชำระ, เชิญผู้ช่วย · **root เท่านั้น** เชิญเจ้าของเพิ่มและถอนสิทธิ์ (`DELETE /api/owner`) |
+| ผู้ช่วย (viewer) | key `owner:<userId>` role `viewer` — `_auth.canView()` | ทุกห้อง ทุกบิล ทุกสลิป (อ่านอย่างเดียว) | `GET /api/rooms`, ดูบิล/สลิปทุกห้อง · ออกบิล ยืนยัน หมุน QR เชิญคน ไม่ได้ |
 | ผู้ใช้ที่ยังไม่ผูกห้อง | ไม่มี `user-room:<userId>` | หน้า LIFF ขึ้น "ยังไม่ได้ผูกห้อง" | `GET /api/me` เท่านั้น · `GET /api/bill` และ `POST /api/slip` → 400 (ไม่มี room) · `GET /api/slip-image` → 403 |
 | dev bypass (`vercel dev` เท่านั้น ยกเว้นตั้ง `ALLOW_SEED_BYPASS`) | header `x-seed-token` = `SEED_TOKEN` และ `BYPASS_ALLOWED` | เท่ากับเจ้าของ | ทุก endpoint ที่ใช้ `requireUser` — production ปฏิเสธ |
 
 - `OWNER_USER_ID` มีคนเดียวต่อ deployment → 1 deploy = 1 หอ
-- `isOwner()` เป็น **async** (อ่าน Blob) — คืน `true` ถ้า userId ตรงกับ `OWNER_USER_ID` หรือมี key `owner:<userId>` · ถ้าไม่ได้ตั้ง `OWNER_USER_ID` จะไม่มีใครออก QR เพิ่มเจ้าของได้ (`/api/owner` ตอบ 409) แต่เจ้าของที่เคยได้สิทธิ์ยังใช้ได้
+- `isOwner()` เป็น **async** (อ่าน Blob ทุก request — ถอนสิทธิ์แล้วมีผลทันที) — คืน `true` ถ้า userId ตรงกับ `OWNER_USER_ID` หรือมี key `owner:<userId>` role `owner` · รหัสเชิญใช้ได้เท่าที่คนสร้างยังมีสิทธิ์ · ถ้าไม่ได้ตั้ง `OWNER_USER_ID` จะไม่มีใครออก QR เพิ่มเจ้าของได้ (`/api/owner` ตอบ 409) แต่เจ้าของที่เคยได้สิทธิ์ยังใช้ได้
 - rich menu แยกตามบทบาท: ผู้เช่าได้เมนูบิลเมื่อ `ผูก <room>` สำเร็จ · เจ้าของได้เมนูจดมิเตอร์เมื่อรับสิทธิ์ทาง QR (ผูกผ่าน Messaging API `POST /v2/bot/user/{userId}/richmenu/{id}`; สคริปต์สร้างเมนูอยู่ที่ `scripts/setup-richmenu.js`)
 - ตัว bypass ใน `_auth.js` ถูกจำกัดด้วย `BYPASS_ALLOWED` (`vercel dev` หรือ `ALLOW_SEED_BYPASS=true` นอก production) — production ปฏิเสธเสมอ แม้ตั้ง `ALLOW_SEED_BYPASS`
 
@@ -151,7 +152,7 @@ bill object ที่ `run.js` สร้าง: `{ room, period, rent, water, el
 | `api/_rooms.js` | `ROOMS`, `DEFAULTS`, `configFor(room)` | ค่า default จาก env, ทับด้วย `room:<room>` |
 | `api/me.js` | `GET` ข้อมูลตัวเอง: `userId`, `owner`, `room` | ใช้ตัดสินว่า LIFF จะแสดง view ไหน |
 | `api/bill.js` | `GET` บิลห้องเดียว | ผู้เช่าเห็นเฉพาะห้องที่ผูก, เจ้าของเห็นทุกห้อง |
-| `api/slip.js` | `POST` แนบสลิป → `pending` + push การ์ดหาเจ้าของ | เขียนไฟล์รูปเองด้วย `put()`; จำกัด 3MB |
+| `api/slip.js` | `POST` แนบสลิป → `pending` + push การ์ดหาเจ้าของ | เขียนไฟล์รูปผ่าน `_store.putFile()`; จำกัด 3MB |
 | `api/slip-image.js` | `GET` stream รูปสลิป private | ตรวจสิทธิ์รายห้องก่อนอ่าน |
 | `api/rooms.js` | `GET` ทุกห้อง + config + meter + bill + tenant | เฉพาะเจ้าของ |
 | `api/run.js` | `POST` ออกรอบบิลจากหน่วยมิเตอร์ + push การ์ด | เฉพาะเจ้าของ; เขียน `meter` + `bill` ต่อห้อง |
@@ -210,11 +211,11 @@ line-app/
 8. **การตอบ webhook ต้องรอทุก event จบ** — รวมถึง call ไป LINE (`reply`/`push`) และ Blob หลายครั้งต่อ event; ถ้าช้า LINE จะ retry (ดูข้อ 7)
 9. **Push ที่ล้มเหลวถูกกลืน** — `slip.js` และ `run.js` ครอบ `try/catch` แล้ว `console.error` เท่านั้น สถานะจึงถูก commit ได้โดยที่ผู้ใช้ไม่ได้รับแจ้ง
 10. **ขนาด body/ไฟล์** — `slip.js` จำกัดรูปที่ 3MB (`MAX_BYTES`) และรับเฉพาะ JPEG/PNG/WEBP; หน้า LIFF ย่อรูปก่อนส่งโดยอ้างถึงเพดาน body ของ function ในคอมเมนต์ <!-- VERIFY: เพดาน body 4.5MB ของ Vercel function เป็นค่าของแพลตฟอร์ม ไม่ได้ประกาศในเรพ (อ้างจากคอมเมนต์ใน liff/bill.html) -->
-11. **rate limit มีเฉพาะการแลกรหัส** (`_limit.js`: ผิดได้ 10 ครั้ง/ชม./บัญชี) · ไม่มี CORS middleware
+11. **rate limit มี 2 จุด** — การแลกรหัส (`_limit.js`: ผิดได้ 10 ครั้ง/ชม./บัญชี) และการส่งสลิป (`slip.js`: 5 ครั้ง/บิล, ห่าง ≥ 30 วินาที) · ไม่มี CORS middleware · security header (nosniff, no-referrer, X-Frame-Options, Permissions-Policy) ตั้งใน `vercel.json`
 12. **1 deploy = 1 หอ** — `OWNER_USER_ID` คนเดียว, รายชื่อห้องมาจาก env `ROOMS` (ค่าเริ่มต้น `201`–`212`), ไม่มีแนวคิดหลายหอ/หลายเจ้าของในข้อมูล
 13. **`_store.get()` ไม่มี error handling** — คืน `null` เมื่อผลลัพธ์เป็น falsy; ถ้า SDK throw (เช่น blob หาย/สิทธิ์ผิด) error จะหลุดขึ้นเป็น 500 ที่ endpoint ตามธรรมชาติ
 14. **หน้า LIFF มีแท็บที่ยังไม่ถูกสร้าง** — `tab=slips|unpaid|report|rooms` แสดงข้อความ "ยังไม่เปิดใช้งาน" (`notice()`), `tab=meter` และ `tab=bill` ใช้แสดง view ตาม role
-15. **เทสต์เป็นแบบ offline ไม่มี `npm test`** — `node smoke.js` (signature, การ์ด, สิทธิ์ owner/viewer, เงื่อนไข bypass) และ `node smoke-handlers.js` (store ในหน่วยความจำ + fetch ปลอม: `/api/dev`, ผูก QR, rate limit, ยืนยันการชำระ, `/api/run`) · CI รันทั้งสองไฟล์
+15. **เทสต์เป็นแบบ offline ไม่มี `npm test`** — `node smoke.js` (signature, การ์ด, สิทธิ์ owner/viewer, เงื่อนไข bypass) และ `node smoke-handlers.js` (store ในหน่วยความจำ + fetch ปลอม: `/api/dev`, ผูก QR + ยืนยันย้ายห้อง, rate limit, ยืนยันการชำระ, `/api/run`, cache idToken, `/api/owner` สิทธิ์ + ถอนสิทธิ์, จำกัดสลิป) และ `node smoke-reads.js` (การอ่านพร้อมกัน, ประวัติบิล, `/api/rooms` ไม่ส่ง userId) · CI รันทั้งสามไฟล์
 16. **ผูกห้องผ่าน QR เท่านั้น** — QR ผูกได้เฉพาะห้องที่ยังไม่มีผู้เช่า · เปลี่ยนผู้เช่าด้วย `POST /api/qr?room=` (ถอดคนเดิม + รหัสใหม่)
 
 ## เอกสารที่เกี่ยวข้อง

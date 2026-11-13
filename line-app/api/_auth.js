@@ -3,7 +3,21 @@ const crypto = require("crypto");
 // LINE Login channel id = the prefix of the LIFF id (e.g. 2012575885-l35sh1N4).
 const CHANNEL_ID = process.env.LOGIN_CHANNEL_ID || (process.env.LIFF_ID || "").split("-")[0] || null;
 
+// A LIFF page makes 3-4 API calls with the same idToken, and each one used to ask LINE to verify it
+// again. A token LINE has already verified is remembered in this instance's memory, by its hash,
+// for at most 5 minutes and never past the token's own expiry. Failed checks are not remembered.
+const VERIFIED_FOR_MS = 5 * 60 * 1000;
+const MAX_REMEMBERED = 500;
+const verified = new Map(); // sha256(idToken) -> { userId, until }
+
 async function verifyIdToken(idToken) {
+  const key = crypto.createHash("sha256").update(idToken).digest("hex");
+  const hit = verified.get(key);
+  if (hit) {
+    if (hit.until > Date.now()) return hit.userId;
+    verified.delete(key);
+  }
+
   const res = await fetch("https://api.line.me/oauth2/v2.1/verify", {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -11,7 +25,15 @@ async function verifyIdToken(idToken) {
   });
   if (!res.ok) return null;
   const payload = await res.json();
-  return payload.sub || null;
+  if (!payload.sub) return null;
+
+  const expires = Number(payload.exp) * 1000; // LINE answers `exp` in seconds
+  const until = Math.min(expires, Date.now() + VERIFIED_FOR_MS);
+  if (until > Date.now()) {
+    if (verified.size >= MAX_REMEMBERED) verified.delete(verified.keys().next().value); // drop the oldest
+    verified.set(key, { userId: payload.sub, until });
+  }
+  return payload.sub;
 }
 
 // The seed-token bypass and /api/dev must never reach real data:
@@ -73,11 +95,15 @@ async function roleOf(userId) {
 
 const isOwner = async (userId) => (await roleOf(userId)) === "owner";
 const canView = async (userId) => (await roleOf(userId)) !== null;
+// The dorm's first owner, set by hand in OWNER_USER_ID. Nobody can remove them, and only they can
+// remove the owners and helpers who were admitted by invite.
+const isRoot = (userId) => !!process.env.OWNER_USER_ID && userId === process.env.OWNER_USER_ID;
 
 module.exports = {
   requireUser,
   isOwner,
   canView,
+  isRoot,
   roleOf,
   seedTokenOk,
   sameSecret,

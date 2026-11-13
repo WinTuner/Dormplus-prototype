@@ -36,6 +36,28 @@ async function linkRichMenu(userId, richMenuId) {
   if (!res.ok) throw new Error(`richmenu link ${res.status}: ${(await res.text()).slice(0, 200)}`);
 }
 
+// Back to the OA's default menu (the tenant one), e.g. after an owner's access is removed.
+async function unlinkRichMenu(userId) {
+  const res = await fetch(`https://api.line.me/v2/bot/user/${userId}/richmenu`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${TOKEN}` },
+  });
+  if (!res.ok) throw new Error(`richmenu unlink ${res.status}: ${(await res.text()).slice(0, 200)}`);
+}
+
+// A friend's LINE display name, or null when LINE will not say (blocked the OA, never added it).
+async function displayName(userId) {
+  try {
+    const res = await fetch(`https://api.line.me/v2/bot/profile/${userId}`, {
+      headers: { Authorization: `Bearer ${TOKEN}` },
+    });
+    if (!res.ok) return null;
+    return (await res.json()).displayName || null;
+  } catch {
+    return null;
+  }
+}
+
 // The bill as a Flex card: amount, due date, and a button that opens the LIFF page.
 function billBubble(bill, baseUrl) {
   const money = (n) => n.toLocaleString("th-TH");
@@ -137,4 +159,4 @@ function confirmBubble(bill) {
   };
 }
 
-module.exports = { verify, reply, push, linkRichMenu, billBubble, confirmBubble, LIFF_ID };
+module.exports = { verify, reply, push, linkRichMenu, unlinkRichMenu, displayName, billBubble, confirmBubble, LIFF_ID };

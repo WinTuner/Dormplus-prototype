@@ -56,7 +56,7 @@ def current_session(request: Request, engine: Engine = Depends(get_engine)) -> S
             return session
         # A stale or tampered cookie falls through to 401 rather than being trusted.
 
-    if not settings.dev_auth:
+    if not settings.dev_auth_active:  # off, or on but ignored because this is production
         raise ApiError(401, "UNAUTHORIZED", "ยังไม่ได้เข้าสู่ระบบ")
 
     property_id = request.headers.get("X-Dev-Property")

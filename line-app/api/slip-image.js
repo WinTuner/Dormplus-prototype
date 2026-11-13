@@ -1,5 +1,4 @@
 // GET /api/slip-image?room=203 — streams the private slip photo to the owner or that room's tenant.
-const { get } = require("@vercel/blob");
 const store = require("./_store");
 const { requireUser, canView } = require("./_auth");
 
@@ -16,7 +15,7 @@ module.exports = async (req, res) => {
   const bill = await store.get(`bill:${room}`);
   if (!bill?.slipPath) return res.status(404).json({ error: { code: "NOT_FOUND", message: "ยังไม่มีสลิป" } });
 
-  const blob = await get(bill.slipPath, { access: "private", useCache: false });
+  const blob = await store.getFile(bill.slipPath);
   if (!blob) return res.status(404).json({ error: { code: "NOT_FOUND", message: "ไม่พบไฟล์สลิป" } });
 
   const type = blob.blob.contentType || "image/jpeg";

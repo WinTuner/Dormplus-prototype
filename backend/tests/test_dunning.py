@@ -3,11 +3,11 @@
 Procrastinate keeps its own tables (created with `procrastinate schema --apply`), so these tests do
 not need them: selection is pure SQL against the app schema, and `queue_reminders` is stubbed.
 """
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from fastapi import Request
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 from app import dunning
 from app.auth import Session
@@ -81,6 +81,46 @@ def test_each_invoice_gets_the_step_it_has_reached(seeded):
 
     assert rows == {"inv_due_1": "reminder_1", "inv_due_3": "reminder_1",
                     "inv_due_5": "reminder_5", "inv_due_12": "reminder_10"}
+
+
+def test_reminder_step_changes_at_days_five_and_ten(seeded):
+    cases = [
+        ("inv_due_4", "r_201", "t_201", 4, "reminder_1"),
+        ("inv_due_5", "r_202", "t_202", 5, "reminder_5"),
+        ("inv_due_9", "r_303", "t_303", 9, "reminder_5"),
+        ("inv_due_10", "r_304", "t_304", 10, "reminder_10"),
+    ]
+    for invoice, room, tenant, late, _ in cases:
+        add_invoice(seeded, invoice, room, TODAY - timedelta(days=late))
+        set_line(seeded, tenant, f"U_{tenant}")
+
+    rows = dunning.due_for_reminder(seeded, "p_1", TODAY)
+
+    assert [(row["id"], row["kind"]) for row in rows] == [
+        ("inv_due_4", "reminder_1"),
+        ("inv_due_9", "reminder_5"),
+        ("inv_due_5", "reminder_5"),
+        ("inv_due_10", "reminder_10"),
+    ]
+
+
+def test_due_for_reminder_uses_one_select(seeded):
+    add_invoice(seeded, "inv_one_select", "r_201", date(2026, 11, 19))
+    set_line(seeded, "t_201", "U_201")
+    calls = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, executemany):
+        if statement.lstrip().lower().startswith("select"):
+            calls.append((statement, executemany))
+
+    event.listen(seeded, "before_cursor_execute", capture)
+    try:
+        assert [r["id"] for r in dunning.due_for_reminder(seeded, "p_1", TODAY)] == ["inv_one_select"]
+    finally:
+        event.remove(seeded, "before_cursor_execute", capture)
+
+    assert len(calls) == 1
+    assert calls[0][1] is False
 
 
 def test_a_failed_push_does_not_count_as_sent(seeded):

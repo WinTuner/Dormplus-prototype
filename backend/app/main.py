@@ -16,7 +16,16 @@ LIFF_DIR = BACKEND_DIR / "liff"
 
 
 def create_app() -> FastAPI:
-    app = FastAPI(title="DormPlus API", version="0.1.0")
+    # The interactive docs and the OpenAPI schema list every route and field: handy on a laptop or a
+    # preview deploy, a free map for anyone probing production. docs/API.md is the public reference.
+    production = get_settings().is_production
+    app = FastAPI(
+        title="DormPlus API",
+        version="0.1.0",
+        docs_url=None if production else "/docs",
+        redoc_url=None if production else "/redoc",
+        openapi_url=None if production else "/openapi.json",
+    )
     errors.install(app)
     app.include_router(auth.router)
     app.include_router(rooms.router)

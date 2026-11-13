@@ -33,6 +33,10 @@ jobs:
         working-directory: line-app
         run: node smoke-handlers.js
 
+      - name: Offline read tests (concurrency, history, permissions)
+        working-directory: line-app
+        run: node smoke-reads.js
+
       # The LIFF page carries ~600 lines of inline JS that nothing else checks: a syntax error
       # there ships straight to production and only shows up as a blank screen in LINE.
       - name: Check the LIFF page script parses

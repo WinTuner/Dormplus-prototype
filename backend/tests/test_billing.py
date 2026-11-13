@@ -6,7 +6,7 @@ invoices from Aug-Oct for rooms 203, 305, 312, 407 and 502.
 from datetime import date
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 from app.auth import Session
 from app.routes import billing
@@ -58,6 +58,30 @@ def test_bills_the_rooms_that_have_this_months_reading(client_for, seeded):
     # Room 201: water 113 -> 118, elec 541 -> 572 (same as server.py)
     assert tuple(inv) == (3562, 3220, date(2026, 11, 9), "unpaid")
     assert [tuple(i) for i in items] == [("ค่าเช่า", 1, 3220, 3220), ("ค่าน้ำ", 5, 25, 125), ("ค่าไฟ", 31, 7, 217)]
+
+
+def test_create_invoice_batches_line_item_execute(seeded):
+    calls = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, executemany):
+        if "insert into invoice_items" in statement.lower():
+            calls.append(executemany)
+
+    event.listen(seeded, "before_cursor_execute", capture)
+    try:
+        with seeded.begin() as conn:
+            invoice = billing.create_invoice(
+                conn, "r_201", "2026-12", 3220,
+                [("rent", 1, 3220), ("water", 5, 25), ("electric", 31, 7)],
+                date(2026, 12, 9),
+            )
+    finally:
+        event.remove(seeded, "before_cursor_execute", capture)
+
+    assert invoice == "inv_201_2026-12"
+    # SQLAlchemy issued one executemany call; the driver may still execute one INSERT per row on wire.
+    assert calls == [True]
+    assert scalar(seeded, "select count(*) from invoice_items where invoice_id = 'inv_201_2026-12'") == 3
 
 
 def test_all_42_rooms_in_one_request(client_for, seeded):

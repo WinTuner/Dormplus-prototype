@@ -133,9 +133,13 @@ assert.ok(pb.data.includes("room=203"), "postback carries room");
 | `verify()` (สูตร HMAC) | ✅ 3 เคส | ครอบคลุมเฉพาะ happy path + ค่าเพี้ยน 2 แบบ |
 | `billBubble()` / `confirmBubble()` (โครงสร้าง JSON) | ✅ บางส่วน | ตรวจ presence ของ string ไม่ได้ตรวจ schema ทั้งก้อน |
 | `reply()` / `push()` | ❌ | ต้องมี `LINE_CHANNEL_ACCESS_TOKEN` จริงและยิง `api.line.me` — ไม่มีทางรัน offline |
-| `api/_auth.js` (`requireUser`, `isOwner`, การ verify idToken กับ LINE) | ✅ บางส่วน | `smoke.js`: owner/viewer + เงื่อนไข bypass · `smoke-handlers.js`: idToken (fetch ปลอม) + `seedTokenOk` |
+| `api/_auth.js` (`requireUser`, `isOwner`, การ verify idToken กับ LINE) | ✅ บางส่วน | `smoke.js`: owner/viewer + เงื่อนไข bypass · `smoke-handlers.js`: idToken (fetch ปลอม), token เดิม verify ครั้งเดียว / token ผิดไม่ถูกจำ, `role`/`root` ใน `/api/me`, `seedTokenOk` |
 | `api/_store.js` (Blob get/set, `useCache:false`, การ sanitize key) | ❌ | ต้องมี Blob credential → ทดสอบได้เฉพาะบน deployment |
 | endpoint ทั้ง 10 ตัว (method check, status code, error envelope) | ❌ | ไม่มี `req`/`res` ปลอม, ไม่มี HTTP layer ในเทสต์ |
+| `owner.js` (รายชื่อ, เชิญ, รับรหัส, ถอนสิทธิ์) | ✅ | `smoke-handlers.js`: เจ้าของที่ถูกเชิญออกรหัส owner ไม่ได้ · ผู้ช่วยเชิญไม่ได้ · รหัส owner เก่าจากคนที่ไม่ใช่ root ใช้ไม่ได้ · เฉพาะ root เห็น userId · ถอนได้เฉพาะ root · ถอน root ไม่ได้ · ถอนแล้วสิทธิ์หายทันที + เมนูถูกถอด + รหัสที่เขาสร้างใช้ไม่ได้ |
+| `slip.js` (จำกัดการส่ง, หมายเหตุ, ลบรูปเก่า) | ✅ | `smoke-handlers.js`: หมายเหตุ > 500 ตัว → 400 · ส่งซ้ำภายใน 30 วิ → `SLIP_TOO_SOON` · ครบ 5 ครั้ง → `SLIP_LIMIT` และไม่ push · เจ้าของไม่ติด limit · รูปใหม่ลบรูปเก่า |
+| `qr.js` ย้ายห้อง | ✅ | `smoke-handlers.js`: ผู้เช่าที่มีห้องแล้วได้ `MOVE_CONFIRM_REQUIRED` และไม่มีอะไรเปลี่ยน · ส่ง `confirmMove` แล้วย้ายได้ |
+| `rooms.js` ไม่ส่ง userId ผู้เช่า | ✅ | `smoke-reads.js`: response ไม่มี userId · `linked` true/false |
 | `webhook.js` (follow/บิล/postback → เปลี่ยน state) | ✅ บางส่วน | `smoke-handlers.js`: postback ยืนยัน (สิทธิ์, รอบบิล, `pending`, 2 key) + signature ปลอม · follow/บิล ยังไม่มี |
 | `liff/bill.html` (boot, `liff.init`, การแนบสลิป, หน้าจดมิเตอร์) | ❌ | ต้องเปิดใน LINE จริง |
 | env อื่น (`ROOMS`, `OWNER_USER_ID`, `BILL_PERIOD`, …) | ❌ | `smoke.js` ตั้งแค่ 2 ตัว |
