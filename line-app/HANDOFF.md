@@ -8,7 +8,7 @@
 ```
 เจ้าของหอ                     ผู้เช่า
    │                             │
-   ├─ LIFF /liff/bill.html ──┐   ├─ แชท LINE: "ผูก 203", "บิล"
+   ├─ LIFF /liff/bill.html ──┐   ├─ แชท LINE: "บิล", สแกน QR หน้าห้อง
    │  (จดมิเตอร์→ออกรอบบิล)  │   │      │
    │                         ▼   ▼      ▼
    │                    /api/run     /api/webhook ── reply/push
@@ -28,7 +28,7 @@
 
 | ไฟล์ | หน้าที่ |
 |---|---|
-| `api/webhook.js` | รับ event LINE: `follow`, ข้อความ "บิล"/"ผูก 203", postback ยืนยันการชำระ (ตรวจ `isOwner` ก่อนปิดบิล) |
+| `api/webhook.js` | รับ event LINE: `follow`, ข้อความ "บิล", postback ยืนยันการชำระ (ตรวจ `isOwner` ก่อนปิดบิล) |
 | `api/_line.js` | signature verify, reply/push, `billBubble()` (การ์ดบิล), `confirmBubble()` (การ์ดเจ้าของ) |
 | `api/_auth.js` | ตรวจ idToken → userId, `isOwner()`, bypass `x-seed-token` เฉพาะ preview/dev หรือ `ALLOW_SEED_BYPASS=true` |
 | `api/_store.js` | `get(key)` / `set(key, value)` บน Blob (`useCache:false` สำคัญ — ดูข้อ 6) |
@@ -87,7 +87,7 @@ curl.exe -s -X POST "$B/api/run" -H "x-seed-token: <SEED_TOKEN>" -H "Content-Typ
 curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "$B/api/bill?room=203"
 ```
 
-ทดสอบใน LINE จริง: พิมพ์ `ผูก 203` → `บิล` → กดปุ่ม → แนบสลิป → (เจ้าของ) กดยืนยันในการ์ด
+ทดสอบใน LINE จริง: สแกน QR หน้าห้อง (หรือเปิดลิงก์ `?bind=<code>`) → `บิล` → กดปุ่ม → แนบสลิป → (เจ้าของ) กดยืนยันในการ์ด
 
 ## 5. โครงข้อมูลใน Blob
 
@@ -125,7 +125,7 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "$B/api/bill?room=203"
 | หลายเจ้าของ/ผู้ช่วย | `_auth.js` | `OWNER_USER_ID` เป็นคนเดียว — เปลี่ยนเป็น list หรือ role ใน Blob |
 | ~~ลบ `x-seed-token` bypass~~ | `_auth.js` | ✅ ปิดแล้ว — ค่าเริ่มต้นคือปฏิเสธ เปิดเฉพาะ `ALLOW_SEED_BYPASS=true` หรือ Vercel env `preview`/`development` |
 | หลายเจ้าของ | `_auth.js` | ✅ มีแล้ว — เจ้าของคนแรกจาก `OWNER_USER_ID`, คนต่อ ๆ ไปรับสิทธิ์ด้วย QR (`/api/owner` → `?owner=<code>`) |
-| ผูกผู้เช่าด้วยการพิมพ์เลขห้อง | `webhook.js` | ⚠️ ยังมีอยู่ (`ผูก 203`) และ **ไม่มีการยืนยัน** — ทางที่ถูกคือ QR หน้าห้อง (`/api/qr` → `?bind=<code>`) ควรลบคำสั่งนี้ออกเมื่อ QR พร้อมใช้ทุกห้อง |
+| ผูกผู้เช่าด้วยการพิมพ์เลขห้อง | `webhook.js` | ✅ ลบแล้ว — ใครพิมพ์เลขห้องก็อ้างสิทธิ์ห้องนั้นได้ ทางเดียวที่เหลือคือ QR หน้าห้อง (`/api/qr` → `?bind=<code>`) |
 | LINE Notify/แจ้งเตือนก่อนครบกำหนด | Vercel Cron | push ข้อความเตือนจาก `room-user:` map |
 | UI หลายภาษา / หลายหอใน deploy เดียว | ทั้งหมด | ตอนนี้ 1 deploy = 1 หอ (ตั้งใจ) |
 

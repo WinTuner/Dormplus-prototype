@@ -5,6 +5,7 @@
 //   POST ?room=203   (owner) -> rotate the code, invalidating printed slips    (was /api/room-qr POST)
 //   POST { code }    (tenant)-> bind this LINE account to the room             (was /api/tenant-bind)
 const qrcode = require("qrcode-svg");
+const crypto = require("crypto");
 const store = require("./_store");
 const { requireUser, isOwner } = require("./_auth");
 const { linkRichMenu } = require("./_line");
@@ -13,7 +14,7 @@ const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O/1/I/L
 const bindUrl = (code) => (process.env.LIFF_ID ? `https://liff.line.me/${process.env.LIFF_ID}?bind=${code}` : null);
 
 const newCode = () =>
-  Array.from({ length: 10 }, () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]).join("");
+  Array.from({ length: 10 }, () => ALPHABET[crypto.randomInt(ALPHABET.length)]).join("");
 
 async function ensureCode(room, rotate) {
   const key = `room-qr:${room}`;

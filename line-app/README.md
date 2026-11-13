@@ -115,7 +115,7 @@ curl -X POST "https://<โดเมน>/api/dev?do=sendbill&token=<SEED_TOKEN>" 
 
 1. เพิ่มเพื่อน OA → บอททัก "สวัสดีครับ"
 2. **ผูกห้องด้วย QR** — เจ้าของเปิด LIFF → เลือกห้อง → "QR ผู้เช่า" → ให้ผู้เช่าสแกน
-   (ทางเก่า `ผูก 203` ยังใช้ได้ แต่ไม่มีการยืนยันตัวตน — ควรเลิกใช้เมื่อทุกห้องมี QR)
+   (พิมพ์เลขห้องเองไม่ได้แล้ว — ใครก็อ้างสิทธิ์ห้องนั้นได้)
 3. พิมพ์ `บิล` → ได้การ์ดบิล 3,842 บาท (แล้วแต่ข้อมูล seed)
 4. กดปุ่ม **ดูบิล / แนบสลิป** → เปิด LIFF → กด **แนบสลิป & แจ้งชำระ**
 5. `/api/bill?room=203` → `status: "pending"`
@@ -191,7 +191,7 @@ LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js
 
 | ไฟล์ | หน้าที่ |
 |---|---|
-| `api/webhook.js` | รับ event จาก LINE: `follow`, ข้อความ (`บิล`, `ผูก 203`), postback ยืนยันการชำระ (เฉพาะ `OWNER_USER_ID`) |
+| `api/webhook.js` | รับ event จาก LINE: `follow`, ข้อความ (`บิล`), postback ยืนยันการชำระ (เฉพาะเจ้าของ) |
 | `api/_line.js` | ตรวจ signature, `reply()` / `push()`, `billBubble()` (การ์ดบิล), `confirmBubble()` (การ์ดเจ้าของ) |
 | `api/_auth.js` | ตรวจ LIFF idToken → userId, `roleOf()`/`isOwner()`/`canView()` (owner · viewer · ผู้เช่า), bypass `x-seed-token` เฉพาะ preview/dev |
 | `api/_store.js` | `get(key)` / `set(key, value)` ลง Blob (`useCache:false` — อ่านค่าที่เพิ่งเขียนได้ทันที) |
