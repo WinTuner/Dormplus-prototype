@@ -181,11 +181,15 @@ def create_invoice(conn: Connection, room_id: str, period: str, rent: int,
     ).first()
     if row is None:
         return None
-    for label, qty, unit_price in items:
+    if items:
         conn.execute(
             text("""insert into invoice_items (invoice_id, label, qty, unit_price, amount)
                     values (:inv, :label, :qty, :price, :amount)"""),
-            {"inv": row.id, "label": label, "qty": qty, "price": unit_price, "amount": qty * unit_price},
+            [
+                {"inv": row.id, "label": label, "qty": qty, "price": unit_price,
+                 "amount": qty * unit_price}
+                for label, qty, unit_price in items
+            ],
         )
     return row.id
 
@@ -280,6 +284,12 @@ def confirm_invoice(
 ) -> ConfirmOut:
     """Owner checks the slip and closes the bill: pending -> paid, with a receipt number."""
     with engine.begin() as conn:
+        # Receipt numbers are "how many receipts this period + 1", so two confirms in the same dorm
+        # at the same moment would both count the same and hand out one number twice. Locking the
+        # dorm row first makes them take turns. Dorm first, invoice second: the same order as
+        # run_billing, so the two cannot deadlock each other.
+        conn.execute(text("select id from properties where id = :id for update"),
+                     {"id": session.property_id})
         row = conn.execute(PROPERTY_INVOICE_SQL,
                            {"id": invoice_id, "property_id": session.property_id}).first()
         if row is None:

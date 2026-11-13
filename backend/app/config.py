@@ -31,6 +31,19 @@ class Settings(BaseSettings):
     # HTTPS only. Set COOKIE_SECURE=false for a plain-HTTP local dev box.
     cookie_secure: bool = True
 
+    # Set by Vercel on every deployment: "production", "preview" or "development" (`vercel dev`).
+    vercel_env: str = ""
+
+    @property
+    def is_production(self) -> bool:
+        return self.vercel_env == "production"
+
+    @property
+    def dev_auth_active(self) -> bool:
+        """DEV_AUTH counts only off production. A DEV_AUTH=true copied into the production
+        environment by mistake would let anyone act as any dorm, so there it is ignored."""
+        return self.dev_auth and not self.is_production
+
 
 @lru_cache
 def get_settings() -> Settings:
