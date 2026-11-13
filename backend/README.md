@@ -34,6 +34,8 @@ LINE Login ผ่าน LIFF และ flow แนบสลิป → เจ้�
    `api.line.me/oauth2/v2.1/verify` (`app/line.py`), หาห้องจาก `tenants.line_user_id`
    แล้วเซ็น cookie `dp_session` (HttpOnly, SameSite=Lax) ด้วย `SESSION_SECRET`
    ต้องตั้ง `LINE_CHANNEL_ID` ก่อน ไม่งั้นตอบ 503 `LINE_NOT_CONFIGURED`
+   · ทุก request ที่ใช้ cookie ของผู้เช่าจะเช็กกับฐานข้อมูลว่ายังผูกห้องนั้นอยู่ ถ้าเจ้าของถอด LINE
+   หรือตั้งย้ายออกแล้ว → 401 `SESSION_REVOKED` ทันที ไม่ต้องรอ cookie หมดอายุ 7 วัน
 2. **Dev headers (เฉพาะตอนพัฒนา)** — ตั้ง `DEV_AUTH=true` แล้วส่ง header:
 
 ```bash
@@ -153,7 +155,8 @@ app/db.py          engine (routes รับผ่าน Depends(get_engine) เ�
 app/errors.py      ApiError + แปลง error ทุกแบบเป็นรูปแบบในสัญญา
 app/seed.py        หอตัวอย่าง 42 ห้อง (python -m app.seed)
 liff/index.html    หน้า LIFF ผู้เช่า (เสิร์ฟที่ /liff)
-migrations/        Alembic · 0001 = db/schema.sql v1 · 0002 = link_codes (รหัสเชิญผูก LINE)
+migrations/        Alembic · 0001 = db/schema.sql v1 · 0002 = link_codes (รหัสเชิญผูก LINE) · 0003 = auth_failures (rate limit การลองรหัส)
+app/attempts.py    rate limit การแลกรหัสเชิญ: ผิดได้ 10 ครั้ง/ชม./บัญชี LINE → 429
 tests/
 Dockerfile         image สำหรับ deploy (context = root ของ repo)
 ```
@@ -197,7 +200,7 @@ procrastinate -a app.queue.app worker      # process ที่ต้องรั
 curl -X POST -H "Authorization: Bearer $DUNNING_TOKEN" "https://<host>/v1/dunning/run"
 ```
 
-`?token=` ยังใช้ได้เพื่อความเข้ากันได้กับ cron เดิม แต่ token จะไปโผล่ใน access log — ใช้ header ก่อน
+ส่ง token ทาง header เท่านั้น · `?token=` ถูกปฏิเสธ (401) เพราะ URL ติด access log
 
 - เลือกบิล `unpaid` ที่เลยกำหนด **1 / 5 / 10 วัน** และยังไม่เคยส่ง kind นั้น (กันซ้ำด้วย `message_log`)
 - ต้องมี `LINE_CHANNEL_ACCESS_TOKEN` (ตัวเดียวกับ OA) ไม่งั้น worker จะ log `skipped` แทนการส่ง

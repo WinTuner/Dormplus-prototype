@@ -241,3 +241,38 @@ def test_another_dorm_cannot_unlink(client_for, seeded, line_ready):
         conn.execute(text("update tenants set line_user_id = 'U_x' where id = 't_203'"))
     assert client_for(seeded, OWNER_P2).delete("/v1/tenants/t_203/line").status_code == 403
     assert one(seeded, "select line_user_id from tenants where id = 't_203'").line_user_id == "U_x"
+
+
+# --- security: revoked sessions and guessing ------------------------------------------------------
+
+def test_unlinking_ends_the_tenants_existing_session(owner, client_for, seeded, line_ready):
+    phone = client_for(seeded)
+    link(phone, invite(owner)["code"])
+    assert phone.get("/v1/me/invoices").status_code == 200
+
+    assert owner.delete("/v1/tenants/t_203/line").status_code == 204
+    res = phone.get("/v1/me/invoices")  # same cookie, still within its 7 days
+    assert res.status_code == 401
+    assert res.json()["error"]["code"] == "SESSION_REVOKED"
+
+
+def test_moving_out_ends_the_tenants_existing_session(owner, client_for, seeded, line_ready):
+    phone = client_for(seeded)
+    link(phone, invite(owner)["code"])
+    with seeded.begin() as conn:
+        conn.execute(text("update tenants set moved_out = current_date where id = 't_203'"))
+    assert phone.get("/v1/me/invoices").status_code == 401
+
+
+def test_guessing_codes_is_rate_limited(owner, client_for, seeded, line_ready):
+    from app.attempts import MAX_FAILURES
+
+    phone = client_for(seeded)
+    for i in range(MAX_FAILURES):
+        assert link(phone, f"WRONG{i:03d}", user="U_guesser").status_code == 404
+    real = invite(owner)["code"]
+    res = link(phone, real, user="U_guesser")
+    assert res.status_code == 429
+    assert res.json()["error"]["code"] == "TOO_MANY_ATTEMPTS"
+    # someone else is not slowed down by the guesser
+    assert link(client_for(seeded), real, user="U_somchai").status_code == 200

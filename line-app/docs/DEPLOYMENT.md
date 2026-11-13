@@ -273,7 +273,7 @@ vercel rollback
 | `403 FORBIDDEN "idToken ไม่ถูกต้องหรือหมดอายุ"` | `api/_auth.js` | idToken หมดอายุ / `client_id` ไม่ตรงกับ LIFF | ปกติเกิดตอน LIFF อยู่คนละ provider — ตั้ง `LOGIN_CHANNEL_ID` |
 | `403 FORBIDDEN "ต้องมี token"` | `api/dev.js`, `api/dev.js` | `?token=` ไม่ตรง `SEED_TOKEN` หรือ env ไม่มี | เรียกแบบ `?token=$T` |
 | `403 FORBIDDEN "เฉพาะเจ้าของหอ"` | `api/rooms.js`, `api/run.js` | ผู้เรียกไม่ใช่ `OWNER_USER_ID` | ข้อ 5 ลำดับ 3: `owner` ต้องเป็น `true` |
-| `403 FORBIDDEN "บัญชีนี้ยังไม่ได้ผูกกับห้อง 203"` | `api/bill.js`, `api/slip.js` | ผู้ใช้ยังไม่พิมพ์ `ผูก 203` ในแชท | พิมพ์ `ผูก 203` ก่อน แล้วเปิด LIFF ใหม่ |
+| `403 FORBIDDEN "บัญชีนี้ยังไม่ได้ผูกกับห้อง 203"` | `api/bill.js`, `api/slip.js` | ผู้ใช้ยังไม่ได้ผูกห้อง | สแกน QR หน้าห้อง (เจ้าของสร้างได้จากหน้าห้อง → "QR ผู้เช่า") |
 | `404 NOT_FOUND "ไม่พบบิลของห้อง 203"` | `api/bill.js` | ยังไม่ seed / ยังไม่ออกรอบบิล | รัน `/api/dev?do=seed` (ทดสอบ) หรือ `/api/run` (จริง) |
 | `404 NOT_FOUND "ยังไม่มีสลิป"` / `"ไม่พบไฟล์สลิป"` | `api/slip-image.js` | บิลยังไม่ถูกแนบสลิป หรือไฟล์ใน Blob หาย | ดู `bill.slipPath` ใน `/api/bill` |
 | `409 INVALID_STATE "บิลนี้ชำระแล้ว"` | `api/slip.js` | บิล `status:"paid"` แล้ว | ออกรอบใหม่ด้วย `/api/run` |
@@ -289,7 +289,7 @@ vercel rollback
 | log `owner push failed ...` | `api/slip.js` | ส่งการ์ดหาเจ้าของไม่ได้ (สลิปยังถูกบันทึกเป็น `pending`) | ตรวจ `OWNER_USER_ID` |
 | หน้าเว็บ `ใช้งานไม่ได้` + `เปิดหน้านี้จากปุ่มในแชท LINE เท่านั้น (LIFF)` | `liff/bill.html` `fail()` | เปิดในเบราว์เซอร์ตรง ๆ, `LIFF_ID` ว่าง, `liff.init()` ล้ม | เปิดผ่านปุ่มในแชท (`liff.line.me/<LIFF_ID>`) |
 | หน้าเว็บ `LIFF นี้ยังไม่ได้เปิด scope openid — …` | `liff/bill.html` บรรทัด 64 | LIFF app ไม่ได้ติ๊ก `openid` | ข้อ 6.3 ข้อ 4 |
-| หน้าเว็บ `ยังไม่ได้ผูกห้อง — พิมพ์ "ผูก 203" ในแชท LINE ก่อน` | `liff/bill.html` | ผู้ใช้ยังไม่ผูกห้อง | พิมพ์ `ผูก <ห้อง>` ในแชท |
+| หน้าเว็บ `ยังไม่ได้ผูกห้อง — สแกน QR หน้าห้องที่เจ้าของหอให้มา` | `liff/bill.html` | ผู้ใช้ยังไม่ผูกห้อง | สแกน QR หน้าห้อง · ถ้าห้องมีคนผูกแล้วให้เจ้าของกด "เปลี่ยนผู้เช่า" ก่อน |
 | บิลที่ออกรอบใหม่ยังแสดงยอดเก่า | `api/_store.js` | ถ้าแก้โค้ดแล้วลืม `useCache: false` | ทุก `get` ต้องมี `useCache: false` (มีอยู่แล้วในโค้ดปัจจุบัน) |
 
 ---

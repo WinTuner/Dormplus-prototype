@@ -46,9 +46,10 @@ function bypassAllowed(env) {
 
 assert.strictEqual(bypassAllowed({}), false, "no env at all -> denied");
 assert.strictEqual(bypassAllowed({ VERCEL_ENV: "production" }), false, "production -> denied");
-assert.strictEqual(bypassAllowed({ VERCEL_ENV: "production", ALLOW_SEED_BYPASS: "true" }), true, "production + explicit opt-in -> allowed");
-assert.strictEqual(bypassAllowed({ VERCEL_ENV: "preview" }), true, "preview -> allowed");
-assert.strictEqual(bypassAllowed({ VERCEL_ENV: "development" }), true, "development -> allowed");
+assert.strictEqual(bypassAllowed({ VERCEL_ENV: "production", ALLOW_SEED_BYPASS: "true" }), false, "production -> denied even with the opt-in");
+assert.strictEqual(bypassAllowed({ VERCEL_ENV: "preview" }), false, "preview shares production data -> denied by default");
+assert.strictEqual(bypassAllowed({ VERCEL_ENV: "preview", ALLOW_SEED_BYPASS: "true" }), true, "preview + explicit opt-in -> allowed");
+assert.strictEqual(bypassAllowed({ VERCEL_ENV: "development" }), true, "vercel dev on a laptop -> allowed");
 
 // 5) owner = OWNER_USER_ID, plus anyone admitted later with an owner invite
 const owners = new Map([

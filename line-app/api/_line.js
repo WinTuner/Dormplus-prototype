@@ -6,9 +6,11 @@ const SECRET = process.env.LINE_CHANNEL_SECRET;
 const LIFF_ID = process.env.LIFF_ID;
 
 function verify(rawBody, signature) {
-  if (!SECRET) return false;
-  const expected = crypto.createHmac("sha256", SECRET).update(rawBody).digest("base64");
-  return expected === signature;
+  if (!SECRET || typeof signature !== "string") return false;
+  const expected = Buffer.from(crypto.createHmac("sha256", SECRET).update(rawBody).digest("base64"));
+  const given = Buffer.from(signature);
+  // Constant-time compare, so the response time says nothing about how much of a forgery matched.
+  return expected.length === given.length && crypto.timingSafeEqual(expected, given);
 }
 
 async function call(path, body) {
@@ -115,7 +117,8 @@ function confirmBubble(bill) {
             action: {
               type: "postback",
               label: "ยืนยันการชำระ",
-              data: `action=confirm&room=${bill.room}`,
+              // The period pins the card to this bill: an old card cannot close a newer one.
+              data: new URLSearchParams({ action: "confirm", room: bill.room, period: bill.period }).toString(),
               displayText: "ยืนยันการชำระ",
             },
           },

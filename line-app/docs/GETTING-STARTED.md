@@ -95,8 +95,9 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" https://<โดเมนของค
 **คำขอที่สาม — เขียนข้อมูลจริงลง Blob:**
 
 ```bash
-curl.exe -s -X POST "https://<โดเมนของคุณ>/api/dev?do=seed&token=<SEED_TOKEN>"
-curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "https://<โดเมนของคุณ>/api/bill?room=203"
+# ใช้ได้เฉพาะ `vercel dev` บนเครื่อง (SEED_TOKEN ยาว ≥ 16 ตัว) · production ปิดทั้ง /api/dev และ x-seed-token
+curl.exe -s -X POST "http://localhost:3000/api/dev?do=seed" -H "x-seed-token: <SEED_TOKEN>"
+curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "http://localhost:3000/api/bill?room=203"
 ```
 
 `/api/dev?do=seed` สร้างบิลห้อง 201–212 (idempotent) และ `/api/bill?room=203` ควรคืนบิล `status: "unpaid"` — ถึงตรงนี้คือ "clone → คำขอที่สำเร็จ" ครบวงแล้ว
@@ -128,7 +129,7 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "https://<โดเมนของ�
 - [ ] มี Messaging API channel (secret + long-lived token) และ LINE Login channel สำหรับ LIFF (README ข้อ 2, 6)
 - [ ] `vercel --prod` แล้ว `curl.exe -s https://<โดเมน>/api/config` ตอบ `200`
 - [ ] ใส่ env + Blob แล้ว Redeploy แล้ว `curl.exe -s -H "x-seed-token: <SEED_TOKEN>" https://<โดเมน>/api/me` ตอบ `200`
-- [ ] `POST /api/dev?do=seed&token=<SEED_TOKEN>` แล้ว `GET /api/bill?room=203` เห็นบิล
+- [ ] (บน `vercel dev`) `POST /api/dev?do=seed` + header `x-seed-token` แล้ว `GET /api/bill?room=203` เห็นบิล
 
 ## 7. ปัญหาที่เจอบ่อยตอนsetup
 

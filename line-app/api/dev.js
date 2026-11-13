@@ -1,11 +1,14 @@
-// /api/dev?do=seed|sendbill&token=<SEED_TOKEN> — test helpers, kept out of the product surface.
+// POST /api/dev?do=seed|sendbill — test helpers, kept out of the product surface.
 // One function instead of two: Vercel's Hobby plan caps a deployment at 12 functions.
-const store = require("./_store");
-const { indexBill } = require("./_bills");
+//
+// Locked down because `seed` overwrites every bill and `sendbill` pushes to any user:
+// - answers 404 on production, and on preview unless ALLOW_SEED_BYPASS=true (see _auth.js)
+// - the token goes in the `x-seed-token` header, never in the URL, and must be ≥ 16 characters
+const { saveBill } = require("./_bills");
 const { push, billBubble } = require("./_line");
 const { ROOMS, configFor, DEFAULTS } = require("./_rooms");
-
-const tokenOk = (req) => !!process.env.SEED_TOKEN && req.query.token === process.env.SEED_TOKEN;
+const { seedTokenOk, BYPASS_ALLOWED } = require("./_auth");
+const store = require("./_store");
 
 async function seed(res) {
   const period = process.env.BILL_PERIOD || "2026-11";
@@ -21,7 +24,7 @@ async function seed(res) {
     const elecUnits = 28 + (i % 6) * 7;
     const water = waterUnits * cfg.waterRate;
     const elec = elecUnits * cfg.elecRate;
-    const bill = {
+    await saveBill({
       room,
       period,
       rent: cfg.rent,
@@ -32,11 +35,7 @@ async function seed(res) {
       total: cfg.rent + water + elec,
       due,
       status: "unpaid",
-    };
-
-    await store.set(`bill:${room}`, bill);
-    await store.set(`bill:${period}:${room}`, bill); // history stays readable afterwards
-    await indexBill(room, period);
+    });
     created.push(room);
   }
 
@@ -58,8 +57,10 @@ async function sendbill(req, res) {
 
 module.exports = async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
-  if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
-  if (!tokenOk(req)) return res.status(403).json({ error: { code: "FORBIDDEN", message: "ต้องมี token" } });
+  // On production this endpoint does not exist, whatever token is sent.
+  if (!BYPASS_ALLOWED) return res.status(404).json({ error: { code: "NOT_FOUND", message: "ไม่พบ" } });
+  if (req.method !== "POST") return res.status(405).json({ error: { code: "METHOD_NOT_ALLOWED", message: "POST only" } });
+  if (!seedTokenOk(req)) return res.status(403).json({ error: { code: "FORBIDDEN", message: "ต้องส่ง x-seed-token" } });
 
   switch (String(req.query.do || "")) {
     case "seed":

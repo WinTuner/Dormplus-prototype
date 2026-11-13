@@ -17,8 +17,8 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 | ทุก method (ไม่ได้ตรวจ — ใช้ GET) | `/api/slip-image` | Bearer idToken + สิทธิ์รายห้อง | `api/slip-image.js` |
 | ทุก method (ไม่ได้ตรวจ — ใช้ GET) | `/api/rooms` | Bearer idToken + owner | `api/rooms.js` |
 | `POST` เท่านั้น | `/api/run` | Bearer idToken + owner | `api/run.js` |
-| `POST` เท่านั้น | `/api/dev?do=seed` | `?token=<SEED_TOKEN>` | `api/dev.js` |
-| `POST` เท่านั้น | `/api/dev?do=sendbill` | `?token=<SEED_TOKEN>` | `api/dev.js` |
+| `POST` เท่านั้น | `/api/dev?do=seed` | header `x-seed-token` · มีเฉพาะ `vercel dev` หรือ preview ที่ตั้ง `ALLOW_SEED_BYPASS=true` (production ตอบ 404) | `api/dev.js` |
+| `POST` เท่านั้น | `/api/dev?do=sendbill` | header `x-seed-token` · มีเฉพาะ `vercel dev` หรือ preview ที่ตั้ง `ALLOW_SEED_BYPASS=true` (production ตอบ 404) | `api/dev.js` |
 | `POST` เท่านั้น | `/api/webhook` | `x-line-signature` (HMAC) | `api/webhook.js` |
 
 `api/_auth.js`, `api/_line.js`, `api/_rooms.js`, `api/_store.js` เป็น shared module ไม่ใช่ endpoint (ขึ้นต้นด้วย `_`) <!-- VERIFY: Vercel ไม่สร้าง public route ให้ไฟล์ที่ขึ้นต้นด้วย `_` ใน api/ — เป็นพฤติกรรมแพลตฟอร์ม ไม่มีอะไรในเรพยืนยัน --> — ไฟล์ที่ชื่ออื่นใน `api/` กลายเป็น route ตามชื่อไฟล์โดยไม่ต้องประกาศใน `vercel.json` (ซึ่งมีแค่ rewrite `/` → `/liff/bill.html`)
@@ -55,8 +55,8 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 ### 2.2 การ auth 3 แบบ
 
 1. **Bearer LIFF idToken** — `_auth.requireUser()` อ่าน `Authorization: Bearer <idToken>` แล้วยิง `POST https://api.line.me/oauth2/v2.1/verify` ด้วย `id_token` + `client_id` (= `LOGIN_CHANNEL_ID` หรือ prefix ก่อน `-` ของ `LIFF_ID`) แล้วเอา `sub` เป็น userId ถ้าไม่มี token/ไม่มี channel → `401 UNAUTHORIZED`; verify ไม่ผ่าน → `403 FORBIDDEN`
-2. **`x-seed-token` bypass (ปิดโดยค่าเริ่มต้น)** — ทำงานเฉพาะเมื่อ `ALLOW_SEED_BYPASS=true` หรือ `VERCEL_ENV` เป็น `preview`/`development` **และ** header ตรงกับ `SEED_TOKEN` · เมื่อเข้าเงื่อนไข `requireUser()` จะคืน `OWNER_USER_ID` (หรือ `"dev"` ถ้าไม่ได้ตั้ง) · **production ปฏิเสธเสมอ**
-3. **`?token=` ของ seed/sendbill** — endpoint สองตัวนี้ **ไม่เรียก `requireUser` เลย** เช็กแค่ query `token` เท่ากับ `SEED_TOKEN`
+2. **`x-seed-token` bypass (ปิดโดยค่าเริ่มต้น)** — ทำงานเฉพาะเมื่อ `VERCEL_ENV=development` (`vercel dev`) หรือ `ALLOW_SEED_BYPASS=true` บนที่ที่ไม่ใช่ production **และ** header ตรงกับ `SEED_TOKEN` (ยาว ≥ 16 ตัว เทียบแบบ constant-time) · เมื่อเข้าเงื่อนไข `requireUser()` จะคืน `OWNER_USER_ID` (หรือ `"dev"` ถ้าไม่ได้ตั้ง) · **production ปฏิเสธเสมอ**
+3. **`/api/dev` (seed/sendbill)** — ใช้ header `x-seed-token` ตามเงื่อนไขเดียวกับข้อ 2 · บน production ตอบ `404` เสมอ · ไม่อ่าน token จาก URL
 
 `isOwner(userId)` คือ `!!OWNER_USER_ID && userId === OWNER_USER_ID` → ถ้าไม่ได้ตั้ง `OWNER_USER_ID` ทุกคนเป็น non-owner (รวม `x-seed-token` ที่คืน `"dev"` ด้วย)
 
@@ -99,13 +99,13 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 | endpoint | auth | body/query | ผล |
 |---|---|---|---|
 | `GET /api/qr?room=203` | เจ้าของ | — | `{room, code, url, qr}` · สร้างรหัสให้ถ้ายังไม่มี |
-| `POST /api/qr?room=203` | เจ้าของ | — | เหมือนกัน แต่ **หมุนรหัสใหม่** (`rotated:true`) |
+| `POST /api/qr?room=203` | เจ้าของ | — | **เปลี่ยนผู้เช่า:** ถอดผู้เช่าที่ผูกอยู่ (`unbound:true`) + รหัสใหม่ (`rotated:true`) |
 | `POST /api/qr` | ผู้ใช้ที่ล็อกอิน LINE | `{code}` | `{ok:true, room, previous}` — เขียน `user-room:<userId>` + `room-user:<room>` + สลับเมนูผู้เช่า |
 
 - รหัส 10 ตัว (ไม่มี 0/O/1/I/L) · เก็บ 2 key: `room-qr:<room>` และ `qr-code:<code>` (ตัวหลังถูกลบเมื่อหมุน)
 - รหัสผิด/ถูกหมุนแล้ว → `404 NOT_FOUND`
 - ห้องที่ไม่มีทั้งบิลและผู้เช่า → `404 NOT_FOUND` (กันพิมพ์เลขห้องผิด)
-- **ข้อจำกัด:** QR นี้เป็นกุญแจของห้อง ไม่ผูกกับตัวบุคคล — ใครได้รูปไปก็ผูกได้จนกว่าเจ้าของจะหมุนรหัส (เหมือนกุญแจจริง)
+- **QR ผูกได้เฉพาะห้องที่ยังว่าง** — ห้องที่มีผู้เช่าผูกอยู่แล้วตอบ `409 ROOM_TAKEN` คนที่ถ่ายรูป QR ไปจึงแย่งห้องไม่ได้ · ผูกสำเร็จแล้วเจ้าของได้ข้อความแจ้ง · ย้ายห้องแล้วห้องเก่าเลิกส่งบิลให้ · ผิดเกิน 10 ครั้ง/ชม. → `429 TOO_MANY_ATTEMPTS`
 
 ## 3. `GET /api/config`
 
@@ -127,7 +127,7 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 
 `api/me.js` — บอกว่าใครเรียก และผูกกับห้องไหน
 
-- **Auth:** Bearer idToken (หรือ `x-seed-token` — เฉพาะ preview/dev)
+- **Auth:** Bearer idToken (หรือ `x-seed-token` — เฉพาะ `vercel dev`)
 - **Query/body:** ไม่มี
 - **200:**
 
@@ -267,15 +267,15 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 
 ห้องที่ข้อมูลเสียจะถูกใส่เป็น `{room, error}` **โดยไม่ทำให้ request ล้ม** (สถานะยัง 200)
 - **Error:** `405`, `401`/`403` จาก `requireUser`, `403 FORBIDDEN` (ไม่ใช่ owner), `400 VALIDATION` (`readings` ไม่ใช่ array/ว่าง), `400 VALIDATION` (ไม่มี period)
-- **เขียน Blob:** `meter:<room>` = `{water, elec, at}` และ `bill:<room>` = บิลใหม่ทั้งใบ `status:"unpaid"` (เขียนทับบิลเดิมเสมอ ไม่สนสถานะเก่า — ประวัติหาย)
+- **เขียน Blob:** `meter:<room>` = `{water, elec, at}` และ `bill:<room>` = บิลใหม่ทั้งใบ `status:"unpaid"` (ข้ามห้องที่บิลรอบนั้นแจ้งชำระหรือชำระแล้ว · บิล `unpaid` ออกใหม่ทับได้เพื่อแก้เลขผิด · หน่วยต้องเป็นจำนวนเต็ม ≥ 0 และห้องต้องอยู่ใน `ROOMS`)
 - **Side effect อื่น:** `push()` การ์ด `billBubble` ให้ `room-user:<room>` ถ้ามีผู้เช่า; push ล้มเหลว → `pushed:false` + `console.error` (ไม่ fail request)
 - การคำนวณ: `water = Math.round(waterUnits * waterRate)`, `elec = Math.round(elecUnits * elecRate)`, `total = rent + water + elec`
 
-## 10. `POST /api/dev?do=seed&token=<SEED_TOKEN>`
+## 10. `POST /api/dev?do=seed` (header `x-seed-token`)
 
 `api/dev.js` — ใส่บิลตัวอย่างทุกห้องใน `ROOMS` (idempotent)
 
-- **Auth:** **ไม่ใช้ `requireUser`** — เช็กแค่ `req.query.token === SEED_TOKEN`; ถ้าไม่ได้ตั้ง `SEED_TOKEN` หรือ token ไม่ตรง → `403 FORBIDDEN` ("ต้องมี token")
+- **Auth:** production → `404` เสมอ · ที่อื่นต้องเปิด dev tools (ดู 2.2) และส่ง header `x-seed-token` ที่ตรงกับ `SEED_TOKEN` (≥ 16 ตัว) ไม่งั้น `403 FORBIDDEN`
 - **Query:** `token` (string) เท่านั้น
 - **Body:** ไม่มี
 - **200:**
@@ -289,11 +289,11 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 - **Side effect อื่น:** ไม่มีการ push LINE
 - ค่า default ของ seed: `period` = `BILL_PERIOD || "2026-11"`, `due` = `BILL_DUE || "2026-11-16"`, หน่วยน้ำ `4 + (i % 4)`, หน่วยไฟ `28 + (i % 6) * 7`
 
-## 11. `POST /api/dev?do=sendbill&token=<SEED_TOKEN>`
+## 11. `POST /api/dev?do=sendbill` (header `x-seed-token`)
 
 `api/dev.js` — ยิงการ์ดบิลหาหนึ่ง userId (เครื่องมือทดสอบ)
 
-- **Auth:** **ไม่ใช้ `requireUser`** — เช็กแค่ `?token=` เทียบ `SEED_TOKEN` (เหมือน `/api/dev?do=seed`)
+- **Auth:** เหมือน `/api/dev?do=seed`
 - **Query:** `token` (string)
 - **Body (JSON):**
 
@@ -331,9 +331,8 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 
 รายละเอียดที่ควรรู้:
 
-- **`ผูก <room>` ต้องมีบิลอยู่ก่อน** — เช็ก `bill:<room>` ไม่ใช่ `ROOMS` ดังนั้นห้องที่ยังไม่เคยออกบิลผูกไม่ได้
 - **postback `action=confirm` ตรวจเจ้าของแล้ว** — `webhook.js` เทียบ `event.source.userId` กับ `OWNER_USER_ID` ก่อนปิดบิล; ผู้ที่ไม่ใช่เจ้าของได้ข้อความ "เฉพาะเจ้าของหอกดยืนยันได้ครับ" และสถานะบิลไม่เปลี่ยน
-- **การผูกห้องไม่มีการยืนยันตัวตนของห้อง** — ผู้ใช้คนไหนพิมพ์ `ผูก 203` ก็ผูกได้ และเขียน `room-user:203` ทับผู้เช่าคนเดิมได้ (การผูกซ้ำเปลี่ยนเจ้าของ mapping)
+- **ไม่มีคำสั่งแชท `ผูก <room>` แล้ว** — ผูกห้องได้ทาง QR (`/api/qr`) อย่างเดียว · postback ยืนยันระบุ `period` และยืนยันได้เฉพาะบิล `pending`
 - **`OWNER_USER_ID` ไม่ถูกใช้ใน webhook เลย** — webhook ไม่รู้จัก role; สิทธิ์ทั้งหมดมาจาก `bill:<room>` ที่มีอยู่
 - ถ้า `LINE_CHANNEL_ACCESS_TOKEN` ผิด/หมดอายุ `reply`/`push` throw แต่ `handleEvent` ถูกครอบด้วย `try/catch` ต่อ event → webhook ยังตอบ 200 ผู้ใช้แค่ไม่ได้รับข้อความ
 
@@ -345,11 +344,10 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 | `/api/me` | idToken | — |
 | `/api/bill`, `/api/slip`, `/api/slip-image` | idToken + `user-room:<userId> === room` (ยกเว้น owner) | ว่า `room` เป็นห้องที่อยู่ใน `ROOMS` |
 | `/api/rooms`, `/api/run` | idToken + `isOwner` | — |
-| `/api/dev?do=seed`, `/api/dev?do=sendbill` | `?token=` เท่ากับ `SEED_TOKEN` | ไม่มี auth ผู้ใช้, ไม่จำกัดจำนวนครั้ง, token อยู่ใน query (ติด access log) |
+| `/api/dev?do=seed`, `/api/dev?do=sendbill` | production → 404 · ที่อื่น header `x-seed-token` (≥ 16 ตัว) | ไม่มี auth ผู้ใช้ (เครื่องมือ dev) |
 | `/api/webhook` | HMAC signature | ไม่ตรวจผู้ส่งต่อ event, ไม่มี idempotency |
 | webhook `postback action=confirm` | signature ของ LINE + `isOwner(userId)` | ✅ ตรวจแล้ว |
-| webhook `ผูก <room>` | signature ของ LINE | **ไม่ตรวจความเป็นเจ้าของห้อง / ไม่มีการยืนยันตัวตน** |
-| ทุก endpoint ที่เรียก `requireUser` | idToken หรือ `x-seed-token` | `x-seed-token` เป็น bypass ที่ตั้งใจไว้ (คอมเมนต์ `shortcut:` ใน `api/_auth.js`) — ต้องลบก่อนใช้จริง |
+| ทุก endpoint ที่เรียก `requireUser` | idToken หรือ `x-seed-token` | `x-seed-token` ใช้ได้เฉพาะ `vercel dev` / preview ที่เปิด `ALLOW_SEED_BYPASS` · production ปิดเสมอ |
 
 ## 15. เอกสารที่เกี่ยวข้อง
 

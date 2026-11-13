@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel
 from sqlalchemy import Connection, Engine, text
 
-from app import line, session as session_cookie
+from app import attempts, line, session as session_cookie
 from app.clock import today
 from app.config import get_settings
 from app.db import get_engine
@@ -108,6 +108,22 @@ def link_with_line(
     profile = verified_line_user(body.id_token)
     line_user_id = profile["sub"]
 
+    attempts.ensure_not_blocked(engine, LINK_SCOPE, line_user_id)
+    try:
+        return _link(body, response, engine, day, profile, line_user_id)
+    except ApiError as err:
+        if err.code in GUESS_FAILURES:
+            attempts.record_failure(engine, LINK_SCOPE, line_user_id)
+        raise
+
+
+# Answers that mean "this code did not work for you": each one counts towards the rate limit.
+LINK_SCOPE = "line.link"
+GUESS_FAILURES = {"INVITE_NOT_FOUND", "INVITE_EXPIRED", "INVITE_USED"}
+
+
+def _link(body: LineLinkIn, response: Response, engine: Engine, day: date, profile: dict,
+          line_user_id: str) -> LineLoginOut:
     with engine.begin() as conn:
         invite = conn.execute(
             text("""select id, room_id, tenant_id, used_at, used_by,

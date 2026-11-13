@@ -1,20 +1,29 @@
 // /api/qr — the room QR that tenants scan, and the redemption of that QR.
 // Two halves in one function because Vercel's Hobby plan caps a deployment at 12 functions.
 //
-//   GET  ?room=203   (owner) -> that room's code + QR (created on first use)   (was /api/room-qr GET)
-//   POST ?room=203   (owner) -> rotate the code, invalidating printed slips    (was /api/room-qr POST)
-//   POST { code }    (tenant)-> bind this LINE account to the room             (was /api/tenant-bind)
-const qrcode = require("qrcode-svg");
+//   GET  ?room=203   (owner) -> that room's code + QR (created on first use)
+//   POST ?room=203   (owner) -> change tenant: new code, old QR stops working, current tenant unbound
+//   POST { code }    (tenant)-> bind this LINE account to the room
+//
+// The printed QR binds a room only while nobody is bound to it. Once a tenant is in, a photo of
+// the door QR cannot take the room over: the owner has to press "change tenant" first.
 const crypto = require("crypto");
 const store = require("./_store");
 const { requireUser, isOwner } = require("./_auth");
-const { linkRichMenu } = require("./_line");
+const { linkRichMenu, push } = require("./_line");
+const { ROOMS } = require("./_rooms");
+const limit = require("./_limit");
 
 const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O/1/I/L
 const bindUrl = (code) => (process.env.LIFF_ID ? `https://liff.line.me/${process.env.LIFF_ID}?bind=${code}` : null);
 
-const newCode = () =>
-  Array.from({ length: 10 }, () => ALPHABET[crypto.randomInt(ALPHABET.length)]).join("");
+const newCode = () => Array.from({ length: 10 }, () => ALPHABET[crypto.randomInt(ALPHABET.length)]).join("");
+
+// Lazy: keeps `node smoke.js` runnable without node_modules.
+const qrSvg = (url) => {
+  const QR = require("qrcode-svg");
+  return new QR({ content: url, width: 360, height: 360, padding: 8 }).svg();
+};
 
 async function ensureCode(room, rotate) {
   const key = `room-qr:${room}`;
@@ -26,6 +35,15 @@ async function ensureCode(room, rotate) {
   await store.set(key, entry);
   await store.set(`qr-code:${entry.code}`, room);
   return entry;
+}
+
+// Forget whoever is bound to the room, in both directions.
+async function unbindRoom(room) {
+  const tenant = await store.get(`room-user:${room}`);
+  if (!tenant) return null;
+  await store.set(`room-user:${room}`, null);
+  if ((await store.get(`user-room:${tenant}`)) === room) await store.set(`user-room:${tenant}`, null);
+  return tenant;
 }
 
 module.exports = async (req, res) => {
@@ -45,34 +63,58 @@ async function roomQr(req, res, userId, room) {
   if (!(await isOwner(userId))) {
     return res.status(403).json({ error: { code: "FORBIDDEN", message: "เฉพาะเจ้าของหอ" } });
   }
-  if (req.method !== "GET" && req.method !== "POST") return res.status(405).json({ error: "GET or POST only" });
-
-  // A room that never had a bill or a tenant is almost certainly a typo.
-  if (!(await store.get(`user-room:${room}`)) && !(await store.get(`bill:${room}`))) {
+  if (req.method !== "GET" && req.method !== "POST") {
+    return res.status(405).json({ error: { code: "METHOD_NOT_ALLOWED", message: "GET or POST only" } });
+  }
+  if (!ROOMS.includes(room)) {
     return res.status(404).json({ error: { code: "NOT_FOUND", message: `ไม่พบห้อง ${room}` } });
   }
 
-  const entry = await ensureCode(room, req.method === "POST");
+  const changing = req.method === "POST";
+  const unbound = changing ? await unbindRoom(room) : null;
+  const entry = await ensureCode(room, changing);
   const url = bindUrl(entry.code);
-  const qr = url ? new qrcode({ content: url, width: 360, height: 360, padding: 8 }).svg() : null;
-  return res.status(200).json({ room, code: entry.code, url, qr, rotated: req.method === "POST" });
+  const qr = url ? qrSvg(url) : null;
+  return res.status(200).json({ room, code: entry.code, url, qr, rotated: changing, unbound: !!unbound });
 }
 
 async function bind(req, res, userId, code) {
-  if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: { code: "METHOD_NOT_ALLOWED", message: "POST only" } });
+  }
+  if (await limit.blocked("bind", userId)) return limit.tooMany(res);
 
   const room = await store.get(`qr-code:${code}`);
   if (!room) {
+    await limit.recordFailure("bind", userId);
     return res.status(404).json({ error: { code: "NOT_FOUND", message: "QR นี้ใช้ไม่ได้แล้ว — ขอใหม่จากเจ้าของหอ" } });
   }
 
+  const holder = await store.get(`room-user:${room}`);
+  if (holder && holder !== userId) {
+    await limit.recordFailure("bind", userId);
+    return res.status(409).json({
+      error: { code: "ROOM_TAKEN", message: `ห้อง ${room} มีผู้เช่าผูกไว้แล้ว — ให้เจ้าของหอกด “เปลี่ยนผู้เช่า” ก่อน` },
+    });
+  }
+
+  // Moving from another room: that room must stop sending this person its bills.
   const previous = await store.get(`user-room:${userId}`);
+  if (previous && previous !== room && (await store.get(`room-user:${previous}`)) === userId) {
+    await store.set(`room-user:${previous}`, null);
+  }
   await store.set(`user-room:${userId}`, room);
   await store.set(`room-user:${room}`, userId);
 
   if (process.env.RICHMENU_TENANT_ID) {
     await linkRichMenu(userId, process.env.RICHMENU_TENANT_ID).catch((err) =>
       console.error("richmenu link failed", err.message)
+    );
+  }
+  // The owner hears about every new binding, so a wrong one is noticed the same day.
+  if (!holder && process.env.OWNER_USER_ID) {
+    await push(process.env.OWNER_USER_ID, [{ type: "text", text: `มีผู้เช่าผูก LINE กับห้อง ${room} แล้ว` }]).catch((err) =>
+      console.error("owner notice failed", err.message)
     );
   }
   return res.status(200).json({ ok: true, room, previous: previous || null });
