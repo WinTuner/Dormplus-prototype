@@ -8,14 +8,18 @@ const { saveBill } = require("./_bills");
 const { push, billBubble } = require("./_line");
 const { ROOMS, configFor, DEFAULTS } = require("./_rooms");
 const { seedTokenOk, BYPASS_ALLOWED } = require("./_auth");
+const { mapLimit } = require("./_async");
 const store = require("./_store");
+
+const SEED_CONCURRENCY = 6;
 
 async function seed(res) {
   const period = process.env.BILL_PERIOD || "2026-11";
   const due = process.env.BILL_DUE || "2026-11-16";
-  const created = [];
 
-  for (const [i, room] of ROOMS.entries()) {
+  // Each room costs three round trips (read config, maybe write it, write the bill), so seeding a
+  // full dorm in a row waits on the network 40+ times. Same bounded fan-out as /api/run.
+  const created = await mapLimit(ROOMS, SEED_CONCURRENCY, async (room, i) => {
     if (!(await store.get(`room:${room}`))) {
       await store.set(`room:${room}`, { ...DEFAULTS, rent: i % 3 === 0 ? 3220 : DEFAULTS.rent });
     }
@@ -36,8 +40,8 @@ async function seed(res) {
       due,
       status: "unpaid",
     });
-    created.push(room);
-  }
+    return room;
+  });
 
   return res.status(200).json({ ok: true, period, rooms: created });
 }

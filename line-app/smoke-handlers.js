@@ -28,9 +28,11 @@ const store = {
       .filter((k) => pathOf(k).startsWith(pathPrefix))
       .map((k) => prefix + pathOf(k).slice(pathPrefix.length).replace(/\.json$/, ""));
   },
+  getFile: async (p) => (files.has(p) ? { blob: { contentType: "image/jpeg" } } : null),
   putFile: async (p, bytes) => files.set(p, bytes),
   delFile: async (p) => files.delete(p),
 };
+
 const api = (name) => path.join(__dirname, "api", name);
 require.cache[require.resolve(api("_store"))] = {
   id: api("_store.js"),
@@ -97,6 +99,8 @@ function webhook(handler, events) {
     const res = {
       status(code) { this.code = code; return this; },
       json(obj) { resolve({ status: this.code, body: obj }); return this; },
+      // slip-image answers with res.end(buffer); without this a broken authz would hang the suite.
+      end() { resolve({ status: this.code || 200, body: null }); return this; },
     };
     Promise.resolve(handler(req, res)).catch(reject);
   });
@@ -107,9 +111,11 @@ const run = require("./api/run");
 const me = require("./api/me");
 const owner = require("./api/owner");
 const slip = require("./api/slip");
+const slipImage = require("./api/slip-image");
 const dev = require("./api/dev");
 const hook = require("./api/webhook");
 const { MAX_FAILURES } = require("./api/_limit");
+const { saveBill } = require("./api/_bills");
 
 (async () => {
   // ---------------------------------------------------------------- /api/dev is gone on production
@@ -403,6 +409,18 @@ const { MAX_FAILURES } = require("./api/_limit");
   assert.strictEqual(r.status, 200);
   assert.ok(!r.body.rooms[0].error && r.body.rooms[1].error, "the second copy of a room is refused");
   assert.strictEqual(data.get("bill:2026-11:211").total, 3500 + 25 + 7, "and the first one is what was billed");
+
+  // ---------------------------------------------------------------- old periods never win
+  await saveBill({ room: "212", period: "2026-12", total: 4000, status: "unpaid" });
+  await saveBill({ room: "212", period: "2026-11", total: 3000, status: "unpaid" });
+  assert.strictEqual(data.get("bill:212").period, "2026-12", "the newer bill stays the current one");
+  assert.strictEqual(data.get("bill:2026-11:212").total, 3000, "the older period is still readable as history");
+
+  // ---------------------------------------------------------------- slip images are private
+  r = await call(slipImage, { method: "GET", query: { room: "211" }, user: "Ualice" });
+  assert.deepStrictEqual([r.status, r.body.error.code], [403, "FORBIDDEN"], "another room's slip is not readable");
+  r = await call(slipImage, { method: "GET", query: { room: "211" }, user: "Uowner" });
+  assert.deepStrictEqual([r.status, r.body.error.code], [404, "NOT_FOUND"], "the owner sees 404 when there is no slip");
 
   // ---------------------------------------------------------------- the seed token itself
   process.env.VERCEL_ENV = "development";

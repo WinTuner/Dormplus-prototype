@@ -45,7 +45,9 @@
 | `api/owner.js` | รายชื่อเจ้าของ/ผู้ช่วย (GET) · ออก QR เชิญ (POST — เชิญ `owner` ได้เฉพาะ root) · คนที่สแกนแลกรหัส (POST + `{code}`) · root ถอนสิทธิ์ (DELETE + `{userId}`) |
 | `api/qr.js` | QR ประจำห้อง (`GET/POST ?room=`) · ผู้เช่าแลกรหัสผูกห้อง (POST + `{code}`) |
 | `liff/bill.html` | หน้าเดียว 2 บทบาท: ผู้เช่า = บิล+แนบสลิป / เจ้าของ = จดมิเตอร์+ดูสลิป |
-| `smoke.js` | เทสต์ offline: signature + การ์ดบิล + การ์ดยืนยัน (`node smoke.js`) |
+| `smoke.js` | เทสต์ offline: signature + การ์ดบิล + การ์ดยืนยัน + QR (`node smoke.js`) |
+| `smoke-handlers.js` | เทสต์ handler ด้วย store ในหน่วยความจำ: dev gate, ผูก/ย้ายห้อง, rate limit, สลิป, ยืนยันชำระ, `/api/owner`, idToken cache |
+| `smoke-reads.js` | เทสต์การอ่านพร้อมกัน + ประวัติบิล + `/api/rooms` ไม่ส่ง userId |
 
 ## 3. Environment variables
 
@@ -121,20 +123,19 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "$B/api/bill?room=203"
 | งาน | จุดที่ต้องแตะ | หมายเหตุ |
 |---|---|---|
 | หน้าสรุปยอด/ทวงหนี้ของเจ้าของ | `api/rooms.js` + `liff/bill.html` | ตอนนี้เห็นแค่สถานะต่อห้อง |
-| เก็บประวัติหลายรอบบิล | `_store.js` | ตอนนี้ `bill:<room>` ถูกทับทุกรอบ — ควรเป็น `bill:<period>:<room>` |
+| เก็บประวัติหลายรอบบิล | `_store.js` | ✅ มีแล้ว — `bill:<period>:<room>` คู่กับ `bill:<room>` และ `saveBill()` เขียนทั้งคู่ |
 | cron ออกรอบบิลอัตโนมัติ | Vercel Cron → `/api/run` | ต้องมี secret ป้องกัน endpoint |
-| หลายเจ้าของ/ผู้ช่วย | `_auth.js` | `OWNER_USER_ID` เป็นคนเดียว — เปลี่ยนเป็น list หรือ role ใน Blob |
+| ~~หลายเจ้าของ/ผู้ช่วย~~ | `_auth.js` | ✅ มีแล้ว — root จาก `OWNER_USER_ID`, คนต่อ ๆ ไปรับสิทธิ์ด้วย QR · role `owner`/`viewer` · root ถอนสิทธิ์ได้ที่หน้า "เจ้าของและผู้ช่วย" |
 | ~~ลบ `x-seed-token` bypass~~ | `_auth.js` | ✅ ปิดแล้ว — production ปิดเสมอ · เปิดได้เฉพาะ `vercel dev` หรือ preview ที่ตั้ง `ALLOW_SEED_BYPASS=true` · token ต้องยาว ≥ 16 ตัวและส่งทาง header เท่านั้น |
-| หลายเจ้าของ | `_auth.js` | ✅ มีแล้ว — เจ้าของคนแรก (root) จาก `OWNER_USER_ID`, คนต่อ ๆ ไปรับสิทธิ์ด้วย QR (`/api/owner` → `?owner=<code>`) · root ถอนสิทธิ์ได้ที่หน้า "เจ้าของและผู้ช่วย" |
 | ผูกผู้เช่าด้วยการพิมพ์เลขห้อง | `webhook.js` | ✅ ลบแล้ว — ใครพิมพ์เลขห้องก็อ้างสิทธิ์ห้องนั้นได้ ทางเดียวที่เหลือคือ QR หน้าห้อง (`/api/qr` → `?bind=<code>`) |
 | LINE Notify/แจ้งเตือนก่อนครบกำหนด | Vercel Cron | push ข้อความเตือนจาก `room-user:` map |
 | UI หลายภาษา / หลายหอใน deploy เดียว | ทั้งหมด | ตอนนี้ 1 deploy = 1 หอ (ตั้งใจ) |
 
 ## 8. กติกาการทำงานที่ทีมควรยึด
 
-- แตะ Blob ผ่าน `_store.js` เท่านั้น (อย่าเรียก `@vercel/blob` ตรง ๆ ยกเว้น `slip.js`/`slip-image.js` ที่เก็บไฟล์)
+- แตะ Blob ผ่าน `_store.js` เท่านั้น (อย่าเรียก `@vercel/blob` ตรง ๆ — รวมถึงไฟล์สลิปที่ใช้ `putFile`/`getFile`/`delFile`)
 - endpoint ที่อ่านข้อมูลผู้ใช้ ต้องเรียก `requireUser()` ก่อนเสมอ
-- ก่อน deploy: `node smoke.js` ต้องผ่าน
+- ก่อน deploy: `node smoke.js`, `node smoke-handlers.js`, `node smoke-reads.js` ต้องผ่าน
 - หลัง deploy: ทดสอบผ่าน LINE 1 ครั้ง (path ที่แตะ) — `x-seed-token` ใช้ได้เฉพาะ `vercel dev` หรือ preview ที่ตั้ง `ALLOW_SEED_BYPASS=true`
 - production ไม่มี bypass: endpoint ที่ต้อง auth ใช้ idToken จาก LIFF เท่านั้น
 - อย่าใส่ token/secret ลงใน URL ที่ส่งให้ผู้ใช้เห็น
