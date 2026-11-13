@@ -16,11 +16,18 @@ process.env.SEED_TOKEN = "a-long-enough-seed-token";
 // ---------------------------------------------------------------- fakes
 const data = new Map();
 const files = new Map();
+const pathOf = (k) => `kv/${String(k).replace(/[^a-zA-Z0-9._-]/g, "-")}.json`;
 const store = {
   get: async (k) => (data.has(k) ? data.get(k) : null),
   set: async (k, v) => data.set(k, v),
-  // Like Blob: a key written as null still exists as a file, so listings include it.
-  keysWith: async (prefix) => [...data.keys()].filter((k) => k.startsWith(prefix)),
+  // Mirror _store: the prefix goes through pathOf too, so "owner:" also matches "owner-invite:<code>".
+  // A key written as null still exists as a file, so listings include it.
+  keysWith: async (prefix) => {
+    const pathPrefix = pathOf(prefix).replace(/\.json$/, "");
+    return [...data.keys()]
+      .filter((k) => pathOf(k).startsWith(pathPrefix))
+      .map((k) => prefix + pathOf(k).slice(pathPrefix.length).replace(/\.json$/, ""));
+  },
   putFile: async (p, bytes) => files.set(p, bytes),
   delFile: async (p) => files.delete(p),
 };
@@ -307,6 +314,10 @@ const { MAX_FAILURES } = require("./api/_limit");
   assert.strictEqual(r.status, 410);
   assert.strictEqual(data.get("owner:Usneaky") ?? null, null);
 
+  // The real store maps "owner-invite:OLDCODE1" and "owner:invite-OLDCODE1" to the same file, so a
+  // listing by the "owner:" prefix can see an invite as a member. Model what get() would return.
+  data.set("owner:invite-OLDCODE1", { role: "owner" });
+
   r = await call(owner, { method: "GET", user: "Uhelper" });
   assert.strictEqual(r.status, 403, "helpers do not see the access list");
   r = await call(owner, { method: "GET", user: "Uco" });
@@ -316,6 +327,8 @@ const { MAX_FAILURES } = require("./api/_limit");
   r = await call(owner, { method: "GET", user: "Uowner" });
   assert.strictEqual(r.body.root, true);
   const listed = Object.fromEntries(r.body.members.map((m) => [m.userId, m]));
+  assert.ok(r.body.members.every((m) => !String(m.userId).startsWith("invite-")),
+    "an unused invite code is not a person (keysWith's prefix also matches owner-invite:)");
   assert.ok(listed.Uowner.root && listed.Uowner.you, "root is listed first-class");
   assert.strictEqual(listed.Uhelper.role, "viewer");
   assert.strictEqual(listed.Uco.name, "name-Uco", "names come from the LINE profile");

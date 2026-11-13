@@ -40,5 +40,6 @@ const keysWith = async (prefix) => {
 // Slip photos: private files next to the JSON keys.
 const putFile = (path, bytes, contentType) => put(path, bytes, { access: "private", contentType, allowOverwrite: true });
 const delFile = (path) => del(path);
+const getFile = (path) => blobGet(path, { access: "private", useCache: false });
 
-module.exports = { get, set, keysWith, putFile, delFile };
+module.exports = { get, set, keysWith, putFile, delFile, getFile };

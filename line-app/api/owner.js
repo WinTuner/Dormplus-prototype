@@ -21,6 +21,7 @@ const { qrSvg } = require("./_qr");
 const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O/1/I/L
 const TTL_MS = 10 * 60 * 1000;
 const NAME_CONCURRENCY = 6;
+const LINE_ID = /^U[0-9A-Za-z]{1,64}$/;
 
 const newCode = (length) =>
   Array.from({ length }, () => ALPHABET[crypto.randomInt(ALPHABET.length)]).join("");
@@ -53,8 +54,12 @@ async function members(res, userId) {
   const keys = await store.keysWith("owner:");
   const found = await mapLimit(keys, NAME_CONCURRENCY, async (key) => {
     const id = key.slice("owner:".length);
-    const [record, name] = await Promise.all([store.get(key), displayName(id)]);
-    if (!record) return null; // removed
+    // keysWith sanitises ":" to "-", so the "owner:" prefix also matches `owner-invite:<code>`.
+    // Only a real LINE userId is a person; an invite code is not.
+    if (!LINE_ID.test(id)) return null;
+    const record = await store.get(key);
+    if (!record) return null; // removed: the blob stays behind as a tombstone
+    const name = await displayName(id);
     return { id, name, role: record.role === "viewer" ? "viewer" : "owner", addedAt: record.addedAt || null };
   });
 
@@ -80,7 +85,7 @@ async function revoke(req, res, userId) {
   if (!isRoot(userId)) return fail(res, 403, "FORBIDDEN", "เฉพาะเจ้าของหอคนแรกถอนสิทธิ์ได้");
 
   const target = String((req.body && req.body.userId) || "").trim();
-  if (!/^U[0-9A-Za-z]{1,64}$/.test(target)) return fail(res, 400, "VALIDATION", "userId ไม่ถูกต้อง");
+  if (!LINE_ID.test(target)) return fail(res, 400, "VALIDATION", "userId ไม่ถูกต้อง");
   if (isRoot(target)) return fail(res, 409, "INVALID_STATE", "ถอนสิทธิ์เจ้าของหอคนแรกไม่ได้");
 
   const key = `owner:${target}`;

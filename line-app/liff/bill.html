@@ -524,7 +524,7 @@ function ownerHome() {
     <div class="section">ทำต่อ</div>
     <div class="stack">
       <button class="btn primary" data-go="rooms">จดมิเตอร์</button>
-      <button class="btn" data-go="bill">ออกบิลทั้งหอ</button>
+      ${MYROLE === "viewer" ? "" : `<button class="btn" data-go="bill">ออกบิลทั้งหอ</button>`}
       <button class="btn" data-go="review/pending">สลิปรอตรวจ (${pending})</button>
       <button class="btn" data-go="report">รายงานรายรับ</button>
       ${MYROLE === "viewer" ? "" : `<button class="btn" data-go="owners">เจ้าของและผู้ช่วย</button>`}
@@ -960,8 +960,10 @@ function ownerBill() {
   } else {
     bottom(`<button class="btn primary" id="run" ${ready.length ? "" : "disabled"}>${ready.length ? `ออกบิลและส่งเข้า LINE · ${ready.length} ห้อง` : "ยังไม่มีห้องที่จดมิเตอร์"}</button>`);
   }
-  $("run").onclick = async () => {
-    const btn = $("run");
+  // A helper has no bill button (bottom("") above); guard so the screen does not throw for them.
+  const runBtn = $("run");
+  if (runBtn) runBtn.onclick = async () => {
+    const btn = runBtn;
     btn.disabled = true;
     btn.textContent = "กำลังออกบิลและส่งการ์ด…";
     try {

@@ -80,17 +80,17 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 
 | ไฟล์ | header ที่ตั้ง |
 |---|---|
-| `config`, `me`, `bill`, `rooms` | `Cache-Control: no-store` |
+| `config`, `me`, `bill`, `rooms`, `owner` | `Cache-Control: no-store` |
 | `slip-image` | `Content-Type: image/*` + `Cache-Control: private, no-store` |
 | `slip`, `run`, `seed`, `sendbill`, `webhook` | **ไม่ตั้ง `Cache-Control` เลย** |
 
 ทุก response เป็น JSON ผ่าน `res.json()` ยกเว้น `slip-image` ที่ stream byte ดิบ (`res.end(...)`) ไม่มี CORS header และไม่มี `OPTIONS` handler · rate limit มีเฉพาะการเดารหัส (`_limit.js`) และการส่งสลิป (§6)
 
-`vercel.json` ใส่ header ให้ทุก path (ทั้งหน้า LIFF และ API): `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` (ลิงก์ `?bind=`/`?owner=` ไม่หลุดไปกับ Referer), `X-Frame-Options: DENY`, `Permissions-Policy: microphone=(), geolocation=(), payment=(), usb=()` · ยังไม่ใส่ Content-Security-Policy เพราะหน้า LIFF โหลด SDK จาก `static.line-scdn.net` และใช้ inline script — ต้องทดสอบในแอป LINE จริงก่อน
+`vercel.json` ใส่ header: `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` (ลิงก์ `?bind=`/`?owner=` ไม่หลุดไปกับ Referer), `Permissions-Policy: microphone=(), geolocation=(), payment=(), usb=()` ให้ทุก path · `X-Frame-Options: DENY` **เฉพาะ `/api/(.*)`** — ไม่ใส่กับหน้า LIFF เพราะถ้า LINE โหลด LIFF ใน iframe หน้าจะขึ้นขาว · ยังไม่ใส่ Content-Security-Policy เพราะหน้า LIFF โหลด SDK จาก `static.line-scdn.net` และใช้ inline script — ต้องทดสอบในแอป LINE จริงก่อน
 
 ### 2.4 ที่เก็บข้อมูล (side effect ที่ทุก endpoint ใช้ร่วมกัน)
 
-ค่า JSON ทุกตัวเขียนผ่าน `_store.set()` ลง Vercel Blob แบบ private ที่ pathname `kv/<key ที่ sanitize>.json` (อักขระนอก `a-zA-Z0-9._-` ถูกแทนด้วย `-` ดังนั้น `:` → `-`) ส่วนรูปสลิปเขียนตรงด้วย `put()` ที่ `slips/<room>-<timestamp>.<ext>`
+ค่า JSON ทุกตัวเขียนผ่าน `_store.set()` ลง Vercel Blob แบบ private ที่ pathname `kv/<key ที่ sanitize>.json` (อักขระนอก `a-zA-Z0-9._-` ถูกแทนด้วย `-` ดังนั้น `:` → `-`) ส่วนรูปสลิปเขียนผ่าน `_store.putFile()` / ลบด้วย `_store.delFile()` ที่ `slips/<room>-<timestamp>.<ext>`
 
 ---
 
@@ -218,6 +218,8 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 
 - **Error (ตามลำดับที่โค้ดเช็ก):** `405 METHOD_NOT_ALLOWED` → `401`/`403` จาก `requireUser` → `400 VALIDATION` (`note` ไม่ใช่ข้อความหรือยาวเกิน 500) → `400 VALIDATION` (ไม่มี room) → `403 FORBIDDEN` (ไม่ได้ผูกห้อง) → `404 NOT_FOUND` (ไม่พบบิล) → `409 INVALID_STATE` (บิล `paid` แล้ว) → `429 SLIP_LIMIT` / `429 SLIP_TOO_SOON` → `400 VALIDATION` (mime ไม่อยู่ใน 3 ชนิด) → `413 TOO_LARGE`
 - **จำกัดการส่ง (ผู้เช่าเท่านั้น เจ้าของไม่ติด):** ไม่เกิน 5 ครั้งต่อบิล และห่างกันอย่างน้อย 30 วินาที — ทุกสลิป push การ์ดหาเจ้าของ ซึ่งกินโควตาข้อความของ LINE OA · สลิปที่ถูกปฏิเสธไม่ส่งข้อความ · นับใน `slipCount` ของบิล
+  - ⚠️ เป็น **best-effort**: Blob ไม่มี atomic counter ถ้ายิงหลาย request พร้อมกันอาจมีบางตัวหลุดเกิน 5 (ตัวนับกันสแปม ไม่ใช่ด่านความปลอดภัย)
+  - การออกบิล `unpaid` รอบเดิมใหม่ (`/api/run`) จะสร้างบิลใหม่และรีเซ็ต `slipCount`
 - **เขียน Blob:** `slips/<room>-<Date.now()>.<ext>` (เฉพาะเมื่อมี `image`), `bill:<room>` และ `bill:<period>:<room>` = บิลเดิม + `status:"pending"`, `slipPath`, `slipNote`, `slipAt` (ISO), `slipCount`
 - **Side effect อื่น:** `push()` การ์ด `confirmBubble` ไปที่ `OWNER_USER_ID` — ถ้า push ล้มเหลวแค่ `console.error("owner push failed")` แล้วยังตอบ 200
 - ถ้าไม่ได้แนบรูปใหม่ `slipPath` เดิมถูกคงไว้ · ถ้าแนบรูปใหม่ รูปเดิมถูกลบหลังบันทึกบิลแล้ว (ลบไม่สำเร็จแค่ `console.error`)
