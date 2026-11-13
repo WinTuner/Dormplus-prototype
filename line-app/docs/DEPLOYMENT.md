@@ -271,7 +271,7 @@ vercel rollback
 | `400 {"error":"invalid json"}` | `api/webhook.js` | body เสีย (ปกติ LINE ไม่ส่งแบบนี้) | อย่าเทสต์ webhook ด้วย body ที่ไม่ใช่ JSON |
 | `401 UNAUTHORIZED "ต้องเปิดหน้านี้ผ่าน LINE"` | `api/_auth.js` | ไม่มี `Authorization: Bearer` หรือ derive `CHANNEL_ID` ไม่ได้ (`LIFF_ID` ว่าง) | ตั้ง `LIFF_ID` หรือ `LOGIN_CHANNEL_ID` |
 | `403 FORBIDDEN "idToken ไม่ถูกต้องหรือหมดอายุ"` | `api/_auth.js` | idToken หมดอายุ / `client_id` ไม่ตรงกับ LIFF | ปกติเกิดตอน LIFF อยู่คนละ provider — ตั้ง `LOGIN_CHANNEL_ID` |
-| `403 FORBIDDEN "ต้องมี token"` | `api/dev.js`, `api/dev.js` | `?token=` ไม่ตรง `SEED_TOKEN` หรือ env ไม่มี | เรียกแบบ `?token=$T` |
+| `404` / `403 FORBIDDEN "ต้องส่ง x-seed-token"` | `api/dev.js` | production (ตอบ 404 เสมอ) · header `x-seed-token` ไม่ตรง หรือ `SEED_TOKEN` สั้นกว่า 16 ตัว | ใช้บน `vercel dev` แล้วส่ง `-H "x-seed-token: $T"` |
 | `403 FORBIDDEN "เฉพาะเจ้าของหอ"` | `api/rooms.js`, `api/run.js` | ผู้เรียกไม่ใช่ `OWNER_USER_ID` | ข้อ 5 ลำดับ 3: `owner` ต้องเป็น `true` |
 | `403 FORBIDDEN "บัญชีนี้ยังไม่ได้ผูกกับห้อง 203"` | `api/bill.js`, `api/slip.js` | ผู้ใช้ยังไม่ได้ผูกห้อง | สแกน QR หน้าห้อง (เจ้าของสร้างได้จากหน้าห้อง → "QR ผู้เช่า") |
 | `404 NOT_FOUND "ไม่พบบิลของห้อง 203"` | `api/bill.js` | ยังไม่ seed / ยังไม่ออกรอบบิล | รัน `/api/dev?do=seed` (ทดสอบ) หรือ `/api/run` (จริง) |
