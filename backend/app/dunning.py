@@ -36,7 +36,6 @@ DUE_FOR_REMINDER_SQL = text("""
     where r.property_id = :property_id
       and i.status = 'unpaid'
       and (:today - i.due_date) >= 1
-      and (:today - i.due_date) < 1000000
       and not exists (
           select 1 from message_log m
           where m.invoice_id = i.id

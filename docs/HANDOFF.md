@@ -86,7 +86,7 @@
 `line-app/` — ตัวที่ deploy อยู่:
 
 ```bash
-cd line-app && node smoke.js   # offline test
+cd line-app && node smoke.js && node smoke-handlers.js && node smoke-reads.js   # offline tests
 ```
 
 `backend/` — FastAPI + Postgres:
