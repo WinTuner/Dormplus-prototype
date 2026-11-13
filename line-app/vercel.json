@@ -1,4 +1,12 @@
 {
+  "git": {
+    "deploymentEnabled": {
+      "*": false,
+      "**": false,
+      "master": true,
+      "preview-*": true
+    }
+  },
   "rewrites": [
     { "source": "/", "destination": "/liff/bill.html" }
   ]

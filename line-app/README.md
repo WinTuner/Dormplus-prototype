@@ -54,6 +54,22 @@ vercel storage connect domplus-bills --yes
 
 จะได้ env `BLOB_STORE_ID` ใส่อัตโนมัติ (ใช้ OIDC ไม่ต้องมี token)
 
+**โควต้า deploy ของ Hobby: 100 deployments/วัน ทั้งทีม (นับรวมทุกโปรเจกต์)**
+
+repo นี้มี 2 โปรเจกต์ (`line-app`, `line-backend`) และเดิมทุก push ทุก branch = 2 deployments
+`vercel.json` จึงปิด preview ของ branch ปกติไว้:
+
+```json
+"git": { "deploymentEnabled": { "*": false, "master": true, "preview-*": true } }
+```
+
+- push เข้า `master` → deploy production ตามปกติ (2 deployments)
+- push เข้า branch อื่น → **ไม่** deploy (ไม่กินโควต้า)
+- อยากได้ preview URL จริง ๆ → ตั้งชื่อ branch ขึ้นต้นด้วย `preview-` (`preview-liff-redesign`)
+
+`safe` กว่า `ignoreCommand`/Ignored Build Step เพราะตัวนั้นยัง**นับ**โควต้า (แค่ไม่กิน build slot)
+
+
 ## 4. ตั้งค่า Environment Variables
 
 Vercel → Project → Settings → Environment Variables (ใส่ทั้ง Production และ Preview)
