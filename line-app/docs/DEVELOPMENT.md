@@ -2,7 +2,7 @@
 
 # การพัฒนาต่อ (DEVELOPMENT)
 
-เอกสารนี้เขียนจากโค้ดจริงในเรพ: **ไม่มี framework, ไม่มี bundler, ไม่มีขั้นตอน build, ไม่มีชุดเทสต์อัตโนมัติ** ทุกอย่างที่ deploy คือไฟล์ CommonJS ใต้ `api/` กับหน้า static ไฟล์เดียว `liff/bill.html` การอ่าน [`ARCHITECTURE.md`](./ARCHITECTURE.md) ควบคู่ไปด้วยจะเห็นภาพว่า request วิ่งผ่านไฟล์ไหน
+เอกสารนี้เขียนจากโค้ดจริงในเรพ: **ไม่มี framework, ไม่มี bundler, ไม่มีขั้นตอน build** เทสต์เป็นสคริปต์ Node ธรรมดา (`node smoke.js`, `node smoke-handlers.js`) ไม่ต้อง `npm install` ทุกอย่างที่ deploy คือไฟล์ CommonJS ใต้ `api/` กับหน้า static ไฟล์เดียว `liff/bill.html` การอ่าน [`ARCHITECTURE.md`](./ARCHITECTURE.md) ควบคู่ไปด้วยจะเห็นภาพว่า request วิ่งผ่านไฟล์ไหน
 
 ## 1. Local setup
 

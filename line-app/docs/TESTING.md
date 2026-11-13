@@ -133,10 +133,10 @@ assert.ok(pb.data.includes("room=203"), "postback carries room");
 | `verify()` (สูตร HMAC) | ✅ 3 เคส | ครอบคลุมเฉพาะ happy path + ค่าเพี้ยน 2 แบบ |
 | `billBubble()` / `confirmBubble()` (โครงสร้าง JSON) | ✅ บางส่วน | ตรวจ presence ของ string ไม่ได้ตรวจ schema ทั้งก้อน |
 | `reply()` / `push()` | ❌ | ต้องมี `LINE_CHANNEL_ACCESS_TOKEN` จริงและยิง `api.line.me` — ไม่มีทางรัน offline |
-| `api/_auth.js` (`requireUser`, `isOwner`, การ verify idToken กับ LINE) | ❌ | ทั้งระบบ auth ไม่มีเทสต์อัตโนมัติเลย |
+| `api/_auth.js` (`requireUser`, `isOwner`, การ verify idToken กับ LINE) | ✅ บางส่วน | `smoke.js`: owner/viewer + เงื่อนไข bypass · `smoke-handlers.js`: idToken (fetch ปลอม) + `seedTokenOk` |
 | `api/_store.js` (Blob get/set, `useCache:false`, การ sanitize key) | ❌ | ต้องมี Blob credential → ทดสอบได้เฉพาะบน deployment |
 | endpoint ทั้ง 10 ตัว (method check, status code, error envelope) | ❌ | ไม่มี `req`/`res` ปลอม, ไม่มี HTTP layer ในเทสต์ |
-| `webhook.js` (follow/บิล/ผูก/postback → เปลี่ยน state) | ❌ | logic ที่สำคัญที่สุดของแอปไม่มีเทสต์ |
+| `webhook.js` (follow/บิล/postback → เปลี่ยน state) | ✅ บางส่วน | `smoke-handlers.js`: postback ยืนยัน (สิทธิ์, รอบบิล, `pending`, 2 key) + signature ปลอม · follow/บิล ยังไม่มี |
 | `liff/bill.html` (boot, `liff.init`, การแนบสลิป, หน้าจดมิเตอร์) | ❌ | ต้องเปิดใน LINE จริง |
 | env อื่น (`ROOMS`, `OWNER_USER_ID`, `BILL_PERIOD`, …) | ❌ | `smoke.js` ตั้งแค่ 2 ตัว |
 | branch ที่ใช้ `LIFF_ID` (ลิงก์ `liff.line.me`, ปุ่ม "ดูสลิป") | ❌ | เพราะ `LIFF_ID` ไม่ถูกตั้ง → ตรวจเฉพาะ fallback URL |
@@ -393,7 +393,7 @@ node -e "const c=require('crypto');const b=JSON.stringify({events:[]});const s=c
 
 `api/_auth.js` บรรทัด 17–20: ถ้า header ตรงกับ `SEED_TOKEN` จะข้ามการตรวจ idToken ทั้งหมดแล้วคืน `OWNER_USER_ID` (หรือ `"dev"`)
 
-- ไม่มีเทสต์ใด ๆ ทั้งอัตโนมัติและ manual ที่ยืนยันว่า **production ปิด bypass นี้แล้ว**
+- `smoke.js` ยืนยันว่า **production ปิด bypass เสมอ** (รวมกรณีตั้ง `ALLOW_SEED_BYPASS=true`) และ preview ปิดเป็นค่าเริ่มต้น · `smoke-handlers.js` ยืนยันว่า `/api/dev` ตอบ 404 เมื่อ dev tools ปิด
 - ความเสี่ยง: ใครถือ token เรียก API ในนามเจ้าของได้ทุก endpoint; token ยังเดินทางใน query string ของ `/api/dev?do=seed` และ `/api/dev?do=sendbill` → ติดใน access log ของ Vercel
 - วิธีเช็กขั้นต่ำ: `curl.exe -s -o NUL -w "%{http_code}" -H "x-seed-token: wrong" $B/api/me` ต้องได้ `401` และตั้ง `SEED_TOKEN` เป็นค่ายาว/สุ่ม ถ้าจะใช้กับหอจริงให้ลบบล็อกนั้นออกแล้ว redeploy
 
