@@ -1,3 +1,5 @@
+const crypto = require("crypto");
+
 // LINE Login channel id = the prefix of the LIFF id (e.g. 2012575885-l35sh1N4).
 const CHANNEL_ID = process.env.LOGIN_CHANNEL_ID || (process.env.LIFF_ID || "").split("-")[0] || null;
 
@@ -12,14 +14,35 @@ async function verifyIdToken(idToken) {
   return payload.sub || null;
 }
 
-// The token bypass is denied by default and must be opted into: preview/dev deploys only,
-// or a self-hosted box that sets ALLOW_SEED_BYPASS=true. Production never gets it.
+// The seed-token bypass and /api/dev must never reach real data:
+// - production: never, whatever the other variables say
+// - `vercel dev` on a laptop (VERCEL_ENV=development): yes
+// - anything else (preview deploys, which share production's env and Blob store): only with an
+//   explicit ALLOW_SEED_BYPASS=true
+const IS_PRODUCTION = process.env.VERCEL_ENV === "production";
 const BYPASS_ALLOWED =
-  process.env.ALLOW_SEED_BYPASS === "true" || ["development", "preview"].includes(process.env.VERCEL_ENV || "");
+  !IS_PRODUCTION && (process.env.ALLOW_SEED_BYPASS === "true" || process.env.VERCEL_ENV === "development");
+
+// A short SEED_TOKEN can be guessed, so it does not count as configured.
+const MIN_SEED_TOKEN_LENGTH = 16;
+
+function sameSecret(given, expected) {
+  const a = Buffer.from(String(given || ""));
+  const b = Buffer.from(String(expected || ""));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// True when the request carries the seed token in its `x-seed-token` header (never the URL,
+// which ends up in access logs) and dev tools are allowed on this deployment.
+function seedTokenOk(req) {
+  const token = process.env.SEED_TOKEN || "";
+  if (!BYPASS_ALLOWED || token.length < MIN_SEED_TOKEN_LENGTH) return false;
+  return sameSecret(req.headers["x-seed-token"], token);
+}
 
 // Resolves the caller to a LINE userId, or answers 401/403 and returns null.
 async function requireUser(req, res) {
-  if (BYPASS_ALLOWED && process.env.SEED_TOKEN && req.headers["x-seed-token"] === process.env.SEED_TOKEN) {
+  if (seedTokenOk(req)) {
     return process.env.OWNER_USER_ID || "dev";
   }
   const token = String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
@@ -51,4 +74,14 @@ async function roleOf(userId) {
 const isOwner = async (userId) => (await roleOf(userId)) === "owner";
 const canView = async (userId) => (await roleOf(userId)) !== null;
 
-module.exports = { requireUser, isOwner, canView, roleOf, CHANNEL_ID, BYPASS_ALLOWED };
+module.exports = {
+  requireUser,
+  isOwner,
+  canView,
+  roleOf,
+  seedTokenOk,
+  sameSecret,
+  CHANNEL_ID,
+  BYPASS_ALLOWED,
+  MIN_SEED_TOKEN_LENGTH,
+};

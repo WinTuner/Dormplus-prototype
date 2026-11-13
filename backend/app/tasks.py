@@ -9,9 +9,16 @@ from app.db import get_engine
 from app.queue import app
 
 
+class PushFailed(RuntimeError):
+    """LINE did not take the message. Raising it lets Procrastinate retry the job."""
+
+
 @app.task(name="line.push_text", retry=3)
 def push_text(to_user_id: str, body: str, invoice_id: str | None = None, kind: str = "message") -> str:
-    """Push one text message and record it in message_log either way."""
+    """Push one text message and record every attempt in message_log.
+
+    Only a row with line_status 'ok' counts as sent (app/dunning.py), so a failed push is retried
+    by the queue now and picked up again by tomorrow's dunning run if all retries fail."""
     status = line_push.push_text(to_user_id, body)
     with get_engine().begin() as conn:
         conn.execute(
@@ -21,6 +28,8 @@ def push_text(to_user_id: str, body: str, invoice_id: str | None = None, kind: s
             """),
             {"invoice_id": invoice_id, "kind": kind, "to": to_user_id, "status": status},
         )
+    if status.startswith("error"):
+        raise PushFailed(status)
     return status
 
 

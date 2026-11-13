@@ -1,8 +1,10 @@
 """Dunning: find unpaid invoices that are 1, 5 or 10 days past due and queue one reminder each.
 
-The reminder is queued only once per invoice and step — message_log is the ledger, so a job that
-already ran (or was started by hand) is not queued twice. If the worker dies before writing the
-log, the next run will queue it again (at-least-once, deliberately).
+Each invoice is at one step: 1 (1-4 days late), 5 (5-9 days) or 10 (10 days or more). Its reminder
+for that step is queued until message_log holds a row for it with line_status 'ok', so:
+- a day the cron did not run is caught up the next day instead of skipping the step for good
+- a push LINE refused is tried again on the next run
+- a step already sent is never queued twice (at-least-once if the worker dies mid-job)
 """
 from datetime import date
 
@@ -30,10 +32,11 @@ DUE_FOR_REMINDER_SQL = text("""
     ) t on true
     where r.property_id = :property_id
       and i.status = 'unpaid'
-      and (:today - i.due_date) = :days_late
+      and (:today - i.due_date) >= :days_late
+      and (:today - i.due_date) < :next_step
       and not exists (
           select 1 from message_log m
-          where m.invoice_id = i.id and m.kind = :kind_for_day
+          where m.invoice_id = i.id and m.kind = :kind_for_day and m.line_status = 'ok'
       )
     order by i.due_date, r.room_no
 """)
@@ -42,12 +45,14 @@ DUE_FOR_REMINDER_SQL = text("""
 def due_for_reminder(engine: Engine, property_id: str, today: date) -> list[dict]:
     """Rows that still need a reminder today (no queue involved — safe to unit test)."""
     rows: list[dict] = []
-    for day in REMINDER_DAYS:
+    for step, day in enumerate(REMINDER_DAYS):
         kind = reminder_kind(day)
+        next_step = REMINDER_DAYS[step + 1] if step + 1 < len(REMINDER_DAYS) else 1_000_000
         with engine.connect() as conn:
             found = conn.execute(
                 DUE_FOR_REMINDER_SQL,
-                {"property_id": property_id, "today": today, "kind_for_day": kind, "days_late": day},
+                {"property_id": property_id, "today": today, "kind_for_day": kind,
+                 "days_late": day, "next_step": next_step},
             ).mappings().all()
         rows += [dict(row, kind=kind) for row in found]
     return rows

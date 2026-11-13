@@ -79,22 +79,22 @@ Vercel → Project → Settings → Environment Variables (ใส่ทั้ง
 | `LINE_CHANNEL_SECRET` | จากข้อ 2.4 |
 | `LINE_CHANNEL_ACCESS_TOKEN` | จากข้อ 2.5 |
 | `PUBLIC_BASE_URL` | `https://<โดเมน>` |
-| `SEED_TOKEN` | สุ่มเอง เช่น `domplus-demo-2026` (ใช้เรียก endpoint ตั้งข้อมูล) |
+| `SEED_TOKEN` | สุ่มยาวอย่างน้อย 16 ตัว เช่น `openssl rand -hex 16` (สั้นกว่านี้ระบบไม่นับ) · ใช้กับ `/api/dev` และ `x-seed-token` บน `vercel dev` เท่านั้น |
 | `BILL_PERIOD` | `2026-11` (ไม่ใส่ก็ได้) |
 | `BILL_DUE` | `2026-11-16` (ไม่ใส่ก็ได้) |
 | `LIFF_ID` | ใส่ทีหลังในข้อ 6 |
 | `OWNER_USER_ID` | userId ของเจ้าของหอ — ใช้รับการ์ด "ยืนยันการชำระ" เมื่อผู้เช่าแนบสลิป (หาได้จาก webhook log ตอนพิมพ์อะไรในแชท) |
 | `RICHMENU_OWNER_ID` / `RICHMENU_TENANT_ID` | id ของ rich menu 2 ชุด — ไม่ใส่ก็ได้ (ระบบจะไม่สลับเมนูให้) |
 | `ROOMS` / `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` | ไม่บังคับ — ค่าเริ่มต้น 201–212 / 3500 / 25 / 7 |
-| `ALLOW_SEED_BYPASS` | ไม่บังคับ — `true` เพื่อเปิด `x-seed-token` บนเครื่องที่ไม่ได้รันบน Vercel (production ไม่มีทางเปิด) |
+| `ALLOW_SEED_BYPASS` | ไม่บังคับ — `true` เพื่อเปิด `x-seed-token` และ `/api/dev` บน preview · ⚠️ preview ใช้ env และ Blob ชุดเดียวกับ production · production เปิดไม่ได้ไม่ว่าตั้งอะไร |
 
 หลังใส่ env แล้ว **Redeploy** 1 ครั้ง (Deployments → ⋯ → Redeploy)
 
 ## 5. ใส่ข้อมูลทดสอบ + ยิงบิล
 
 ```bash
-# สร้างบิลห้อง 201–212
-curl -X POST "https://<โดเมน>/api/dev?do=seed&token=<SEED_TOKEN>"
+# สร้างบิลห้อง 201–212 — ใช้ได้เฉพาะ `vercel dev` (หรือ preview ที่ตั้ง ALLOW_SEED_BYPASS=true) · production ตอบ 404
+curl -X POST "http://localhost:3000/api/dev?do=seed" -H "x-seed-token: <SEED_TOKEN>"
 
 # ดูบิลห้อง 203 (เปิดในเบราว์เซอร์ได้)
 https://<โดเมน>/api/bill?room=203
@@ -104,7 +104,8 @@ https://<โดเมน>/api/bill?room=203
 หรือใช้ LINE Developers Console → Messaging API → **Webhook event log** (เห็น `userId`)
 
 ```bash
-curl -X POST "https://<โดเมน>/api/dev?do=sendbill&token=<SEED_TOKEN>" ^
+curl -X POST "http://localhost:3000/api/dev?do=sendbill" ^
+  -H "x-seed-token: <SEED_TOKEN>" ^
   -H "Content-Type: application/json" ^
   -d "{\"to\":\"Uxxxxxxxx\",\"room\":\"203\"}"
 ```
@@ -165,12 +166,12 @@ LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js
 | POST | `/api/dev?do=seed&token=` | สร้างบิลทดสอบทุกห้อง |
 | POST | `/api/dev?do=sendbill&token=` | ยิงการ์ดบิลให้ userId หนึ่งคน |
 | POST | `/api/owner` | เจ้าของออก QR เพิ่มเจ้าของ · คนที่สแกนส่ง `{code}` มาแลกสิทธิ์ |
-| GET/POST | `/api/qr?room=203` | QR ประจำห้อง (GET อ่าน/สร้าง, POST หมุนรหัส) — เจ้าของเท่านั้น |
-| POST | `/api/qr` | ผู้เช่าแลกรหัสจาก QR หน้าห้อง (`{code}`) → ผูกห้อง |
+| GET/POST | `/api/qr?room=203` | QR ประจำห้อง (GET อ่าน/สร้าง · POST = เปลี่ยนผู้เช่า: ถอดคนเดิม + รหัสใหม่) — เจ้าของเท่านั้น |
+| POST | `/api/qr` | ผู้เช่าแลกรหัสจาก QR หน้าห้อง (`{code}`) → ผูกห้อง · ห้องที่มีผู้เช่าผูกแล้ว → `409 ROOM_TAKEN` · ผิดเกิน 10 ครั้ง/ชม. → `429` |
 
 ## ข้อจำกัดที่ยังเหลือ
 
-- **auth เป็นแบบ prototype** — ตรวจ LIFF idToken จริง · bypass `x-seed-token` **ปิดอยู่โดยค่าเริ่มต้น** เปิดเฉพาะเมื่อ `ALLOW_SEED_BYPASS=true` หรือรันบน Vercel env `preview`/`development` (production ไม่มีทางเปิด)
+- **auth เป็นแบบ prototype** — ตรวจ LIFF idToken จริง · bypass `x-seed-token` และ `/api/dev` **ปิดอยู่โดยค่าเริ่มต้น** เปิดเฉพาะ `vercel dev` หรือ preview ที่ตั้ง `ALLOW_SEED_BYPASS=true` (production ไม่มีทางเปิด)
 - **ไม่มีหน้าจอทวงหนี้** — มีรายงานรายรับ + ยอดค้างแล้ว แต่ยังไม่มีการส่งข้อความทวงอัตโนมัติ
 - **ประวัติเริ่มนับจากรอบที่ออกหลังฟีเจอร์นี้** — บิลเก่าก่อนหน้ามีแค่ `bill:<room>` (รอบล่าสุด) ไม่มี key ต่อรอบ
 - **1 deploy = 1 หอ** — รายชื่อห้องมาจาก env `ROOMS` · เจ้าของหลายคนได้ แต่ไม่มีระดับสิทธิ์ละเอียดกว่าระหว่าง owner/viewer
@@ -209,7 +210,7 @@ LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js
 |---|---|
 | `api/webhook.js` | รับ event จาก LINE: `follow`, ข้อความ (`บิล`), postback ยืนยันการชำระ (เฉพาะเจ้าของ) |
 | `api/_line.js` | ตรวจ signature, `reply()` / `push()`, `billBubble()` (การ์ดบิล), `confirmBubble()` (การ์ดเจ้าของ) |
-| `api/_auth.js` | ตรวจ LIFF idToken → userId, `roleOf()`/`isOwner()`/`canView()` (owner · viewer · ผู้เช่า), bypass `x-seed-token` เฉพาะ preview/dev |
+| `api/_auth.js` | ตรวจ LIFF idToken → userId, `roleOf()`/`isOwner()`/`canView()` (owner · viewer · ผู้เช่า), bypass `x-seed-token` เฉพาะ `vercel dev` หรือเมื่อตั้ง `ALLOW_SEED_BYPASS=true` (production ปิดเสมอ) |
 | `api/_store.js` | `get(key)` / `set(key, value)` ลง Blob (`useCache:false` — อ่านค่าที่เพิ่งเขียนได้ทันที) |
 | `api/_rooms.js` | รายชื่อห้องจาก env `ROOMS` + ค่าเช่า/ค่ามิเตอร์ต่อห้อง |
 | `api/me.js`, `bill.js`, `slip.js`, `slip-image.js`, `rooms.js`, `run.js`, `owner.js`, `qr.js`, `dev.js`, `config.js` | endpoints ตามตาราง "API ที่มี" ด้านบน |
@@ -238,9 +239,9 @@ LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js
 ## ข้อจำกัดเพิ่มเติม (ระดับเทคนิค)
 
 - **แนบสลิปได้เฉพาะ JPEG / PNG / WEBP และไม่เกิน 3MB ต่อรูป** (เกินแล้วได้ `413 TOO_LARGE`) — หน้า LIFF ย่อรูปเหลือด้านยาวสุด 1280px, JPEG quality 0.8 ก่อนส่ง
-- **ไม่มี rate limit ของตัวเอง** — พึ่ง limit ของ Vercel อย่างเดียว และ `?token=` ของ `/api/dev?do=seed` / `/api/dev?do=sendbill` จะติดไปใน access log ได้
+- **rate limit มีเฉพาะการแลกรหัส** (QR ห้อง, รหัสเชิญเจ้าของ: ผิดได้ 10 ครั้ง/ชม./บัญชี) · endpoint อื่นพึ่ง limit ของ Vercel
 - **ไม่มี cron** — บิลรอบใหม่เกิดเมื่อมีคนกดออกบิลจากหน้าเจ้าของ (`/api/run`) เท่านั้น ยังไม่มีตัวส่งบิลอัตโนมัติรายเดือน
 - **webhook รับแค่ `follow`, ข้อความ text, และ `postback`** — ถ้าผู้เช่าส่งรูปสลิปเข้ามาในแชทตรง ๆ จะไม่มีอะไรเกิดขึ้น ต้องแนบผ่านหน้า LIFF
-- **ไม่มีชุดเทสต์อัตโนมัติ** — `package.json` ไม่มี `scripts` จึงไม่มี `npm test`; ที่มีคือ `node smoke.js` (offline) กับการทดสอบมือตามข้อ 7
+- **เทสต์เป็นแบบ offline** — `node smoke.js` (signature, การ์ด, สิทธิ์) และ `node smoke-handlers.js` (dev gate, ผูก QR, rate limit, ยืนยันการชำระ, ออกบิล) ไม่ต้อง `npm install` · CI รันทั้งสองไฟล์
 - **state ใน Blob เป็น key-value แบน** — ไม่มี transaction/lock ถ้าเขียน key เดียวกันพร้อมกัน ค่าที่เขียนทีหลังชนะ (เขียนทับด้วย `allowOverwrite`)
 - **`/api/config` เปิดสาธารณะโดยตั้งใจ** — คืนแค่ `liffId` ไม่มีข้อมูลอ่อนไหว

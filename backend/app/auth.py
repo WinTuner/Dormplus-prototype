@@ -11,9 +11,11 @@ from dataclasses import dataclass
 from typing import Literal
 
 from fastapi import Depends, Request
+from sqlalchemy import Engine, text
 
 from app import session as session_cookie
 from app.config import get_settings
+from app.db import get_engine
 from app.errors import ApiError
 
 Role = Literal["owner", "tenant"]
@@ -27,19 +29,31 @@ class Session:
     room_id: str | None = None
 
 
-def current_session(request: Request) -> Session:
+STILL_LINKED_SQL = text("""
+    select 1 from tenants t join rooms r on r.id = t.room_id
+    where t.line_user_id = :uid and t.room_id = :room and r.property_id = :property_id
+      and (t.moved_out is null or t.moved_out > current_date)
+""")
+
+
+def current_session(request: Request, engine: Engine = Depends(get_engine)) -> Session:
     settings = get_settings()
 
     token = request.cookies.get(session_cookie.COOKIE_NAME)
     if token:
         payload = session_cookie.unsign(token, settings.session_secret)
         if payload:
-            return Session(
+            session = Session(
                 user_id=payload["uid"],
                 role=payload.get("role", "tenant"),
                 property_id=payload["property_id"],
                 room_id=payload.get("room_id"),
             )
+            # A cookie lives 7 days. Re-check the binding on every request, so unlinking a tenant
+            # or moving them out takes effect at once instead of when the cookie expires.
+            if session.role == "tenant" and not still_linked(engine, session):
+                raise ApiError(401, "SESSION_REVOKED", "LINE นี้ไม่ได้ผูกกับห้องนี้แล้ว — เข้าสู่ระบบใหม่")
+            return session
         # A stale or tampered cookie falls through to 401 rather than being trusted.
 
     if not settings.dev_auth:
@@ -57,6 +71,15 @@ def current_session(request: Request) -> Session:
         property_id=property_id,
         room_id=request.headers.get("X-Dev-Room"),
     )
+
+
+def still_linked(engine: Engine, session: Session) -> bool:
+    with engine.connect() as conn:
+        row = conn.execute(
+            STILL_LINKED_SQL,
+            {"uid": session.user_id, "room": session.room_id, "property_id": session.property_id},
+        ).first()
+    return row is not None
 
 
 def owner_session(session: Session = Depends(current_session)) -> Session:

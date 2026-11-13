@@ -30,7 +30,7 @@
 |---|---|
 | `api/webhook.js` | รับ event LINE: `follow`, ข้อความ "บิล", postback ยืนยันการชำระ (ตรวจ `isOwner` ก่อนปิดบิล) |
 | `api/_line.js` | signature verify, reply/push, `billBubble()` (การ์ดบิล), `confirmBubble()` (การ์ดเจ้าของ) |
-| `api/_auth.js` | ตรวจ idToken → userId, `isOwner()`, bypass `x-seed-token` เฉพาะ preview/dev หรือ `ALLOW_SEED_BYPASS=true` |
+| `api/_auth.js` | ตรวจ idToken → userId, `isOwner()`, bypass `x-seed-token` เฉพาะ `vercel dev` หรือเมื่อตั้ง `ALLOW_SEED_BYPASS=true` (production ปิดเสมอ) |
 | `api/_store.js` | `get(key)` / `set(key, value)` บน Blob (`useCache:false` สำคัญ — ดูข้อ 6) |
 | `api/_rooms.js` | รายชื่อห้อง + ค่าเช่า/เรตน้ำไฟต่อห้อง |
 | `api/config.js` | คืน `{ liffId }` ให้หน้า LIFF เอาไป `liff.init()` — public โดยตั้งใจ (ไม่มี auth) |
@@ -40,7 +40,7 @@
 | `api/slip-image.js` | ส่งไฟล์รูปสลิป (private) ให้เจ้าของหรือผู้เช่าห้องนั้น |
 | `api/rooms.js` | ข้อมูลทุกห้องสำหรับหน้าจดมิเตอร์ |
 | `api/run.js` | ออกรอบบิลจากหน่วยมิเตอร์ + ส่งการ์ดให้ผู้เช่าที่ผูกห้องแล้ว |
-| `api/dev.js` | ข้อมูลทดสอบ (ต้องมี `?token=`) |
+| `api/dev.js` | ข้อมูลทดสอบ · header `x-seed-token` · มีเฉพาะ `vercel dev` หรือ preview ที่ตั้ง `ALLOW_SEED_BYPASS=true` (production ตอบ 404) |
 | `api/dev.js` | ยิงการ์ดบิลหาคนเดียว (ทดสอบ) |
 | `api/owner.js` | เจ้าของออก QR เพิ่มเจ้าของ (POST) · คนที่สแกนแลกรหัสเป็นเจ้าของ (POST + `{code}`) |
 | `api/qr.js` | QR ประจำห้อง (`GET/POST ?room=`) · ผู้เช่าแลกรหัสผูกห้อง (POST + `{code}`) |
@@ -70,14 +70,15 @@
 ## 4. วิธีทดสอบเร็ว (ไม่ต้องรอ LINE)
 
 ```powershell
-$B="https://line-app-iota.vercel.app"; $H=@{"x-seed-token"="<SEED_TOKEN>"}
+# x-seed-token ใช้ได้เฉพาะ `vercel dev` บนเครื่อง (production ปฏิเสธเสมอ และ /api/dev ตอบ 404)
+$B="http://localhost:3000"; $H=@{"x-seed-token"="<SEED_TOKEN>"}
 
 # ใคร: ต้องได้ 401 ถ้าไม่แนบ header
 curl.exe -s $B/api/me
 curl.exe -s -H "x-seed-token: <SEED_TOKEN>" $B/api/me
 
 # seed บิลทั้งหอ
-curl.exe -s -X POST "$B/api/dev?do=seed&token=<SEED_TOKEN>"
+curl.exe -s -X POST "$B/api/dev?do=seed" -H "x-seed-token: <SEED_TOKEN>"
 
 # ออกรอบบิลใหม่ (หน่วยมิเตอร์)
 curl.exe -s -X POST "$B/api/run" -H "x-seed-token: <SEED_TOKEN>" -H "Content-Type: application/json" `
@@ -123,7 +124,7 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "$B/api/bill?room=203"
 | เก็บประวัติหลายรอบบิล | `_store.js` | ตอนนี้ `bill:<room>` ถูกทับทุกรอบ — ควรเป็น `bill:<period>:<room>` |
 | cron ออกรอบบิลอัตโนมัติ | Vercel Cron → `/api/run` | ต้องมี secret ป้องกัน endpoint |
 | หลายเจ้าของ/ผู้ช่วย | `_auth.js` | `OWNER_USER_ID` เป็นคนเดียว — เปลี่ยนเป็น list หรือ role ใน Blob |
-| ~~ลบ `x-seed-token` bypass~~ | `_auth.js` | ✅ ปิดแล้ว — ค่าเริ่มต้นคือปฏิเสธ เปิดเฉพาะ `ALLOW_SEED_BYPASS=true` หรือ Vercel env `preview`/`development` |
+| ~~ลบ `x-seed-token` bypass~~ | `_auth.js` | ✅ ปิดแล้ว — production ปิดเสมอ · เปิดได้เฉพาะ `vercel dev` หรือ preview ที่ตั้ง `ALLOW_SEED_BYPASS=true` · token ต้องยาว ≥ 16 ตัวและส่งทาง header เท่านั้น |
 | หลายเจ้าของ | `_auth.js` | ✅ มีแล้ว — เจ้าของคนแรกจาก `OWNER_USER_ID`, คนต่อ ๆ ไปรับสิทธิ์ด้วย QR (`/api/owner` → `?owner=<code>`) |
 | ผูกผู้เช่าด้วยการพิมพ์เลขห้อง | `webhook.js` | ✅ ลบแล้ว — ใครพิมพ์เลขห้องก็อ้างสิทธิ์ห้องนั้นได้ ทางเดียวที่เหลือคือ QR หน้าห้อง (`/api/qr` → `?bind=<code>`) |
 | LINE Notify/แจ้งเตือนก่อนครบกำหนด | Vercel Cron | push ข้อความเตือนจาก `room-user:` map |
@@ -134,6 +135,6 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "$B/api/bill?room=203"
 - แตะ Blob ผ่าน `_store.js` เท่านั้น (อย่าเรียก `@vercel/blob` ตรง ๆ ยกเว้น `slip.js`/`slip-image.js` ที่เก็บไฟล์)
 - endpoint ที่อ่านข้อมูลผู้ใช้ ต้องเรียก `requireUser()` ก่อนเสมอ
 - ก่อน deploy: `node smoke.js` ต้องผ่าน
-- หลัง deploy: ทดสอบผ่าน LINE 1 ครั้ง (path ที่แตะ) — `x-seed-token` ใช้ได้เฉพาะ preview/dev
+- หลัง deploy: ทดสอบผ่าน LINE 1 ครั้ง (path ที่แตะ) — `x-seed-token` ใช้ได้เฉพาะ `vercel dev` หรือ preview ที่ตั้ง `ALLOW_SEED_BYPASS=true`
 - production ไม่มี bypass: endpoint ที่ต้อง auth ใช้ idToken จาก LIFF เท่านั้น
 - อย่าใส่ token/secret ลงใน URL ที่ส่งให้ผู้ใช้เห็น

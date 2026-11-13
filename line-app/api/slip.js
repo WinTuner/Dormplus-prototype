@@ -1,13 +1,16 @@
 // POST /api/slip — tenant attaches a slip photo (optional) and asks the owner to confirm.
 const { put } = require("@vercel/blob");
 const store = require("./_store");
+const { saveBill } = require("./_bills");
 const { push, confirmBubble } = require("./_line");
 const { requireUser, isOwner } = require("./_auth");
 
 const MAX_BYTES = 3 * 1024 * 1024;
 
 module.exports = async (req, res) => {
-  if (req.method !== "POST") return res.status(405).json({ error: "POST only" });
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: { code: "METHOD_NOT_ALLOWED", message: "POST only" } });
+  }
   const userId = await requireUser(req, res);
   if (!userId) return;
 
@@ -46,9 +49,7 @@ module.exports = async (req, res) => {
     slipNote: note || null,
     slipAt: new Date().toISOString(),
   };
-  await store.set(`bill:${room}`, next);
-  // Keep the per-period copy in step so history shows the same status.
-  await store.set(`bill:${bill.period}:${room}`, next);
+  await saveBill(next); // both the newest copy and the per-period copy, so history agrees
 
   // Tell the owner, but never fail the tenant's slip because of a push error.
   const owner = process.env.OWNER_USER_ID;
