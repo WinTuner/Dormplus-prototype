@@ -4,6 +4,7 @@
 //   POST            (owner)   -> mint a one-time code + QR      (was /api/owner-invite)
 //   POST { code }   (any user)-> redeem that code               (was /api/owner-accept)
 const qrcode = require("qrcode-svg");
+const crypto = require("crypto");
 const store = require("./_store");
 const { requireUser, isOwner } = require("./_auth");
 const { linkRichMenu } = require("./_line");
@@ -12,7 +13,7 @@ const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O/1/I/L
 const TTL_MS = 10 * 60 * 1000;
 
 const newCode = (length) =>
-  Array.from({ length }, () => ALPHABET[Math.floor(Math.random() * ALPHABET.length)]).join("");
+  Array.from({ length }, () => ALPHABET[crypto.randomInt(ALPHABET.length)]).join("");
 
 const liffUrl = (code) => (process.env.LIFF_ID ? `https://liff.line.me/${process.env.LIFF_ID}?owner=${code}` : null);
 

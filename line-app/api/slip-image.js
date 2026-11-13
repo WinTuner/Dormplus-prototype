@@ -19,7 +19,9 @@ module.exports = async (req, res) => {
   const blob = await get(bill.slipPath, { access: "private", useCache: false });
   if (!blob) return res.status(404).json({ error: { code: "NOT_FOUND", message: "ไม่พบไฟล์สลิป" } });
 
-  res.setHeader("Content-Type", blob.blob.contentType || "image/jpeg");
+  const type = blob.blob.contentType || "image/jpeg";
+  res.setHeader("Content-Type", ["image/jpeg", "image/png", "image/webp"].includes(type) ? type : "application/octet-stream");
+  res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Cache-Control", "private, no-store");
   res.end(Buffer.from(await new Response(blob.stream).arrayBuffer()));
 };

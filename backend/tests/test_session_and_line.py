@@ -39,6 +39,17 @@ def test_expired_token_is_rejected():
     assert session_cookie.unsign(token, SECRET) is None
 
 
+def test_the_shipped_default_secret_is_never_trusted():
+    """A deploy that forgot SESSION_SECRET must not hand out or accept cookies anyone can forge."""
+    with pytest.raises(RuntimeError):
+        session_cookie.sign({"uid": "U123", "role": "owner"}, session_cookie.DEFAULT_SECRET)
+    forged = session_cookie.sign({"uid": "U123", "role": "owner"}, "a-real-secret").split(".")[0]
+    with pytest.raises(RuntimeError):
+        session_cookie.unsign(f"{forged}.anything", session_cookie.DEFAULT_SECRET)
+    with pytest.raises(RuntimeError):
+        session_cookie.sign({"uid": "U123"}, "")
+
+
 # ---------------------------------------------------------------- LINE verify
 
 class _FakeResponse:

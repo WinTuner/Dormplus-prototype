@@ -11,6 +11,15 @@ import time
 
 COOKIE_NAME = "dp_session"
 
+# The placeholder shipped in .env.example. Signing with it would let anyone mint an owner cookie,
+# so a deployment that never set SESSION_SECRET fails loudly instead of trusting the default.
+DEFAULT_SECRET = "dev-only-change-me"
+
+
+def _require_real_secret(secret: str) -> None:
+    if not secret or secret == DEFAULT_SECRET:
+        raise RuntimeError("SESSION_SECRET ยังเป็นค่า default — ตั้งค่าใหม่ก่อนใช้งาน (ดู .env.example)")
+
 
 def _b64(raw: bytes) -> str:
     return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
@@ -21,6 +30,7 @@ def _unb64(text: str) -> bytes:
 
 
 def sign(payload: dict, secret: str, ttl_seconds: int = 7 * 24 * 3600) -> str:
+    _require_real_secret(secret)
     body = dict(payload)
     body["exp"] = int(time.time()) + ttl_seconds
     raw = _b64(json.dumps(body, separators=(",", ":")).encode())
@@ -30,6 +40,7 @@ def sign(payload: dict, secret: str, ttl_seconds: int = 7 * 24 * 3600) -> str:
 
 def unsign(token: str, secret: str) -> dict | None:
     """Return the payload, or None when the token is malformed, forged or expired."""
+    _require_real_secret(secret)
     try:
         raw, sig = token.split(".")
     except (AttributeError, ValueError):

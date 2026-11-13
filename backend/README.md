@@ -194,8 +194,10 @@ procrastinate -a app.queue.app worker      # process ที่ต้องรั
 **ทริกเกอร์ทวงรายวัน** — เรียก endpoint นี้จาก cron (Vercel Cron, GitHub Actions, host ไหนก็ได้):
 
 ```bash
-curl -X POST "https://<host>/v1/dunning/run?token=$DUNNING_TOKEN"
+curl -X POST -H "Authorization: Bearer $DUNNING_TOKEN" "https://<host>/v1/dunning/run"
 ```
+
+`?token=` ยังใช้ได้เพื่อความเข้ากันได้กับ cron เดิม แต่ token จะไปโผล่ใน access log — ใช้ header ก่อน
 
 - เลือกบิล `unpaid` ที่เลยกำหนด **1 / 5 / 10 วัน** และยังไม่เคยส่ง kind นั้น (กันซ้ำด้วย `message_log`)
 - ต้องมี `LINE_CHANNEL_ACCESS_TOKEN` (ตัวเดียวกับ OA) ไม่งั้น worker จะ log `skipped` แทนการส่ง

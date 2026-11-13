@@ -6,10 +6,12 @@ not need them: selection is pure SQL against the app schema, and `queue_reminder
 from datetime import date
 
 import pytest
+from fastapi import Request
 from sqlalchemy import text
 
 from app import dunning
 from app.auth import Session
+from app.routes.dunning import presented_token
 from app.ids import reminder_kind
 
 OWNER_P1 = Session(user_id="u_owner1", role="owner", property_id="p_1")
@@ -36,6 +38,19 @@ def test_reminder_kind_matches_the_days_late():
     assert reminder_kind(1) == "reminder_1"
     assert reminder_kind(5) == "reminder_5"
     assert reminder_kind(10) == "reminder_10"
+
+
+def _request(headers: dict) -> Request:
+    return Request({"type": "http", "headers": [(k.lower().encode(), v.encode()) for k, v in headers.items()]})
+
+
+def test_cron_token_prefers_the_header_over_the_url():
+    """A token in the query string ends up in access logs, so the header is read first."""
+    bearer = _request({"Authorization": "Bearer s3cret"})
+    assert presented_token(bearer, None) == "s3cret"
+    assert presented_token(bearer, "from-the-url") == "s3cret"
+    assert presented_token(_request({}), "from-the-url") == "from-the-url"
+    assert presented_token(_request({}), None) is None
 
 
 def test_selects_only_1_5_10_days_late(seeded):

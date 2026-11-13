@@ -25,10 +25,11 @@ class Settings(BaseSettings):
     # Which dorm this deployment serves (one property per deploy).
     property_id: str = "p_1"
 
-    # Signs the session cookie (app/session.py). Set a long random value in production.
+    # Signs the session cookie (app/session.py). Set a long random value in production;
+    # app/session.py refuses to sign or verify with this placeholder.
     session_secret: str = "dev-only-change-me"
-    # Set true when served over HTTPS so the cookie is not sent on plain HTTP.
-    cookie_secure: bool = False
+    # HTTPS only. Set COOKIE_SECURE=false for a plain-HTTP local dev box.
+    cookie_secure: bool = True
 
 
 @lru_cache

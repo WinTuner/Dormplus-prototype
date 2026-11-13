@@ -1,5 +1,5 @@
 // POST /api/webhook — LINE Messaging API webhook.
-const { verify, reply, push, linkRichMenu, billBubble } = require("./_line");
+const { verify, reply, push, billBubble } = require("./_line");
 const store = require("./_store");
 const { isOwner } = require("./_auth");
 
@@ -47,7 +47,7 @@ async function handleEvent(event, baseUrl) {
     return reply(event.replyToken, [
       {
         type: "text",
-        text: "สวัสดีครับ 👋\nระบบบิลของหอพัก\n\nพิมพ์ “บิล” เพื่อดูใบแจ้งหนี้ของห้องคุณ",
+        text: "สวัสดีครับ 👋\nระบบบิลของหอพัก\n\nสแกน QR หน้าห้องเพื่อผูกห้อง แล้วพิมพ์ “บิล” เพื่อดูใบแจ้งหนี้",
       },
     ]);
   }
@@ -59,7 +59,7 @@ async function handleEvent(event, baseUrl) {
       const room = await store.get(`user-room:${userId}`);
       if (!room) {
         return reply(event.replyToken, [
-          { type: "text", text: "ยังไม่ได้ผูกห้องครับ — สแกน QR หน้าห้องหรือพิมพ์ “ผูก 203”" },
+          { type: "text", text: "ยังไม่ได้ผูกห้องครับ — สแกน QR หน้าห้องที่เจ้าของหอให้มา" },
         ]);
       }
       const bill = await store.get(`bill:${room}`);
@@ -67,24 +67,6 @@ async function handleEvent(event, baseUrl) {
         return reply(event.replyToken, [{ type: "text", text: `ห้อง ${room} ยังไม่มีบิลรอบนี้ครับ` }]);
       }
       return reply(event.replyToken, [billBubble(bill, baseUrl)]);
-    }
-
-    const link = text.match(/^ผูก\s*(\d{2,4})$/);
-    if (link) {
-      const room = link[1];
-      const bill = await store.get(`bill:${room}`);
-      if (!bill) {
-        return reply(event.replyToken, [{ type: "text", text: `ไม่พบห้อง ${room} ในระบบครับ` }]);
-      }
-      await store.set(`user-room:${userId}`, room);
-      await store.set(`room-user:${room}`, userId);
-      // From now on this person is a tenant: give them the tenant rich menu.
-      if (process.env.RICHMENU_TENANT_ID) {
-        await linkRichMenu(userId, process.env.RICHMENU_TENANT_ID).catch((err) =>
-          console.error("richmenu link failed", err.message)
-        );
-      }
-      return reply(event.replyToken, [{ type: "text", text: `ผูกกับห้อง ${room} แล้วครับ` }]);
     }
   }
 
