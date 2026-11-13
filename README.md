@@ -25,7 +25,7 @@ docs/         สัญญา API + handoff
 
 ```bash
 cd line-app
-node smoke.js          # offline test, ไม่ต้อง npm install
+node smoke.js && node smoke-handlers.js && node smoke-reads.js   # offline tests, ไม่ต้อง npm install
 ```
 
 ต้องมี LINE OA + LIFF + Vercel + Blob ก่อน — ทำตาม [`line-app/README.md`](line-app/README.md) ข้อ 2–6 (สร้าง OA → deploy → ตั้ง env → seed → LIFF → ทดสอบ)
