@@ -139,6 +139,13 @@ const { MAX_FAILURES } = require("./api/_limit");
   assert.strictEqual(r.status, 200);
   assert.strictEqual(data.get("room-user:203"), null, "203 stops sending bills to someone who moved to 204");
   assert.strictEqual(data.get("room-user:204"), "Ubob");
+  assert.ok(JSON.stringify(pushed.filter((p) => p.to === "Uowner").pop()).includes("204"),
+    "the owner is told when a tenant moves rooms");
+
+  const noticesBefore = pushed.length;
+  r = await call(qr, { body: { code: "CODE204" }, user: "Ubob" });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(pushed.length, noticesBefore, "scanning your own room again sends no notice");
 
   // ---------------------------------------------------------------- rate limit on guessing
   for (let i = 0; i < MAX_FAILURES; i++) {
@@ -147,6 +154,18 @@ const { MAX_FAILURES } = require("./api/_limit");
   }
   r = await call(qr, { body: { code: "CODE204" }, user: "Uguesser" });
   assert.strictEqual(r.status, 429, "too many wrong codes in an hour");
+
+  // An occupied room is a conflict, not a wrong code: it must not eat the tenant's allowance.
+  data.set("qr-code:TAKEN211", "211");
+  data.set("user-room:Uother", "211");
+  data.set("room-user:211", "Uother");
+  for (let i = 0; i < MAX_FAILURES; i++) {
+    r = await call(qr, { body: { code: "TAKEN211" }, user: "Ustale" });
+    assert.strictEqual(r.status, 409);
+  }
+  data.set("qr-code:FREE212", "212");
+  r = await call(qr, { body: { code: "FREE212" }, user: "Ustale" });
+  assert.strictEqual(r.status, 200, "scanning an occupied room does not lock you out of a free one");
 
   // ---------------------------------------------------------------- confirming a payment
   const nov = { room: "205", period: "2026-11", rent: 3500, water: 0, elec: 0, total: 3500, status: "pending" };
@@ -166,6 +185,13 @@ const { MAX_FAILURES } = require("./api/_limit");
 
   await tap("Uowner", "action=confirm&room=205");
   assert.strictEqual(data.get("bill:205").status, "unpaid", "an old card without a period cannot pay a bill with no slip");
+
+  // Even when the newest bill IS waiting for a slip: a period-less card cannot say which month it
+  // was sent for, so it must never close the newest one.
+  data.set("bill:2026-12:205", { ...dec, status: "pending" });
+  data.set("bill:205", { ...dec, status: "pending" });
+  await tap("Uowner", "action=confirm&room=205");
+  assert.strictEqual(data.get("bill:205").status, "pending", "a period-less card never closes the newest bill");
 
   data.set("bill:2026-12:205", { ...dec, status: "pending" });
   data.set("bill:205", { ...dec, status: "pending" });
@@ -202,6 +228,13 @@ const { MAX_FAILURES } = require("./api/_limit");
   assert.ok(negative.error && fraction.error, "units must be whole numbers ≥ 0");
   assert.ok(unknown.error, "a room outside ROOMS is refused");
   assert.strictEqual(data.get("bill:2026-11:208") ?? null, null, "no bill was written for the bad readings");
+
+  // A bill written before the per-period key exists only as `bill:<room>`; the guard must see it.
+  data.set("bill:210", { room: "210", period: "2026-11", total: 4200, status: "paid" });
+  r = await call(run, { user: "Uowner", body: { period: "2026-11", readings: [{ room: "210", water: 1, elec: 1 }] } });
+  assert.ok(r.body.rooms[0].error, "a legacy paid bill is not reopened");
+  assert.strictEqual(data.get("bill:210").status, "paid");
+  assert.strictEqual(data.get("bill:2026-11:210") ?? null, null, "and is not rewritten under the per-period key");
 
   r = await call(run, { user: "Ubob", body: { period: "2026-11", readings: [{ room: "209", water: 1, elec: 1 }] } });
   assert.strictEqual(r.status, 403, "only the owner issues bills");

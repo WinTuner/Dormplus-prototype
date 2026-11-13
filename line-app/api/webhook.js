@@ -80,10 +80,19 @@ async function handleEvent(event, baseUrl) {
         return reply(event.replyToken, [{ type: "text", text: "เฉพาะเจ้าของหอกดยืนยันได้ครับ" }]);
       }
       const room = data.get("room");
-      // Cards carry the period, so they close exactly the bill they were sent for. Cards sent
-      // before that change have none and fall back to the newest bill.
+      // Cards carry the period, so they close exactly the bill they were sent for. A card minted
+      // before that change cannot name its bill: refusing it is the only safe answer, because the
+      // newest bill may be another month's (and may be waiting for a slip of its own).
       const period = data.get("period");
-      const bill = period ? await store.get(`bill:${period}:${room}`) : await store.get(`bill:${room}`);
+      if (!period) {
+        return reply(event.replyToken, [
+          {
+            type: "text",
+            text: `การ์ดนี้ไม่ระบุรอบบิล จึงยืนยันไม่ได้ครับ — ให้ผู้เช่ากด “ส่งสลิปใหม่” เพื่อรับการ์ดใบใหม่`,
+          },
+        ]);
+      }
+      const bill = await store.get(`bill:${period}:${room}`);
       if (!bill) return reply(event.replyToken, [{ type: "text", text: `ไม่พบบิลห้อง ${room} ครับ` }]);
       if (bill.status === "paid") {
         return reply(event.replyToken, [{ type: "text", text: `ห้อง ${room} รอบ ${bill.period} ยืนยันไปแล้วครับ` }]);

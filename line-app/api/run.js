@@ -58,7 +58,12 @@ module.exports = async (req, res) => {
       continue;
     }
 
-    const existing = await store.get(`bill:${billPeriod}:${room}`);
+    // A bill written before the per-period key existed lives only as `bill:<room>`. When that copy
+    // is this period it is the same bill, so a paid one must still block the re-issue.
+    const latest = await store.get(`bill:${room}`);
+    const existing =
+      (await store.get(`bill:${billPeriod}:${room}`)) ||
+      (latest && latest.period === billPeriod ? latest : null);
     if (existing && existing.status !== "unpaid") {
       out.push({ room, error: `บิลรอบนี้${existing.status === "paid" ? "ชำระแล้ว" : "แจ้งชำระแล้ว"} แก้ไม่ได้` });
       continue;

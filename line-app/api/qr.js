@@ -92,7 +92,8 @@ async function bind(req, res, userId, code) {
 
   const holder = await store.get(`room-user:${room}`);
   if (holder && holder !== userId) {
-    await limit.recordFailure("bind", userId);
+    // Not a failed code: the code was valid, the room is just occupied. Counting it as a guess would
+    // lock a tenant out of their own valid QR for an hour after scanning a stale door sticker.
     return res.status(409).json({
       error: { code: "ROOM_TAKEN", message: `ห้อง ${room} มีผู้เช่าผูกไว้แล้ว — ให้เจ้าของหอกด “เปลี่ยนผู้เช่า” ก่อน` },
     });
@@ -111,9 +112,14 @@ async function bind(req, res, userId, code) {
       console.error("richmenu link failed", err.message)
     );
   }
-  // The owner hears about every new binding, so a wrong one is noticed the same day.
-  if (!holder && process.env.OWNER_USER_ID) {
-    await push(process.env.OWNER_USER_ID, [{ type: "text", text: `มีผู้เช่าผูก LINE กับห้อง ${room} แล้ว` }]).catch((err) =>
+  // The owner hears about every binding that changes something, so a wrong one is noticed the same
+  // day. Re-scanning the QR of the room you already live in changes nothing and sends no notice.
+  const moved = previous && previous !== room;
+  if ((!holder || moved) && process.env.OWNER_USER_ID) {
+    const text = moved
+      ? `มีผู้เช่าย้ายจากห้อง ${previous} มาห้อง ${room} แล้ว`
+      : `มีผู้เช่าผูก LINE กับห้อง ${room} แล้ว`;
+    await push(process.env.OWNER_USER_ID, [{ type: "text", text }]).catch((err) =>
       console.error("owner notice failed", err.message)
     );
   }
