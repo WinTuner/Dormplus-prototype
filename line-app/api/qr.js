@@ -3,7 +3,8 @@
 //
 //   GET  ?room=203   (owner) -> that room's code + QR (created on first use)
 //   POST ?room=203   (owner) -> change tenant: new code, old QR stops working, current tenant unbound
-//   POST { code }    (tenant)-> bind this LINE account to the room
+//   POST { code [, confirmMove] } (tenant) -> bind this LINE account to the room; a tenant who
+//                    already has another room gets 409 MOVE_CONFIRM_REQUIRED until confirmMove: true
 //
 // The printed QR binds a room only while nobody is bound to it. Once a tenant is in, a photo of
 // the door QR cannot take the room over: the owner has to press "change tenant" first.
@@ -95,8 +96,20 @@ async function bind(req, res, userId, code) {
     });
   }
 
-  // Moving from another room: that room must stop sending this person its bills.
+  // Moving from another room: that room must stop sending this person its bills. A `?bind=` link is
+  // easy to send someone, so a tenant who already has a room is asked first instead of being moved
+  // by whoever sent them the link: the page shows the current room and retries with confirmMove.
   const previous = await store.get(`user-room:${userId}`);
+  if (previous && previous !== room && !(req.body && req.body.confirmMove === true)) {
+    return res.status(409).json({
+      error: {
+        code: "MOVE_CONFIRM_REQUIRED",
+        message: `บัญชีนี้ผูกกับห้อง ${previous} อยู่ — ยืนยันก่อนย้ายไปห้อง ${room}`,
+        current: previous,
+        room,
+      },
+    });
+  }
   if (previous && previous !== room && (await store.get(`room-user:${previous}`)) === userId) {
     await store.set(`room-user:${previous}`, null);
   }

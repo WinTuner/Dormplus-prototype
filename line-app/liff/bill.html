@@ -123,6 +123,7 @@ const fmt = (n) => Number(n || 0).toLocaleString("th-TH");
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 let idToken = null;
 let MYROLE = null; // owner | viewer | null
+let ROOT = false; // the dorm's first owner (OWNER_USER_ID): the only one who can add owners or remove anyone
 
 // ---------- shared UI ----------
 const TH_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
@@ -184,10 +185,13 @@ async function boot() {
 
     const me = await api("/api/me");
     MYROLE = me.role || null;
+    ROOT = !!me.root;
+    // Owners and read-only helpers both use the owner screens; /api/me says which one this is.
+    const staff = MYROLE === "owner" || MYROLE === "viewer";
     const params = new URLSearchParams(location.search);
     const tab = params.get("tab") || "";
     const room = me.room || params.get("room");
-    const home = () => (me.owner ? startOwner("home") : room ? startTenant(room) : fail("ยังไม่ได้ผูกห้อง — สแกน QR หน้าห้องที่เจ้าของหอให้มา"));
+    const home = () => (staff ? startOwner("home") : room ? startTenant(room) : fail("ยังไม่ได้ผูกห้อง — สแกน QR หน้าห้องที่เจ้าของหอให้มา"));
 
     // Opened from an owner invite QR: redeem the code, then continue as an owner.
     const ownerCode = params.get("owner");
@@ -200,11 +204,11 @@ async function boot() {
     // Every rich-menu tab now has a screen; a tab we do not know falls back to home.
     const ownerTabs = { meter: "rooms", rooms: "rooms", slips: "review/pending", unpaid: "review/overdue", report: "report" };
     if (ownerTabs[tab]) {
-      if (!me.owner) return notice("เฉพาะเจ้าของหอ", "หน้าจอนี้สำหรับเจ้าของหอ", "ดูบิลของฉัน", home);
+      if (!staff) return notice("เฉพาะเจ้าของหอ", "หน้าจอนี้สำหรับเจ้าของหอ", "ดูบิลของฉัน", home);
       return startOwner(ownerTabs[tab]);
     }
     if (tab === "bill") {
-      if (me.owner) return notice("บิลค่าเช่า", "หน้าจอนี้สำหรับผู้เช่า — เจ้าของหอดูสถานะบิลและสลิปได้ที่หน้าหลัก", "ไปหน้าหลัก", home);
+      if (staff) return notice("บิลค่าเช่า", "หน้าจอนี้สำหรับผู้เช่า — เจ้าของหอดูสถานะบิลและสลิปได้ที่หน้าหลัก", "ไปหน้าหลัก", home);
       return room ? startTenant(room) : fail("ยังไม่ได้ผูกห้อง — สแกน QR หน้าห้องที่เจ้าของหอให้มา");
     }
 
@@ -236,7 +240,13 @@ async function api(path, opts = {}) {
     headers: { ...(opts.body ? { "Content-Type": "application/json" } : {}), Authorization: `Bearer ${idToken}` },
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(data?.error?.message || `HTTP ${res.status}`), { status: res.status });
+  if (!res.ok) {
+    throw Object.assign(new Error(data?.error?.message || `HTTP ${res.status}`), {
+      status: res.status,
+      code: data?.error?.code || null,
+      detail: data?.error || {},
+    });
+  }
   return data;
 }
 
@@ -517,7 +527,7 @@ function ownerHome() {
       <button class="btn" data-go="bill">ออกบิลทั้งหอ</button>
       <button class="btn" data-go="review/pending">สลิปรอตรวจ (${pending})</button>
       <button class="btn" data-go="report">รายงานรายรับ</button>
-      <button class="btn" data-go="owners">เพิ่มเจ้าของหอ (QR)</button>
+      ${MYROLE === "viewer" ? "" : `<button class="btn" data-go="owners">เจ้าของและผู้ช่วย</button>`}
       <button class="btn" id="settings">ตั้งค่าหอ</button>
     </div>`;
 
@@ -587,20 +597,64 @@ function ownerReport() {
   });
 }
 
-// Owner-only: mint a one-time code + QR so a second person becomes an owner.
+// Owner-only: who has owner/helper access, plus a one-time code + QR to add someone.
+// Only the first owner (ROOT) can add another full owner or remove anyone.
 function ownerInvite() {
   if (MYROLE === "viewer") {
-    return notice("เฉพาะเจ้าของหอ", "บัญชีผู้ช่วยเพิ่มเจ้าของไม่ได้", "ไปหน้าหลัก", () => go("home"));
+    return notice("เฉพาะเจ้าของหอ", "บัญชีผู้ช่วยจัดการสิทธิ์ไม่ได้", "ไปหน้าหลัก", () => go("home"));
   }
-  header("เพิ่มเจ้าของหอ", "เจ้าของ", "home");
+  header("เจ้าของและผู้ช่วย", "สิทธิ์", "home");
   bottom("");
+  const ownerLabel = "เจ้าของหอ (แก้ไข/ออกบิลได้)";
+  const viewerLabel = "ผู้ช่วย (ดูอย่างเดียว)";
   view.innerHTML = `
+    <div class="section">คนที่เข้าหน้าเจ้าของได้</div>
+    <div id="members" class="card"><div class="m">กำลังโหลด…</div></div>
+    <div class="section">เพิ่มคน</div>
     <div class="card">
       <div class="m">สร้างรหัสให้คนที่สแกนในแอป LINE — ใช้ได้ครั้งเดียว หมดอายุใน 10 นาที</div>
-      <button class="btn primary" id="mk" style="margin-top:12px">เจ้าของหอ (แก้ไข/ออกบิลได้)</button>
-      <button class="btn" id="mkViewer" style="margin-top:8px">ผู้ช่วย (ดูอย่างเดียว)</button>
+      ${ROOT ? `<button class="btn primary" id="mk" style="margin-top:12px">${ownerLabel}</button>` : ""}
+      <button class="btn${ROOT ? "" : " primary"}" id="mkViewer" style="margin-top:${ROOT ? 8 : 12}px">${viewerLabel}</button>
+      ${ROOT ? "" : `<div class="m" style="margin-top:8px">เพิ่มเจ้าของหอ หรือถอนสิทธิ์ใคร ต้องให้เจ้าของหอคนแรกทำ</div>`}
     </div>
     <div id="out"></div>`;
+
+  const roleTh = (m) => (m.root ? "เจ้าของหอคนแรก" : m.role === "viewer" ? "ผู้ช่วย (ดูอย่างเดียว)" : "เจ้าของหอ");
+  const loadMembers = async () => {
+    try {
+      const r = await api("/api/owner");
+      $("members").className = "card rows";
+      $("members").innerHTML = r.members.length
+        ? r.members
+            .map(
+              (m, i) => `<div class="row">
+                <span><b>${esc(m.name || "(ไม่ทราบชื่อ)")}</b>${m.you ? ` <span class="m">· คุณ</span>` : ""}
+                  <div class="m">${roleTh(m)}${m.addedAt ? ` · เพิ่มเมื่อ ${timeTh(m.addedAt)}` : ""}</div></span>
+                ${r.root && !m.root && m.userId ? `<button class="btn" data-revoke="${i}" style="width:auto;padding:6px 12px">ถอนสิทธิ์</button>` : ""}
+              </div>`
+            )
+            .join("")
+        : `<div class="m">ยังไม่มีใคร</div>`;
+      view.querySelectorAll("[data-revoke]").forEach((el) => {
+        const m = r.members[Number(el.dataset.revoke)];
+        el.onclick = async () => {
+          if (!confirm(`ถอนสิทธิ์ ${m.name || "บัญชีนี้"} (${roleTh(m)})? เขาจะเข้าหน้าเจ้าของไม่ได้ทันที และรหัสเชิญที่เขาสร้างไว้จะใช้ไม่ได้`)) return;
+          el.disabled = true;
+          try {
+            await api("/api/owner", { method: "DELETE", body: JSON.stringify({ userId: m.userId }) });
+            toast("ถอนสิทธิ์แล้ว");
+            loadMembers();
+          } catch (e) {
+            toast(e.message, true);
+            el.disabled = false;
+          }
+        };
+      });
+    } catch (e) {
+      $("members").innerHTML = `<div class="err">${esc(e.message)}</div>`;
+    }
+  };
+  loadMembers();
 
   const mint = async (role) => {
     const btn = role === "viewer" ? $("mkViewer") : $("mk");
@@ -612,7 +666,7 @@ function ownerInvite() {
         <div class="card">
           <div class="m">ให้เขาสแกน QR นี้ในแอป LINE (หรือส่งลิงก์ให้เปิดใน LINE)</div>
           ${r.qr ? `<div class="qr">${r.qr}</div>` : ""}
-          <div class="row" style="margin-top:10px"><span class="m">สิทธิ์</span><b>${r.role === "viewer" ? "ผู้ช่วย (ดูอย่างเดียว)" : "เจ้าของหอ"}</b></div>
+          <div class="row" style="margin-top:10px"><span class="m">สิทธิ์</span><b>${r.role === "viewer" ? viewerLabel : "เจ้าของหอ"}</b></div>
           <div class="row" style="margin-top:6px"><span class="m">รหัส</span><b style="font-size:18px;letter-spacing:2px">${esc(r.code)}</b></div>
           ${r.url ? `<div class="m" style="margin-top:6px;word-break:break-all">${esc(r.url)}</div>` : `<div class="m warnText" style="margin-top:6px">ยังไม่ได้ตั้ง LIFF_ID — ส่งรหัสให้เขาพิมพ์เองไม่ได้</div>`}
           <div class="m" style="margin-top:6px">หมดอายุ ${timeTh(r.expiresAt)}</div>
@@ -620,33 +674,37 @@ function ownerInvite() {
       $("out").scrollIntoView({ behavior: "smooth" });
     } catch (e) {
       toast(e.message, true);
-      btn.disabled = false;
-      btn.textContent = role === "viewer" ? "ผู้ช่วย (ดูอย่างเดียว)" : "เจ้าของหอ (แก้ไข/ออกบิลได้)";
     }
+    btn.disabled = false;
+    btn.textContent = role === "viewer" ? viewerLabel : ownerLabel;
   };
 
-  $("mk").onclick = () => mint("owner");
+  if (ROOT) $("mk").onclick = () => mint("owner");
   $("mkViewer").onclick = () => mint("viewer");
 }
 
 // Someone opened the QR link: redeem the code, then land on the owner home.
 async function acceptOwner(code, me) {
-  header("DormPlus", "กำลังยืนยันสิทธิ์เจ้าของ");
+  header("DormPlus", "กำลังยืนยันสิทธิ์");
   bottom("");
   view.innerHTML = `<div class="card"><div class="m">กำลังตรวจรหัส…</div></div>`;
+  const wasStaff = me.role === "owner" || me.role === "viewer";
   try {
     await api("/api/owner", { method: "POST", body: JSON.stringify({ code }) });
     history.replaceState(null, "", location.pathname);
     const fresh = await api("/api/me");
-    if (!fresh.owner) throw new Error("ยังไม่ได้สิทธิ์เจ้าของ — ขอรหัสใหม่จากเจ้าของหอ");
-    toast("เพิ่มคุณเป็นเจ้าของหอแล้ว");
+    // A helper code makes a viewer, not an owner: both open the owner screens.
+    if (fresh.role !== "owner" && fresh.role !== "viewer") throw new Error("ยังไม่ได้สิทธิ์ — ขอรหัสใหม่จากเจ้าของหอ");
+    MYROLE = fresh.role;
+    ROOT = !!fresh.root;
+    toast(MYROLE === "viewer" ? "เพิ่มคุณเป็นผู้ช่วย (ดูอย่างเดียว) แล้ว" : "เพิ่มคุณเป็นเจ้าของหอแล้ว");
     return startOwner("home");
   } catch (e) {
     return notice(
       "ยืนยันไม่สำเร็จ",
       e.message,
-      me.owner ? "ไปหน้าหลัก" : "ดูบิลของฉัน",
-      () => (me.owner ? startOwner("home") : me.room ? startTenant(me.room) : fail("ยังไม่ได้ผูกห้อง"))
+      wasStaff ? "ไปหน้าหลัก" : "ดูบิลของฉัน",
+      () => (wasStaff ? startOwner("home") : me.room ? startTenant(me.room) : fail("ยังไม่ได้ผูกห้อง"))
     );
   }
 }
@@ -690,18 +748,32 @@ function ownerQr(room) {
 }
 
 // A tenant opened the room QR: bind, then continue as that room's tenant.
+// Someone who already has a room is asked before being moved, so a forwarded link cannot move them.
 async function acceptBind(code, me) {
   header("DormPlus", "กำลังผูกห้อง");
   bottom("");
   view.innerHTML = `<div class="card"><div class="m">กำลังตรวจ QR…</div></div>`;
+  const staff = me.role === "owner" || me.role === "viewer";
+  const bind = (confirmMove) => api("/api/qr", { method: "POST", body: JSON.stringify({ code, confirmMove }) });
   try {
-    const r = await api("/api/qr", { method: "POST", body: JSON.stringify({ code }) });
+    let r;
+    try {
+      r = await bind(false);
+    } catch (e) {
+      if (e.code !== "MOVE_CONFIRM_REQUIRED") throw e;
+      const { current, room } = e.detail;
+      if (!confirm(`บัญชีนี้ผูกกับห้อง ${current} อยู่\nย้ายไปห้อง ${room}? ห้อง ${current} จะไม่ส่งบิลมาที่บัญชีนี้อีก`)) {
+        history.replaceState(null, "", location.pathname);
+        return startTenant(current);
+      }
+      r = await bind(true);
+    }
     history.replaceState(null, "", location.pathname);
-    toast(`ผูกกับห้อง ${r.room} แล้ว`);
+    toast(r.previous && r.previous !== r.room ? `ย้ายจากห้อง ${r.previous} มาห้อง ${r.room} แล้ว` : `ผูกกับห้อง ${r.room} แล้ว`);
     return startTenant(r.room);
   } catch (e) {
-    return notice("ผูกไม่สำเร็จ", e.message, me.owner ? "ไปหน้าหลัก" : "ลองใหม่", () =>
-      me.owner ? startOwner("home") : fail("สแกน QR หน้าห้องอีกครั้ง")
+    return notice("ผูกไม่สำเร็จ", e.message, staff ? "ไปหน้าหลัก" : "ลองใหม่", () =>
+      staff ? startOwner("home") : fail("สแกน QR หน้าห้องอีกครั้ง")
     );
   }
 }
@@ -723,7 +795,7 @@ function ownerRooms() {
     else if (O.draft[r.room]) pill = `<span class="pill ok">จดแล้ว</span>`;
     else pill = `<span class="pill todo">ยังไม่จด</span>`;
     const isNext = next && next.room === r.room;
-    const sub = isNext ? "ห้องถัดไป" : r.tenant ? "" : "ยังไม่ผูก LINE";
+    const sub = isNext ? "ห้องถัดไป" : (r.linked ?? r.tenant) ? "" : "ยังไม่ผูก LINE";
     return `<button class="roomcard${isNext ? " next" : ""}" data-room="${esc(r.room)}">
       <span><b>ห้อง ${esc(r.room)}</b>${sub ? `<div class="m">${sub}</div>` : ""}</span>${pill}</button>`;
   };
@@ -845,7 +917,7 @@ function ownerBill() {
   header(`รอบบิล ${periodTh(O.period)}`, "ออกบิลทั้งหอ", "home");
   const open = O.rooms.filter((r) => !billedNow(r));
   const ready = open.filter((r) => O.draft[r.room]);
-  const linked = ready.filter((r) => r.tenant).length;
+  const linked = ready.filter((r) => r.linked ?? r.tenant).length;
   const missing = open.length - ready.length;
   const sum = ready.reduce((s, r) => s + totalFor(r.room, O.draft[r.room]).total, 0);
   const billed = O.rooms.length - open.length;

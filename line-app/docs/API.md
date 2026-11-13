@@ -17,6 +17,8 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 | ทุก method (ไม่ได้ตรวจ — ใช้ GET) | `/api/slip-image` | Bearer idToken + สิทธิ์รายห้อง | `api/slip-image.js` |
 | ทุก method (ไม่ได้ตรวจ — ใช้ GET) | `/api/rooms` | Bearer idToken + owner | `api/rooms.js` |
 | `POST` เท่านั้น | `/api/run` | Bearer idToken + owner | `api/run.js` |
+| `GET` / `POST` / `DELETE` | `/api/owner` | Bearer idToken (ดู §2.5) | `api/owner.js` |
+| `GET` / `POST` | `/api/qr` | Bearer idToken (ดู §2.6) | `api/qr.js` |
 | `POST` เท่านั้น | `/api/dev?do=seed` | header `x-seed-token` · มีเฉพาะ `vercel dev` หรือ preview ที่ตั้ง `ALLOW_SEED_BYPASS=true` (production ตอบ 404) | `api/dev.js` |
 | `POST` เท่านั้น | `/api/dev?do=sendbill` | header `x-seed-token` · มีเฉพาะ `vercel dev` หรือ preview ที่ตั้ง `ALLOW_SEED_BYPASS=true` (production ตอบ 404) | `api/dev.js` |
 | `POST` เท่านั้น | `/api/webhook` | `x-line-signature` (HMAC) | `api/webhook.js` |
@@ -33,7 +35,7 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 { "error": { "code": "FORBIDDEN", "message": "ข้อความภาษาไทย" } }
 ```
 
-`message` เป็นภาษาไทยเสมอ (แสดงตรง ๆ บนหน้า LIFF) — `code` มีค่าที่โค้ดใช้จริงแค่ 6 ตัว:
+`message` เป็นภาษาไทยเสมอ (แสดงตรง ๆ บนหน้า LIFF) — `code` ที่โค้ดใช้:
 
 | HTTP | code | เกิดจาก |
 |---|---|---|
@@ -41,8 +43,14 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 | 401 | `UNAUTHORIZED` | ไม่มี Bearer token หรือไม่มี `CHANNEL_ID` (`_auth.requireUser`) |
 | 403 | `FORBIDDEN` | idToken ไม่ผ่าน LINE verify, ไม่ใช่เจ้าของ, หรือไม่ได้ผูกห้องนั้น |
 | 404 | `NOT_FOUND` | ไม่พบบิล/ไม่พบไฟล์สลิป |
-| 409 | `INVALID_STATE` | แนบสลิปในบิลที่ `paid` แล้ว |
+| 409 | `INVALID_STATE` | แนบสลิปในบิลที่ `paid` แล้ว, ถอนสิทธิ์เจ้าของหอคนแรก |
+| 409 | `ROOM_TAKEN` | สแกน QR ห้องที่มีผู้เช่าผูกอยู่แล้ว |
+| 409 | `MOVE_CONFIRM_REQUIRED` | ผู้เช่าที่มีห้องอยู่แล้วสแกน QR ห้องอื่น — `error` มี `current` (ห้องเดิม) กับ `room` (ห้องใหม่) ด้วย |
+| 410 | `INVITE_EXPIRED` | รหัสเชิญเจ้าของหมดอายุ/ใช้แล้ว/คนสร้างไม่มีสิทธิ์แล้ว |
 | 413 | `TOO_LARGE` | รูปเกิน 3MB |
+| 429 | `TOO_MANY_ATTEMPTS` | เดารหัส QR/รหัสเชิญผิดเกิน 10 ครั้งใน 1 ชม. |
+| 429 | `SLIP_LIMIT` | ผู้เช่าส่งสลิปบิลเดียวครบ 5 ครั้งแล้ว |
+| 429 | `SLIP_TOO_SOON` | ผู้เช่าส่งสลิปซ้ำภายใน 30 วินาที |
 
 ทุก error ใช้ envelope เดียวกัน (ไม่มีข้อยกเว้นแล้ว) — ต้องระวังถ้าเขียน client:
 
@@ -54,11 +62,19 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 
 ### 2.2 การ auth 3 แบบ
 
-1. **Bearer LIFF idToken** — `_auth.requireUser()` อ่าน `Authorization: Bearer <idToken>` แล้วยิง `POST https://api.line.me/oauth2/v2.1/verify` ด้วย `id_token` + `client_id` (= `LOGIN_CHANNEL_ID` หรือ prefix ก่อน `-` ของ `LIFF_ID`) แล้วเอา `sub` เป็น userId ถ้าไม่มี token/ไม่มี channel → `401 UNAUTHORIZED`; verify ไม่ผ่าน → `403 FORBIDDEN`
+1. **Bearer LIFF idToken** — `_auth.requireUser()` อ่าน `Authorization: Bearer <idToken>` แล้วยิง `POST https://api.line.me/oauth2/v2.1/verify` ด้วย `id_token` + `client_id` (= `LOGIN_CHANNEL_ID` หรือ prefix ก่อน `-` ของ `LIFF_ID`) แล้วเอา `sub` เป็น userId ถ้าไม่มี token/ไม่มี channel → `401 UNAUTHORIZED`; verify ไม่ผ่าน → `403 FORBIDDEN` · token ที่ verify ผ่านแล้วถูกจำไว้ใน memory ของ instance (เก็บเป็น sha256) ไม่เกิน 5 นาทีและไม่เกิน `exp` ของ token — หน้า LIFF ที่เรียก API 3-4 ครั้งจึงถาม LINE ครั้งเดียว · token ที่ไม่ผ่านไม่ถูกจำ
 2. **`x-seed-token` bypass (ปิดโดยค่าเริ่มต้น)** — ทำงานเฉพาะเมื่อ `VERCEL_ENV=development` (`vercel dev`) หรือ `ALLOW_SEED_BYPASS=true` บนที่ที่ไม่ใช่ production **และ** header ตรงกับ `SEED_TOKEN` (ยาว ≥ 16 ตัว เทียบแบบ constant-time) · เมื่อเข้าเงื่อนไข `requireUser()` จะคืน `OWNER_USER_ID` (หรือ `"dev"` ถ้าไม่ได้ตั้ง) · **production ปฏิเสธเสมอ**
 3. **`/api/dev` (seed/sendbill)** — ใช้ header `x-seed-token` ตามเงื่อนไขเดียวกับข้อ 2 · บน production ตอบ `404` เสมอ · ไม่อ่าน token จาก URL
 
-`isOwner(userId)` คือ `!!OWNER_USER_ID && userId === OWNER_USER_ID` → ถ้าไม่ได้ตั้ง `OWNER_USER_ID` ทุกคนเป็น non-owner (รวม `x-seed-token` ที่คืน `"dev"` ด้วย)
+สิทธิ์มาจาก `roleOf(userId)` ใน `_auth.js`:
+
+| role | ใคร | ทำอะไรได้ |
+|---|---|---|
+| root | userId ใน `OWNER_USER_ID` (ตั้งด้วยมือ) | ทุกอย่าง + เชิญเจ้าของเพิ่ม + ถอนสิทธิ์คนอื่น · ถูกถอนไม่ได้ |
+| `owner` | root หรือคนที่มี `owner:<userId>` role `owner` | ออกบิล หมุน QR ยืนยันการชำระ เชิญผู้ช่วย |
+| `viewer` | คนที่มี `owner:<userId>` role `viewer` | ดูบิล/สลิป/รายงาน (`canView`) เท่านั้น |
+
+`isOwner` = role `owner` · `canView` = role `owner` หรือ `viewer` · `isRoot` = เทียบกับ `OWNER_USER_ID` · role ถูกอ่านจาก Blob ทุก request จึงถอนสิทธิ์แล้วมีผลทันที · ถ้าไม่ได้ตั้ง `OWNER_USER_ID` ไม่มี root (`x-seed-token` คืน `"dev"` ซึ่งไม่มีสิทธิ์)
 
 ### 2.3 Cache / content type
 
@@ -68,7 +84,9 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 | `slip-image` | `Content-Type: image/*` + `Cache-Control: private, no-store` |
 | `slip`, `run`, `seed`, `sendbill`, `webhook` | **ไม่ตั้ง `Cache-Control` เลย** |
 
-ทุก response เป็น JSON ผ่าน `res.json()` ยกเว้น `slip-image` ที่ stream byte ดิบ (`res.end(...)`) ไม่มี CORS header, ไม่มี `OPTIONS` handler และไม่มี rate limit ในโค้ด
+ทุก response เป็น JSON ผ่าน `res.json()` ยกเว้น `slip-image` ที่ stream byte ดิบ (`res.end(...)`) ไม่มี CORS header และไม่มี `OPTIONS` handler · rate limit มีเฉพาะการเดารหัส (`_limit.js`) และการส่งสลิป (§6)
+
+`vercel.json` ใส่ header ให้ทุก path (ทั้งหน้า LIFF และ API): `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` (ลิงก์ `?bind=`/`?owner=` ไม่หลุดไปกับ Referer), `X-Frame-Options: DENY`, `Permissions-Policy: microphone=(), geolocation=(), payment=(), usb=()` · ยังไม่ใส่ Content-Security-Policy เพราะหน้า LIFF โหลด SDK จาก `static.line-scdn.net` และใช้ inline script — ต้องทดสอบในแอป LINE จริงก่อน
 
 ### 2.4 ที่เก็บข้อมูล (side effect ที่ทุก endpoint ใช้ร่วมกัน)
 
@@ -76,20 +94,23 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 
 ---
 
-### 2.5 endpoint เพิ่มเจ้าของ (`POST /api/owner`)
+### 2.5 เจ้าของและผู้ช่วย (`/api/owner`)
 
-เจ้าของหอคนแรกมาจาก `OWNER_USER_ID` (ตั้งด้วยมือ) คนต่อไปรับสิทธิ์ด้วยรหัสที่เจ้าของเดิมสร้าง
-รหัสมีอายุ **10 นาที ใช้ได้ครั้งเดียว** — ใครสแกน QR และยืนยัน idToken ได้ จะถูกบันทึกเป็นเจ้าของ (`owner:<userId>`)
+เจ้าของหอคนแรก (root) มาจาก `OWNER_USER_ID` (ตั้งด้วยมือ) คนต่อไปรับสิทธิ์ด้วยรหัสเชิญ
+รหัสมีอายุ **10 นาที ใช้ได้ครั้งเดียว** — ใครสแกน QR และยืนยัน idToken ได้ จะถูกบันทึกที่ `owner:<userId>` = `{addedAt, addedBy, role}`
 
 | endpoint | auth | body | ผล |
 |---|---|---|---|
-| `POST /api/owner` | เจ้าของเท่านั้น | — | `{code, url, qr, expiresAt}` · `qr` เป็น SVG string ของ `https://liff.line.me/<LIFF_ID>?owner=<code>` |
-| `POST /api/owner` | ผู้ใช้ที่ล็อกอิน LINE | `{code}` | `{owner, role}` — `role` เป็น `owner` หรือ `viewer` (หรือ `{already:true}`) |
+| `GET /api/owner` | owner | — | `{root, members:[{name, role, root, you, addedAt}]}` · root ได้ `userId` ของแต่ละคนด้วย (คนอื่นไม่ได้) · `name` มาจากโปรไฟล์ LINE (`null` ถ้า LINE ไม่บอก) |
+| `POST /api/owner` | owner | `{role?}` | `{code, url, qr, role, expiresAt}` · `role` = `owner` (default) หรือ `viewer` · **เฉพาะ root เชิญ `owner` ได้** เจ้าของคนอื่นเชิญได้แค่ `viewer` (ไม่งั้น `403`) |
+| `POST /api/owner` | ผู้ใช้ที่ล็อกอิน LINE | `{code}` | `{owner, role}` — มีสิทธิ์นั้นอยู่แล้วได้ `{already:true}` · viewer ที่ได้รหัส owner ถูกอัปเกรด |
+| `DELETE /api/owner` | **root เท่านั้น** | `{userId}` | `{ok:true, removed}` · ลบ `owner:<userId>` + `menu:<userId>`, สลับ rich menu กลับเป็นเมนู default, ส่งข้อความแจ้งคนที่ถูกถอน |
 
 - รหัสผิด → `404 NOT_FOUND` · หมดอายุ/ถูกใช้ → `410 INVITE_EXPIRED` · ไม่ได้ตั้ง `OWNER_USER_ID` → `409 INVALID_STATE`
-- ออก rหัสเป็น **ผู้ช่วย (viewer)** ได้ด้วย `POST /api/owner` body `{role:"viewer"}` — ดูบิล/สลิป/รายงานได้ แต่ออกบิล หมุน QR หรือเพิ่มเจ้าของไม่ได้
-- เมื่อรับสิทธิ์สำเร็จ ระบบสลับ rich menu ให้เป็นเมนูเจ้าของ (ถ้าตั้ง `RICHMENU_OWNER_ID`)
-- endpoint ที่ตรวจ `isOwner()` ใช้ได้กับเจ้าของที่ได้สิทธิ์ทาง QR ด้วย (rooms, run, bill/slip ของห้องอื่น, ยืนยันการชำระในแชท)
+- **รหัสใช้ได้เท่าที่คนสร้างยังมีสิทธิ์** — ตอนรับรหัสจะตรวจคนสร้างอีกครั้ง: รหัส `owner` ต้องมาจาก root, รหัส `viewer` ต้องมาจาก owner ที่ยังไม่ถูกถอน ไม่งั้น `410 INVITE_EXPIRED`
+- ถอนสิทธิ์: ไม่ใช่ root → `403` · ถอน root → `409 INVALID_STATE` · `userId` ไม่ใช่รูป `U…` → `400` · ไม่มีสิทธิ์อยู่แล้ว → `404`
+- เมื่อรับสิทธิ์สำเร็จ ระบบสลับ rich menu ให้เป็นเมนูเจ้าของ (ถ้าตั้ง `RICHMENU_OWNER_ID`) และแจ้ง root พร้อมชื่อ LINE ของคนใหม่
+- หน้า LIFF: ปุ่ม "เจ้าของและผู้ช่วย" ในหน้าหลักเจ้าของ (ผู้ช่วยไม่เห็นปุ่มนี้)
 
 ### 2.6 QR ผูกห้องสำหรับผู้เช่า (`/api/qr`)
 
@@ -100,12 +121,13 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 |---|---|---|---|
 | `GET /api/qr?room=203` | เจ้าของ | — | `{room, code, url, qr}` · สร้างรหัสให้ถ้ายังไม่มี |
 | `POST /api/qr?room=203` | เจ้าของ | — | **เปลี่ยนผู้เช่า:** ถอดผู้เช่าที่ผูกอยู่ (`unbound:true`) + รหัสใหม่ (`rotated:true`) |
-| `POST /api/qr` | ผู้ใช้ที่ล็อกอิน LINE | `{code}` | `{ok:true, room, previous}` — เขียน `user-room:<userId>` + `room-user:<room>` + สลับเมนูผู้เช่า |
+| `POST /api/qr` | ผู้ใช้ที่ล็อกอิน LINE | `{code, confirmMove?}` | `{ok:true, room, previous}` — เขียน `user-room:<userId>` + `room-user:<room>` + สลับเมนูผู้เช่า |
 
 - รหัส 10 ตัว (ไม่มี 0/O/1/I/L) · เก็บ 2 key: `room-qr:<room>` และ `qr-code:<code>` (ตัวหลังถูกลบเมื่อหมุน)
 - รหัสผิด/ถูกหมุนแล้ว → `404 NOT_FOUND`
 - ห้องที่ไม่มีทั้งบิลและผู้เช่า → `404 NOT_FOUND` (กันพิมพ์เลขห้องผิด)
 - **QR ผูกได้เฉพาะห้องที่ยังว่าง** — ห้องที่มีผู้เช่าผูกอยู่แล้วตอบ `409 ROOM_TAKEN` คนที่ถ่ายรูป QR ไปจึงแย่งห้องไม่ได้ · ผูกสำเร็จแล้วเจ้าของได้ข้อความแจ้ง · ย้ายห้องแล้วห้องเก่าเลิกส่งบิลให้ · ผิดเกิน 10 ครั้ง/ชม. → `429 TOO_MANY_ATTEMPTS`
+- **ย้ายห้องต้องยืนยัน** — ผู้เช่าที่ผูกห้องอื่นอยู่แล้วได้ `409 MOVE_CONFIRM_REQUIRED` (`error.current` = ห้องเดิม, `error.room` = ห้องใหม่) จนกว่าจะส่ง `confirmMove: true` · ลิงก์ `?bind=` ที่คนอื่นส่งมาจึงย้ายห้องใครเงียบ ๆ ไม่ได้ · หน้า LIFF ถาม "ย้ายไปห้อง X?" แล้วส่งซ้ำพร้อม flag ให้เอง
 
 ## 3. `GET /api/config`
 
@@ -132,13 +154,13 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 - **200:**
 
 ```json
-{ "userId": "U1234...", "owner": false, "room": "203" }
+{ "userId": "U1234...", "owner": false, "role": null, "root": false, "room": "203" }
 ```
 
-`room` เป็น `null` เมื่อยังไม่ผูกห้อง (`user-room:<userId>` ไม่มี)
+`role` = `"owner"` / `"viewer"` / `null` (ผู้เช่าหรือคนทั่วไป) · `owner` = `role === "owner"` (เก็บไว้ให้หน้าเก่า) · `root` = เป็น `OWNER_USER_ID` หรือไม่ · หน้า LIFF ใช้ `role` ตัดสินว่าจะเปิดหน้าเจ้าของ (owner และ viewer เปิดได้ทั้งคู่) · `room` เป็น `null` เมื่อยังไม่ผูกห้อง (`user-room:<userId>` ไม่มี)
 - **Error:** `401 UNAUTHORIZED`, `403 FORBIDDEN` (จาก `requireUser` เท่านั้น)
-- **อ่าน Blob:** `user-room:<userId>`
-- **Side effect:** ไม่มี
+- **อ่าน Blob:** `user-room:<userId>`, `owner:<userId>` (สองตัวอ่านพร้อมกัน), `menu:<userId>` (เฉพาะ owner)
+- **Side effect:** owner ที่ยังไม่ได้เมนูเจ้าของจะถูก link `RICHMENU_OWNER_ID` ให้ครั้งแรก
 
 ## 5. `GET /api/bill?room=203[&period=YYYY-MM][&history=1]`
 
@@ -184,7 +206,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 | field | type | บังคับ | หมายเหตุ |
 |---|---|---|---|
 | `room` | string | ไม่ (fallback = ห้องที่ผูกไว้) | |
-| `note` | string | ไม่ | เก็บเป็น `slipNote` (ค่าว่าง → `null`) |
+| `note` | string | ไม่ | เก็บเป็น `slipNote` (ค่าว่าง → `null`) · ยาวไม่เกิน 500 ตัวอักษร |
 | `image` | string (data URL) | ไม่ | ต้องตรง `/^data:(image\/(jpeg\|png\|webp));base64,(.+)$/` |
 
 ขนาดรูปสูงสุด **3 MiB** (`MAX_BYTES = 3 * 1024 * 1024`) นับหลัง decode base64; นามสกุลไฟล์มาจาก mime (`jpeg` → `jpg`)
@@ -194,10 +216,11 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 { "ok": true, "status": "pending", "total": 3796, "hasSlip": true }
 ```
 
-- **Error (ตามลำดับที่โค้ดเช็ก):** `405 METHOD_NOT_ALLOWED` → `401`/`403` จาก `requireUser` → `400 VALIDATION` (ไม่มี room) → `403 FORBIDDEN` (ไม่ได้ผูกห้อง) → `404 NOT_FOUND` (ไม่พบบิล) → `409 INVALID_STATE` (บิล `paid` แล้ว) → `400 VALIDATION` (mime ไม่อยู่ใน 3 ชนิด) → `413 TOO_LARGE`
-- **เขียน Blob:** `slips/<room>-<Date.now()>.<ext>` (เฉพาะเมื่อมี `image`), `bill:<room>` = บิลเดิม + `status:"pending"`, `slipPath`, `slipNote`, `slipAt` (ISO)
+- **Error (ตามลำดับที่โค้ดเช็ก):** `405 METHOD_NOT_ALLOWED` → `401`/`403` จาก `requireUser` → `400 VALIDATION` (`note` ไม่ใช่ข้อความหรือยาวเกิน 500) → `400 VALIDATION` (ไม่มี room) → `403 FORBIDDEN` (ไม่ได้ผูกห้อง) → `404 NOT_FOUND` (ไม่พบบิล) → `409 INVALID_STATE` (บิล `paid` แล้ว) → `429 SLIP_LIMIT` / `429 SLIP_TOO_SOON` → `400 VALIDATION` (mime ไม่อยู่ใน 3 ชนิด) → `413 TOO_LARGE`
+- **จำกัดการส่ง (ผู้เช่าเท่านั้น เจ้าของไม่ติด):** ไม่เกิน 5 ครั้งต่อบิล และห่างกันอย่างน้อย 30 วินาที — ทุกสลิป push การ์ดหาเจ้าของ ซึ่งกินโควตาข้อความของ LINE OA · สลิปที่ถูกปฏิเสธไม่ส่งข้อความ · นับใน `slipCount` ของบิล
+- **เขียน Blob:** `slips/<room>-<Date.now()>.<ext>` (เฉพาะเมื่อมี `image`), `bill:<room>` และ `bill:<period>:<room>` = บิลเดิม + `status:"pending"`, `slipPath`, `slipNote`, `slipAt` (ISO), `slipCount`
 - **Side effect อื่น:** `push()` การ์ด `confirmBubble` ไปที่ `OWNER_USER_ID` — ถ้า push ล้มเหลวแค่ `console.error("owner push failed")` แล้วยังตอบ 200
-- ถ้าไม่ได้แนบรูปใหม่ `slipPath` เดิมถูกคงไว้ — ไฟล์เก่าไม่ถูกลบ
+- ถ้าไม่ได้แนบรูปใหม่ `slipPath` เดิมถูกคงไว้ · ถ้าแนบรูปใหม่ รูปเดิมถูกลบหลังบันทึกบิลแล้ว (ลบไม่สำเร็จแค่ `console.error`)
 
 ## 7. `GET /api/slip-image?room=203`
 
@@ -214,7 +237,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 
 `api/rooms.js` — หน้าจดมิเตอร์ของเจ้าของ: ทุกห้อง + config + มิเตอร์ล่าสุด + บิล + ผู้เช่า
 
-- **Auth:** Bearer idToken + **ต้องเป็น owner** (`403 FORBIDDEN` "เฉพาะเจ้าของหอ")
+- **Auth:** Bearer idToken + owner หรือ viewer (`canView` · `403 FORBIDDEN` "เฉพาะเจ้าของหอ")
 - **Query/body:** ไม่มี
 - **200:**
 
@@ -227,15 +250,16 @@ field ที่มีจริงขึ้นกับว่าเขียน�
       "config": { "rent": 3500, "waterRate": 25, "elecRate": 7 },
       "meter": { "water": 4, "elec": 28, "at": "2026-11-12T..." },
       "bill": { "room": "201", "total": 3796, "status": "unpaid" },
-      "tenant": "U1234..."
+      "linked": true,
+      "tenant": true
     }
   ]
 }
 ```
 
-`period` = `BILL_PERIOD || null`; `meter`/`bill` เป็น `null` ถ้ายังไม่มี; `tenant` เป็น `null` ถ้ายังไม่มีใครผูก; จำนวนห้องมาจาก `ROOMS` (default `201`–`212`)
+`period` = `BILL_PERIOD || null`; `meter`/`bill` เป็น `null` ถ้ายังไม่มี; `linked` บอกแค่ว่ามีผู้เช่าผูกห้องอยู่หรือไม่ (`tenant` เป็นค่าเดียวกัน เก็บไว้ให้หน้าเก่า) — **ไม่ส่ง LINE userId ของผู้เช่า** เพราะหน้าจอไม่ได้ใช้ และผู้ช่วยแบบดูอย่างเดียวไม่ควรได้; จำนวนห้องมาจาก `ROOMS` (default `201`–`212`)
 - **Error:** `403 FORBIDDEN` (ไม่ใช่ owner), `401`/`403` จาก `requireUser`
-- **อ่าน Blob:** `room:<room>`, `meter:<room>`, `bill:<room>`, `room-user:<room>` ต่อทุกห้อง (12 ห้อง default = 48 อ่านต่อ request)
+- **อ่าน Blob:** `room:<room>`, `meter:<room>`, `bill:<room>`, `room-user:<room>` ต่อทุกห้อง (12 ห้อง default = 48 อ่านต่อ request · อ่านพร้อมกันทีละไม่เกิน 12 ห้อง)
 - **Side effect:** ไม่มี
 
 ## 9. `POST /api/run`
@@ -265,7 +289,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 }
 ```
 
-ห้องที่ข้อมูลเสียจะถูกใส่เป็น `{room, error}` **โดยไม่ทำให้ request ล้ม** (สถานะยัง 200)
+ห้องที่ข้อมูลเสียจะถูกใส่เป็น `{room, error}` **โดยไม่ทำให้ request ล้ม** (สถานะยัง 200) · ห้องเดียวกันซ้ำใน `readings` → ตัวแรกออกบิล ตัวที่ซ้ำได้ `error` · ห้องทำงานพร้อมกันทีละ 6 ห้อง (`rooms` ยังเรียงตาม `readings`) — 12 ห้องจาก ~12 วินาทีเหลือ ~1 วินาทีเมื่อแต่ละ round trip 80ms
 - **Error:** `405`, `401`/`403` จาก `requireUser`, `403 FORBIDDEN` (ไม่ใช่ owner), `400 VALIDATION` (`readings` ไม่ใช่ array/ว่าง), `400 VALIDATION` (ไม่มี period)
 - **เขียน Blob:** `meter:<room>` = `{water, elec, at}` และ `bill:<room>` = บิลใหม่ทั้งใบ `status:"unpaid"` (ข้ามห้องที่บิลรอบนั้นแจ้งชำระหรือชำระแล้ว · บิล `unpaid` ออกใหม่ทับได้เพื่อแก้เลขผิด · หน่วยต้องเป็นจำนวนเต็ม ≥ 0 และห้องต้องอยู่ใน `ROOMS`)
 - **Side effect อื่น:** `push()` การ์ด `billBubble` ให้ `room-user:<room>` ถ้ามีผู้เช่า; push ล้มเหลว → `pushed:false` + `console.error` (ไม่ fail request)
@@ -343,7 +367,10 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 | `/api/config` | — | ทุกอย่าง (public โดยตั้งใจ) |
 | `/api/me` | idToken | — |
 | `/api/bill`, `/api/slip`, `/api/slip-image` | idToken + `user-room:<userId> === room` (ยกเว้น owner) | ว่า `room` เป็นห้องที่อยู่ใน `ROOMS` |
-| `/api/rooms`, `/api/run` | idToken + `isOwner` | — |
+| `/api/rooms` | idToken + `canView` (owner/viewer) | — |
+| `/api/run` | idToken + `isOwner` | — |
+| `/api/owner` | GET/POST invite: `isOwner` (invite `owner` ต้อง root) · POST `{code}`: idToken · DELETE: root | — |
+| `/api/qr` | GET/POST `?room=`: `isOwner` · POST `{code}`: idToken + rate limit + ยืนยันย้ายห้อง | — |
 | `/api/dev?do=seed`, `/api/dev?do=sendbill` | production → 404 · ที่อื่น header `x-seed-token` (≥ 16 ตัว) | ไม่มี auth ผู้ใช้ (เครื่องมือ dev) |
 | `/api/webhook` | HMAC signature | ไม่ตรวจผู้ส่งต่อ event, ไม่มี idempotency |
 | webhook `postback action=confirm` | signature ของ LINE + `isOwner(userId)` | ✅ ตรวจแล้ว |

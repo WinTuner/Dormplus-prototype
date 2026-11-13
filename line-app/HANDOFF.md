@@ -42,7 +42,7 @@
 | `api/run.js` | ออกรอบบิลจากหน่วยมิเตอร์ + ส่งการ์ดให้ผู้เช่าที่ผูกห้องแล้ว |
 | `api/dev.js` | ข้อมูลทดสอบ · header `x-seed-token` · มีเฉพาะ `vercel dev` หรือ preview ที่ตั้ง `ALLOW_SEED_BYPASS=true` (production ตอบ 404) |
 | `api/dev.js` | ยิงการ์ดบิลหาคนเดียว (ทดสอบ) |
-| `api/owner.js` | เจ้าของออก QR เพิ่มเจ้าของ (POST) · คนที่สแกนแลกรหัสเป็นเจ้าของ (POST + `{code}`) |
+| `api/owner.js` | รายชื่อเจ้าของ/ผู้ช่วย (GET) · ออก QR เชิญ (POST — เชิญ `owner` ได้เฉพาะ root) · คนที่สแกนแลกรหัส (POST + `{code}`) · root ถอนสิทธิ์ (DELETE + `{userId}`) |
 | `api/qr.js` | QR ประจำห้อง (`GET/POST ?room=`) · ผู้เช่าแลกรหัสผูกห้อง (POST + `{code}`) |
 | `liff/bill.html` | หน้าเดียว 2 บทบาท: ผู้เช่า = บิล+แนบสลิป / เจ้าของ = จดมิเตอร์+ดูสลิป |
 | `smoke.js` | เทสต์ offline: signature + การ์ดบิล + การ์ดยืนยัน (`node smoke.js`) |
@@ -125,7 +125,7 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "$B/api/bill?room=203"
 | cron ออกรอบบิลอัตโนมัติ | Vercel Cron → `/api/run` | ต้องมี secret ป้องกัน endpoint |
 | หลายเจ้าของ/ผู้ช่วย | `_auth.js` | `OWNER_USER_ID` เป็นคนเดียว — เปลี่ยนเป็น list หรือ role ใน Blob |
 | ~~ลบ `x-seed-token` bypass~~ | `_auth.js` | ✅ ปิดแล้ว — production ปิดเสมอ · เปิดได้เฉพาะ `vercel dev` หรือ preview ที่ตั้ง `ALLOW_SEED_BYPASS=true` · token ต้องยาว ≥ 16 ตัวและส่งทาง header เท่านั้น |
-| หลายเจ้าของ | `_auth.js` | ✅ มีแล้ว — เจ้าของคนแรกจาก `OWNER_USER_ID`, คนต่อ ๆ ไปรับสิทธิ์ด้วย QR (`/api/owner` → `?owner=<code>`) |
+| หลายเจ้าของ | `_auth.js` | ✅ มีแล้ว — เจ้าของคนแรก (root) จาก `OWNER_USER_ID`, คนต่อ ๆ ไปรับสิทธิ์ด้วย QR (`/api/owner` → `?owner=<code>`) · root ถอนสิทธิ์ได้ที่หน้า "เจ้าของและผู้ช่วย" |
 | ผูกผู้เช่าด้วยการพิมพ์เลขห้อง | `webhook.js` | ✅ ลบแล้ว — ใครพิมพ์เลขห้องก็อ้างสิทธิ์ห้องนั้นได้ ทางเดียวที่เหลือคือ QR หน้าห้อง (`/api/qr` → `?bind=<code>`) |
 | LINE Notify/แจ้งเตือนก่อนครบกำหนด | Vercel Cron | push ข้อความเตือนจาก `room-user:` map |
 | UI หลายภาษา / หลายหอใน deploy เดียว | ทั้งหมด | ตอนนี้ 1 deploy = 1 หอ (ตั้งใจ) |
