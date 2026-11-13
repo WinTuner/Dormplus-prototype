@@ -9,11 +9,7 @@ const { requireUser, isOwner } = require("./_auth");
 const { linkRichMenu, push } = require("./_line");
 const limit = require("./_limit");
 
-// Lazy: keeps `node smoke.js` runnable without node_modules.
-const qrSvg = (url) => {
-  const QR = require("qrcode-svg");
-  return new QR({ content: url, width: 320, height: 320, padding: 8 }).svg();
-};
+const { qrSvg } = require("./_qr");
 
 const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"; // no 0/O/1/I/L
 const TTL_MS = 10 * 60 * 1000;

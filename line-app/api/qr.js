@@ -19,11 +19,7 @@ const bindUrl = (code) => (process.env.LIFF_ID ? `https://liff.line.me/${process
 
 const newCode = () => Array.from({ length: 10 }, () => ALPHABET[crypto.randomInt(ALPHABET.length)]).join("");
 
-// Lazy: keeps `node smoke.js` runnable without node_modules.
-const qrSvg = (url) => {
-  const QR = require("qrcode-svg");
-  return new QR({ content: url, width: 360, height: 360, padding: 8 }).svg();
-};
+const { qrSvg } = require("./_qr");
 
 async function ensureCode(room, rotate) {
   const key = `room-qr:${room}`;

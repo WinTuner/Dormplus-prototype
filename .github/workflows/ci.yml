@@ -33,6 +33,14 @@ jobs:
         working-directory: line-app
         run: node smoke-handlers.js
 
+      # The steps above run without node_modules, so they skip the real QR renderer. Install the
+      # locked dependencies once and run smoke.js again: a QR that cannot scale cannot be scanned.
+      - name: QR renders and scales (with the real qrcode-svg)
+        working-directory: line-app
+        run: |
+          npm ci --no-audit --no-fund
+          node smoke.js
+
       # The LIFF page carries ~600 lines of inline JS that nothing else checks: a syntax error
       # there ships straight to production and only shows up as a blank screen in LINE.
       - name: Check the LIFF page script parses
