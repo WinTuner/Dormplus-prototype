@@ -44,13 +44,13 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 | 409 | `INVALID_STATE` | แนบสลิปในบิลที่ `paid` แล้ว |
 | 413 | `TOO_LARGE` | รูปเกิน 3MB |
 
-ข้อยกเว้นที่ **ไม่ใช้ envelope** (โค้ดเขียนสตริงตรง ๆ) — ต้องระวังถ้าเขียน client:
+ทุก error ใช้ envelope เดียวกัน (ไม่มีข้อยกเว้นแล้ว) — ต้องระวังถ้าเขียน client:
 
 | HTTP | body | เกิดจาก |
 |---|---|---|
 | 405 | `{ "error": { "code": "METHOD_NOT_ALLOWED", "message": "POST only" } }` | `slip`, `run`, `seed`, `sendbill`, `webhook` ถูกเรียกด้วย method อื่น |
-| 401 | `{ "error": "bad signature" }` | webhook signature ไม่ผ่าน |
-| 400 | `{ "error": "invalid json" }` | webhook body ไม่ใช่ JSON |
+| 401 | `{ "error": { "code": "UNAUTHORIZED", "message": "bad signature" } }` | webhook signature ไม่ผ่าน |
+| 400 | `{ "error": { "code": "VALIDATION", "message": "invalid json" } }` | webhook body ไม่ใช่ JSON |
 
 ### 2.2 การ auth 3 แบบ
 
@@ -311,8 +311,8 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 
 `api/webhook.js` — รับ event จาก LINE Messaging API
 
-- **Auth:** `x-line-signature` = base64(HMAC-SHA256(raw body, `LINE_CHANNEL_SECRET`)); ไม่มี secret = ปฏิเสธทุก request ถ้าไม่ผ่าน → `401 {error:"bad signature"}`
-- **Body:** JSON ของ LINE (`{events:[...]}`) — อ่านเป็น raw buffer ก่อนเพื่อคำนวณ signature; parse ไม่ได้ → `400 {error:"invalid json"}`
+- **Auth:** `x-line-signature` = base64(HMAC-SHA256(raw body, `LINE_CHANNEL_SECRET`)); ไม่มี secret = ปฏิเสธทุก request ถ้าไม่ผ่าน → `401 { error: { code: "UNAUTHORIZED", message: "bad signature" } }`
+- **Body:** JSON ของ LINE (`{events:[...]}`) — อ่านเป็น raw buffer ก่อนเพื่อคำนวณ signature; parse ไม่ได้ → `400 { error: { code: "VALIDATION", message: "invalid json" } }`
 - **200:** `{ "ok": true }` — **ตอบ 200 เสมอหลัง parse สำเร็จ** แม้ทุก event จะ throw (แต่ละ event มี `try/catch` ของตัวเองแล้ว `console.error("event failed", ...)`)
 - **Error:** `405 METHOD_NOT_ALLOWED`, `401`, `400`
 - **Side effect:** ตาม event — ดู §13

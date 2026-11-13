@@ -142,7 +142,7 @@ res.status(400).json({ error: { code: "VALIDATION", message: "ต้องระ
 | code | HTTP | ใช้เมื่อ | ตัวอย่างไฟล์ |
 |---|---|---|---|
 | `UNAUTHORIZED` | 401 | ไม่มี token / ไม่มี `CHANNEL_ID` | `_auth.js` |
-| `FORBIDDEN` | 403 | idToken ไม่ผ่าน, ไม่ใช่เจ้าของ, ไม่ได้ผูกห้อง, `?token=` ผิด | `_auth.js`, `bill.js`, `seed.js` |
+| `FORBIDDEN` | 403 | idToken ไม่ผ่าน, ไม่ใช่เจ้าของ, ไม่ได้ผูกห้อง, `x-seed-token` ผิด/สั้นกว่า 16 ตัว | `_auth.js`, `bill.js`, `dev.js` |
 | `VALIDATION` | 400 | input ไม่ครบ/ผิดรูป | `run.js`, `slip.js` |
 | `NOT_FOUND` | 404 | ไม่พบบิล/สลิป/ไฟล์ | `bill.js`, `slip-image.js` |
 | `INVALID_STATE` | 409 | แนบสลิปบนบิลที่ `paid` แล้ว | `slip.js` |
@@ -258,7 +258,7 @@ vercel storage connect domplus-bills --yes
 **สิทธิ์และข้อมูล**
 - [ ] endpoint ที่คืนข้อมูลผู้ใช้เรียก `requireUser()` เป็นอย่างแรก และคืนทันทีถ้าได้ `null`
 - [ ] มี ownership check ระดับห้อง (`isOwner(userId) || bound === room`) ไม่ใช่แค่ "ล็อกอินแล้ว"
-- [ ] ไม่มี secret/token ใน query string หรือ URL ที่ผู้ใช้เห็น (`?token=` มีเฉพาะ `seed`/`sendbill` และรู้ว่า leaks ไป access log)
+- [ ] ไม่มี secret/token ใน query string หรือ URL ที่ผู้ใช้เห็น (token ส่งทาง header `x-seed-token` เท่านั้น)
 - [ ] ไม่ได้เพิ่มทาง bypass ใหม่นอกเหนือจาก `x-seed-token` ที่มีอยู่
 
 **State / Blob**
