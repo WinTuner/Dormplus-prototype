@@ -1,5 +1,6 @@
--- DormPlus — Postgres schema (v1)
--- อ้างอิง: docs/API.md · migrations: backend/migrations/
+-- DormPlus — Postgres schema (snapshot ของ migrations ถึง 0003)
+-- source of truth: backend/migrations/ (alembic) · ไฟล์นี้เป็นสำเนาสำหรับอ่าน ไม่ใช่ตัวที่รัน
+-- อ้างอิง: docs/API.md
 
 create table properties (
   id            text primary key,
@@ -107,3 +108,29 @@ alter table readings     enable row level security;
 alter table invoices     enable row level security;
 alter table invoice_items enable row level security;
 alter table payments     enable row level security;
+
+-- 0002: รหัสเชิญผูก LINE กับห้อง (เก็บเฉพาะ SHA-256 hash)
+create table link_codes (
+  id          text primary key,
+  code_hash   text not null unique,
+  property_id text not null references properties(id) on delete cascade,
+  room_id     text not null references rooms(id) on delete cascade,
+  tenant_id   text references tenants(id) on delete set null,
+  created_by  text,
+  created_at  timestamptz not null default now(),
+  expires_at  timestamptz not null,
+  used_at     timestamptz,
+  used_by     text,
+  revoked_at  timestamptz
+);
+create index on link_codes (room_id);
+alter table link_codes enable row level security;
+
+-- 0003: จำนวนครั้งที่กรอกรหัสผิด ต่อบัญชี LINE ต่อชั่วโมง
+create table auth_failures (
+  id         bigserial primary key,
+  scope      text not null,
+  actor      text not null,
+  created_at timestamptz not null default now()
+);
+create index on auth_failures (scope, actor, created_at);
