@@ -1365,7 +1365,7 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
     await sendSlip("Utenant", { note: "ใบใหม่" });
     const p = prepayOf("201");
     assert.notStrictEqual(p.slipPath, first);
-    assert.ok(!files.has(first) && files.has(p.slipPath));
+    assert.ok(files.has(first) && files.has(p.slipPath), "the replaced photo is kept (a bill being written may point at it)");
     assert.deepStrictEqual([p.slipCount, p.slipNote], [2, "ใบใหม่"]);
   });
 

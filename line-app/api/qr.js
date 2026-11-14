@@ -52,6 +52,7 @@ async function endTenancy(room) {
   const prepay = await store.get(`prepay:${room}`);
   if (!prepay) return false;
   await store.set(`prepay-old:${room}:${prepay.slipAt}`, prepay); // the photo file is kept
+  await store.set(`prepay-old:${room}`, prepay); // latest one, so the owner can open the photo
   await store.set(`prepay:${room}`, null);
   if (process.env.OWNER_USER_ID) {
     const text = `ห้อง ${room}: ผู้เช่าเดิมมีสลิปโอนล่วงหน้าค้างอยู่ — ไม่ถูกผูกกับผู้เช่าใหม่ ตรวจสอบ/คืนเงินเอง`;
@@ -87,10 +88,12 @@ async function roomQr(req, res, userId, room) {
   }
 
   const changing = req.method === "POST";
+  // Rotate first: if a later step throws, the old sticker is already dead. Unbinding first would
+  // leave a room with no tenant and a QR that still binds.
+  const entry = await ensureCode(room, changing);
   const unbound = changing ? await unbindRoom(room) : null;
   // Always, even if nobody was bound: whoever binds next starts a fresh tenancy.
   const prepayArchived = changing ? await endTenancy(room) : false;
-  const entry = await ensureCode(room, changing);
   const url = bindUrl(entry.code);
   const qr = url ? qrSvg(url) : null;
   return res.status(200).json({ room, code: entry.code, url, qr, rotated: changing, unbound: !!unbound, ...(prepayArchived && { prepayArchived: true }) });

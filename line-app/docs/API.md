@@ -196,7 +196,7 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 
 `advance` = `{ slipAt, hasSlip, note }` จาก `prepay:<room>` เมื่อผู้เช่าโอนก่อนบิลออกแล้วยังไม่มีบิลมารับ มิฉะนั้น `null` · อ่านคู่กับบิลแบบขนาน · ไม่มีใน `period=` และ `history=1`
 
-field ที่มีจริงขึ้นกับว่าเขียนผ่าน path ไหน: `run` สร้าง `room, period, rent, water, elec, waterUnits, elecUnits, total, due, status`; `slip` เพิ่ม `slipPath, slipNote, slipAt`; webhook เพิ่ม `paidAt` (ดู §13) — `hasSlip` คำนวณสด (`!!bill.slipPath`) ไม่ได้เก็บลง Blob
+field ที่มีจริงขึ้นกับว่าเขียนผ่าน path ไหน: `run` สร้าง `room, period, rent, water, elec, waterUnits, elecUnits, total, due, status, issuedAt` และถ้าผูกสลิปโอนล่วงหน้าเพิ่ม `slipPath, slipNote, slipAt, slipCount, prepaid: true`; `slip` เพิ่ม `slipPath, slipNote, slipAt, slipCount`; webhook เพิ่ม `paidAt` (ดู §13) — `hasSlip` คำนวณสด (`!!bill.slipPath`) ไม่ได้เก็บลง Blob
 - **Error:** `400 VALIDATION` (ไม่มี `room` และยังไม่ผูกห้อง), `403 FORBIDDEN` (ผูกห้องอื่น), `404 NOT_FOUND` (ไม่มีบิล — กรณีเรียกแบบบิลล่าสุด body เป็น `{ error: { code, message, advance } }` โดย `advance` เป็นรูปเดียวกับข้างบนหรือ `null` เพื่อให้หน้า LIFF แสดง "โอนแล้ว รอบิลออก"), `401`/`403` จาก `requireUser`
 - **อ่าน Blob:** `user-room:<userId>`, `bill:<room>`, `prepay:<room>` (เฉพาะแบบบิลล่าสุด), `tenancy:<room>` (เฉพาะผู้เช่า)
 - **Side effect:** ไม่มี
@@ -237,14 +237,14 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 - **เขียน Blob:** `slips/<room>-<Date.now()>.<ext>` (เฉพาะเมื่อมี `image`), `bill:<room>` และ `bill:<period>:<room>` = บิลเดิม + `status:"pending"`, `slipPath`, `slipNote`, `slipAt` (ISO), `slipCount`
 - **Side effect อื่น:** `push()` การ์ด `confirmBubble` ไปที่ `OWNER_USER_ID` — ถ้า push ล้มเหลวแค่ `console.error("owner push failed")` แล้วยังตอบ 200
 - ถ้าไม่ได้แนบรูปใหม่ `slipPath` เดิมถูกคงไว้ · ถ้าแนบรูปใหม่ รูปเดิมถูกลบหลังบันทึกบิลแล้ว (ลบไม่สำเร็จแค่ `console.error`)
-- **ทางโอนก่อนบิลออก:** ตรวจสิทธิ์ ตรวจ note และจำกัดการส่งเหมือนทางปกติ · เขียนรูปที่ `slips/<room>-advance-<Date.now()>.<ext>` และ `prepay:<room>` = `{ room, slipPath, slipNote, slipAt, slipCount, by }` (`slipCount` = ครั้งก่อน + 1, `by` = userId ผู้ส่ง) · ไม่แตะ `bill:*` · push ข้อความ text หา `OWNER_USER_ID`: `ห้อง <room> แจ้งโอนก่อนบิลออก — <note> · ระบบจะผูกสลิปนี้กับบิลรอบถัดไปให้เอง` (ไม่มี ` — <note>` ถ้าไม่มีหมายเหตุ · push ล้มเหลวไม่ fail request)
+- **ทางโอนก่อนบิลออก:** ตรวจสิทธิ์ ตรวจ note และจำกัดการส่งเหมือนทางปกติ · เขียนรูปที่ `slips/<room>-advance-<Date.now()>.<ext>` และ `prepay:<room>` = `{ room, slipPath, slipNote, slipAt, slipCount, by }` (`slipCount` = ครั้งก่อน + 1, `by` = userId ผู้ส่ง) · **รูปของ prepay ที่ถูกแทนจะไม่ถูกลบ** (บิลที่กำลังถูกเขียนอยู่อาจอ้างถึง path นั้น) · ไม่แตะ `bill:*` · push ข้อความ text หา `OWNER_USER_ID`: `ห้อง <room> แจ้งโอนก่อนบิลออก — <note> · ระบบจะผูกสลิปนี้กับบิลรอบถัดไปให้เอง` (ไม่มี ` — <note>` ถ้าไม่มีหมายเหตุ · push ล้มเหลวไม่ fail request)
 
-## 7. `GET /api/slip-image?room=203[&advance=1]`
+## 7. `GET /api/slip-image?room=203[&advance=1][&archived=1]`
 
 `api/slip-image.js` — stream รูปสลิปจาก private Blob
 
-- **Auth:** Bearer idToken + สิทธิ์รายห้อง
-- **Query:** `room` (string) — **ไม่มี fallback ไปห้องที่ผูกไว้** ถ้าไม่ส่งจะได้ `room = ""` · `advance=1` → stream `prepay:<room>.slipPath` (สลิปโอนก่อนบิลออก) ด้วยสิทธิ์แบบเดียวกัน; ไม่ส่ง = สลิปของ `bill:<room>` เหมือนเดิม — ผู้เช่าจะไม่ได้สลิปของบิลที่ถูกซ่อนตามสัญญาเช่า (§5) → `404 ยังไม่มีสลิป` (`advance=1` ไม่ต้องกรอง เพราะ `prepay` ของคนเดิมถูกเก็บออกตอนเปลี่ยนผู้เช่า)
+- **Auth:** Bearer idToken + สิทธิ์รายห้อง · `archived=1` เป็นของเจ้าของ/ผู้ช่วยเท่านั้น
+- **Query:** `room` (string) — **ไม่มี fallback ไปห้องที่ผูกไว้** ถ้าไม่ส่งจะได้ `room = ""` · `advance=1` → stream `prepay:<room>.slipPath` (สลิปโอนก่อนบิลออก) ด้วยสิทธิ์แบบเดียวกัน · `archived=1` → สลิปโอนล่วงหน้าของผู้เช่าคนก่อน (`prepay-old:<room>`) ให้เจ้าของเปิดดูหลังเปลี่ยนผู้เช่า · ไม่ส่ง = สลิปของ `bill:<room>` เหมือนเดิม — ผู้เช่าจะไม่ได้สลิปของบิลที่ถูกซ่อนตามสัญญาเช่า (§5) → `404 ยังไม่มีสลิป` (`advance=1` ไม่ต้องกรอง เพราะ `prepay` ของคนเดิมถูกเก็บออกตอนเปลี่ยนผู้เช่า)
 - **200:** byte ของรูป, `Content-Type` จาก `blob.blob.contentType` (fallback `image/jpeg`), `Cache-Control: private, no-store`
 - **Error:** `403 FORBIDDEN` (ไม่ได้ผูกห้องนั้น — กรณีไม่ส่ง `room` ผู้เช่าจะได้ 403 นี้), `404 NOT_FOUND` (บิล — หรือ `prepay` เมื่อส่ง `advance` — ยังไม่มี `slipPath`, หรือ blob หาย), `401`/`403` จาก `requireUser`
 - **อ่าน Blob:** `user-room:<userId>`, `bill:<room>` (หรือ `prepay:<room>`), `get(bill.slipPath, {access:"private", useCache:false})`

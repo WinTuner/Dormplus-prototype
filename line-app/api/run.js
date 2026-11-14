@@ -91,6 +91,12 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl) {
     return { room, error: `บิลรอบนี้${existing.status === "paid" ? "ชำระแล้ว" : "แจ้งชำระแล้ว"} แก้ไม่ได้` };
   }
 
+  // An advance slip belongs to the NEXT bill: ignore it when this request back-dates an older
+  // period, or when it was sent by someone who is no longer the room's tenant (a stale record the
+  // tenant change failed to archive).
+  const isNextBill = !latest || billPeriod >= latest.period;
+  const usable = prepay && isNextBill && (!prepay.by || prepay.by === tenant) ? prepay : null;
+
   const water = Math.round(waterUnits * cfg.waterRate);
   const elec = Math.round(elecUnits * cfg.elecRate);
   const bill = {
@@ -104,12 +110,12 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl) {
     total: cfg.rent + water + elec,
     due: billDue || null,
     issuedAt: new Date().toISOString(), // lets a new tenant be told apart from the previous tenant's bills
-    status: prepay ? "pending" : "unpaid",
-    ...(prepay && {
-      slipPath: prepay.slipPath || null,
-      slipNote: prepay.slipNote || null,
-      slipAt: prepay.slipAt,
-      slipCount: prepay.slipCount || 1,
+    status: usable ? "pending" : "unpaid",
+    ...(usable && {
+      slipPath: usable.slipPath || null,
+      slipNote: usable.slipNote || null,
+      slipAt: usable.slipAt,
+      slipCount: usable.slipCount || 1,
       prepaid: true,
     }),
   };
@@ -118,8 +124,12 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl) {
     store.set(`meter:${room}`, { water: waterUnits, elec: elecUnits, at: new Date().toISOString() }),
     saveBill(bill),
   ]);
-  // Cleared only once the bill is stored: a failed write must not lose the tenant's slip.
-  if (prepay) await store.set(`prepay:${room}`, null);
+  // Clear only the record this bill consumed. A slip that arrived while the bill was being written
+  // has a different slipAt and must survive for the next bill (Blob has no compare-and-set).
+  if (usable) {
+    const still = await store.get(`prepay:${room}`);
+    if (still && still.slipAt === usable.slipAt) await store.set(`prepay:${room}`, null);
+  }
 
   // The card goes out only after the bill is stored, so its button never opens a missing bill.
   let pushed = false;
@@ -133,12 +143,12 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl) {
   }
   // The slip is already on the bill, so the owner can confirm without waiting for the tenant.
   const ownerId = process.env.OWNER_USER_ID;
-  if (prepay && ownerId) {
+  if (usable && ownerId) {
     try {
       await push(ownerId, [confirmBubble(bill)]);
     } catch (err) {
       console.error("owner push failed", room, err.message);
     }
   }
-  return { room, total: bill.total, pushed, reissued: !!existing, ...(prepay && { prepaid: true }) };
+  return { room, total: bill.total, pushed, reissued: !!existing, ...(usable && { prepaid: true }) };
 }

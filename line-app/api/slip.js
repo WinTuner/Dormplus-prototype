@@ -63,7 +63,7 @@ module.exports = async (req, res) => {
     await store.putFile(slipPath, bytes, m[1]);
   }
 
-  if (advance) return saveAdvance({ res, room, userId, note, slipPath, oldSlip, sent });
+  if (advance) return saveAdvance({ res, room, userId, note, slipPath, sent });
 
   const next = {
     ...bill,
@@ -94,13 +94,13 @@ module.exports = async (req, res) => {
 };
 
 // The advance path: one `prepay:<room>` record per room, replaced by each new slip.
-async function saveAdvance({ res, room, userId, note, slipPath, oldSlip, sent }) {
+async function saveAdvance({ res, room, userId, note, slipPath, sent }) {
   const prepay = { room, slipPath, slipNote: note || null, slipAt: new Date().toISOString(), slipCount: sent + 1, by: userId };
   await store.set(`prepay:${room}`, prepay);
 
-  if (oldSlip && oldSlip !== slipPath) {
-    await store.delFile(oldSlip).catch((err) => console.error("old slip delete failed", err.message));
-  }
+  // A replaced photo is deliberately NOT deleted: /api/run may have just copied that path onto a
+  // bill (the slip arrived while the bill was being written) and Blob cannot tell us whether a file
+  // is still referenced. An orphaned private file is cheaper than a bill whose slip 404s.
 
   // No bill exists to hang a confirm card on, so the owner gets a plain note instead.
   const ownerId = process.env.OWNER_USER_ID;
