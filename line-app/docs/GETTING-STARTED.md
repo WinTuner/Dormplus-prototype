@@ -6,9 +6,10 @@
 
 ## 0. อ่านก่อนอย่างเดียว: เรพนี้ไม่มี dev server
 
-`package.json` **ไม่มี `scripts` เลย** (มีแค่ `engines`, `dependencies`) ดังนั้น:
+`package.json` มี `engines`, `dependencies` และ `scripts` ตัวเดียวคือ `test` (รัน smoke ทั้งสามชุด) ดังนั้น:
 
-- ไม่มี `npm run dev`, `npm start`, ไม่มี `npm test`
+- ไม่มี `npm run dev` / `npm start` / `npm run build` — เรพนี้ไม่มี dev server
+- `npm test` = `node smoke.js && node smoke-handlers.js && node smoke-reads.js`
 - ไม่มี `.env`, `.env.example` และไม่มี `dotenv` — ใส่ค่าในไฟล์ `.env` แล้วไม่มีผล เพราะไม่มีอะไรโหลดไฟล์นั้น (รายละเอียดใน [`CONFIGURATION.md`](./CONFIGURATION.md) ข้อ 4)
 - ไม่มี dev server สำหรับ `liff/bill.html` — หน้าเว็บเรียก `/api/*` แบบ path สัมพัทธ์ผ่าน helper `fetch` ตัวเดียว (จุดเรียกจริง: `/api/config` · `/api/me` · `/api/bill` · `/api/slip` · `/api/slip-image` · `/api/rooms` · `/api/run`) จึงต้องเสิร์ฟจาก origin เดียวกับ API
 

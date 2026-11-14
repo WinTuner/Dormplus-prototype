@@ -219,7 +219,7 @@ vercel storage connect domplus-bills --yes
 
 ## 8. คำสั่งที่ใช้จริง (ไม่มี build)
 
-`package.json` มีแค่ `name`, `private`, `version`, `description`, `engines`, `dependencies` — **ไม่มี `scripts`** จึงไม่มี `npm run build` / `dev` / `lint` / `test` ตารางนี้คือคำสั่งทั้งหมดที่มีอยู่ในเอกสารของทีม:
+`package.json` มี `name`, `private`, `version`, `description`, `engines`, `dependencies` และ `scripts` ตัวเดียวคือ `test` — **ไม่มี** `npm run build` / `dev` / `lint` ตารางนี้คือคำสั่งทั้งหมดที่มีอยู่ในเอกสารของทีม:
 
 | คำสั่ง | ทำอะไร | ที่มา |
 |---|---|---|
@@ -231,7 +231,7 @@ vercel storage connect domplus-bills --yes
 
 ## 9. Code style และ convention ที่โค้ดทำอยู่
 
-**ไม่มี** ESLint, Prettier, Biome, `.editorconfig`, TypeScript หรือ CI config ในเรพ (ตรวจแล้ว) สิ่งที่มีคือสไตล์ที่โค้ดทั้ง 15 ไฟล์ทำเหมือนกัน:
+**ไม่มี** ESLint, Prettier, Biome, `.editorconfig` หรือ TypeScript ในเรพ แต่ **มี CI** (`.github/workflows/ci.yml`) ที่รัน syntax check + smoke ทั้งสามชุด สิ่งที่เหลือคือสไตล์ที่โค้ดทั้ง 11 handler ทำเหมือนกัน:
 
 - **CommonJS เท่านั้น** — `require()` / `module.exports` ไม่มี `import`/`export` เพราะ helper ถูก require ด้วย path ตรง ๆ
 - 2 spaces, double quotes, semicolons, `const` (ไม่มี `var`)
@@ -245,9 +245,9 @@ vercel storage connect domplus-bills --yes
 
 ## 10. Branch และ PR
 
-เรพนี้ในเวิร์กสเปซปัจจุบัน **ไม่ใช่ git repository** (`git rev-parse` ตอบ "not a git repository") ไม่มี `CONTRIBUTING.md`, `.github/PULL_REQUEST_TEMPLATE.md`, `.github/workflows/` หรือ `CODE_OF_CONDUCT.md` จึงไม่มี convention ที่เขียนไว้ให้ตาม
+เรพนี้เป็น git repository (remote `WinTuner/Dormplus-prototype`) และมี convention ที่เขียนไว้แล้ว: `.github/PULL_REQUEST_TEMPLATE.md` (สรุปงาน/ทดสอบ/กระทบข้อมูล) และ `.github/workflows/ci.yml` ที่มี 2 job คือ `backend` (pytest + Postgres service) และ `line-app` (`npm ci` → `node --check` ทุก handler → smoke ทั้งสามชุด → ตรวจ script ในหน้า LIFF) · branch `master` มี protection บังคับให้ผ่าน check `backend` ก่อน merge
 
-`.gitignore` มีบรรทัดเดียวคือ `.vercel` — ถ้าเริ่มใช้ git ให้คงบรรทัดนี้ไว้ (มี project id/org id ของ Vercel อยู่ข้างใน)
+`.gitignore` เก็บ `.vercel` ไว้ (มี project id/org id ของ Vercel อยู่ข้างใน) — อย่า commit โฟลเดอร์นั้น
 
 ข้อตกลงที่ไม่เป็นลายลักษณ์อักษรแต่ทีมใช้อยู่ (`HANDOFF.md` ข้อ 8): รัน `node smoke.js` ให้ผ่านก่อนทุกครั้งที่แตะ `api/_line.js` หรือ `api/_rooms.js` และทดสอบบน deployment จริง 1 รอบหลัง deploy
 
