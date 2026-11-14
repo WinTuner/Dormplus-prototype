@@ -263,21 +263,23 @@ async function shrink(file) {
 
 // Slip images are private: fetch with the token and keep one object URL per room.
 const slipUrls = {};
-async function slipUrl(room) {
-  if (slipUrls[room]) return slipUrls[room];
-  const res = await fetch(`/api/slip-image?room=${encodeURIComponent(room)}`, {
+async function slipUrl(room, advance) {
+  // An advance slip can be replaced by the tenant, so it is never cached.
+  if (!advance && slipUrls[room]) return slipUrls[room];
+  const res = await fetch(`/api/slip-image?room=${encodeURIComponent(room)}${advance ? "&advance=1" : ""}`, {
     headers: { Authorization: `Bearer ${idToken}` },
   });
   if (!res.ok) throw new Error("โหลดสลิปไม่สำเร็จ");
-  slipUrls[room] = URL.createObjectURL(await res.blob());
-  return slipUrls[room];
+  const url = URL.createObjectURL(await res.blob());
+  if (!advance) slipUrls[room] = url;
+  return url;
 }
 
 // ---------- tenant ----------
-let T = null; // { room, bill }
+let T = null; // { room, bill, advance } — bill is null while the room has no bill; advance is the slip sent before it
 
 async function startTenant(room) {
-  T = { room, bill: null };
+  T = { room, bill: null, advance: null };
   window.onhashchange = renderTenant;
   await loadTenant();
 }
@@ -288,8 +290,14 @@ async function loadTenant() {
   bottom("");
   try {
     T.bill = await api(`/api/bill?room=${encodeURIComponent(T.room)}`);
+    T.advance = T.bill.advance || null;
   } catch (e) {
     T.bill = null;
+    T.advance = null;
+    if (e.status === 404) {
+      T.advance = e.detail?.advance || null;
+      return renderTenant();
+    }
     view.innerHTML = `<div class="card"><div class="err">${esc(e.message)}</div></div>`;
     return;
   }
@@ -297,9 +305,25 @@ async function loadTenant() {
 }
 
 function renderTenant() {
-  if (!T || !T.bill) return;
-  if (route() === "slip" && T.bill.status !== "paid") return tenantSlip();
+  if (!T) return;
+  // The slip form also serves the advance case: no bill yet, or the latest bill already paid.
+  if (route() === "slip") return tenantSlip();
+  if (!T.bill) return tenantNoBill();
   return tenantInvoice();
+}
+
+function advanceCard(adv) {
+  if (!adv) return "";
+  return `<div class="card"><div class="m">ส่งสลิปโอนก่อนแล้ว ${esc(timeTh(adv.slipAt))} — ระบบจะผูกกับบิลรอบถัดไปเมื่อเจ้าของหอออกบิล</div>
+    ${adv.note ? `<div class="hint" style="margin-top:8px">${esc(adv.note)}</div>` : ""}</div>`;
+}
+
+function tenantNoBill() {
+  header(`ห้อง ${T.room}`, "ใบแจ้งหนี้");
+  view.innerHTML = `<div class="card"><div class="m">ยังไม่มีบิลรอบนี้</div>
+    <div class="hint" style="margin-top:8px">ถ้าโอนค่าเช่าไว้ก่อนแล้ว แนบสลิปได้เลย ระบบจะผูกกับบิลเมื่อเจ้าของหอออกบิล</div></div>${advanceCard(T.advance)}`;
+  bottom(`<button class="btn primary" id="toSlip">${T.advance ? "ส่งสลิปใหม่แทน" : "โอนก่อน / แนบสลิป"}</button>`);
+  $("toSlip").onclick = () => go("slip");
 }
 
 function statusPill(status) {
@@ -336,7 +360,8 @@ function tenantInvoice() {
       <div class="m">ประวัติการชำระ</div>
       <button class="btn" id="histBtn" style="margin-top:10px">ดูใบเสร็จย้อนหลัง</button>
       <div id="hist"></div>
-    </div>`;
+    </div>
+    ${b.status === "paid" ? advanceCard(T.advance) : ""}`;
 
   $("histBtn").onclick = async () => {
     const btn = $("histBtn");
@@ -357,14 +382,20 @@ function tenantInvoice() {
     }
   };
 
+  if (b.status === "paid") {
+    bottom(`<button class="btn" id="toSlip">${T.advance ? "ส่งสลิปใหม่แทน" : "โอนรอบถัดไปก่อน"}</button>`);
+    $("toSlip").onclick = () => go("slip");
+    return;
+  }
   const label = b.status === "pending" ? "ส่งสลิปใหม่" : "แนบสลิป";
-  bottom(`<button class="btn primary" id="toSlip" ${b.status === "paid" ? "disabled" : ""}>${label}</button>`);
+  bottom(`<button class="btn primary" id="toSlip">${label}</button>`);
   $("toSlip").onclick = () => go("slip");
 }
 
 function tenantSlip() {
   const b = T.bill;
-  header(`ห้อง ${b.room} · ${fmt(b.total)} บาท`, "แนบสลิป", "invoice");
+  const adv = !b || b.status === "paid"; // no amount to pay now: the slip waits for the next bill
+  header(adv ? `ห้อง ${T.room} · โอนก่อนบิลออก` : `ห้อง ${b.room} · ${fmt(b.total)} บาท`, "แนบสลิป", "invoice");
 
   view.innerHTML = `
     <label class="pick" for="file" id="pick">
@@ -372,8 +403,11 @@ function tenantSlip() {
       <span class="m">หรือถ่ายรูปจากกล้อง</span>
     </label>
     <input type="file" id="file" accept="image/*">
-    <div class="card"><div class="row"><span class="m">ยอดในบิล</span><b>${fmt(b.total)} บาท</b></div></div>
-    <div class="hint">สถานะจะเป็น “รอตรวจสอบ” จนกว่าเจ้าของหอจะยืนยัน</div>`;
+    ${adv
+      ? `<div class="card"><div class="m">ยังไม่มีบิลที่ต้องชำระ — สลิปนี้จะถูกผูกกับบิลรอบถัดไปแทนยอดบิล</div></div>
+    <div class="hint">เมื่อเจ้าของหอออกบิล สถานะจะเป็น “รอตรวจสอบ” จนกว่าเจ้าของหอจะยืนยัน</div>`
+      : `<div class="card"><div class="row"><span class="m">ยอดในบิล</span><b>${fmt(b.total)} บาท</b></div></div>
+    <div class="hint">สถานะจะเป็น “รอตรวจสอบ” จนกว่าเจ้าของหอจะยืนยัน</div>`}`;
 
   bottom(`<button class="btn primary" id="send" disabled>ส่งสลิป</button>`);
 
@@ -393,8 +427,8 @@ function tenantSlip() {
     btn.textContent = "กำลังส่ง…";
     try {
       const image = await shrink(file);
-      await api("/api/slip", { method: "POST", body: JSON.stringify({ room: T.room, image }) });
-      toast("แจ้งชำระแล้ว — รอเจ้าของหอยืนยัน");
+      const out = await api("/api/slip", { method: "POST", body: JSON.stringify({ room: T.room, image }) });
+      toast(out.status === "advance" ? "ส่งสลิปแล้ว — จะผูกกับบิลรอบถัดไปเมื่อเจ้าของออกบิล" : "แจ้งชำระแล้ว — รอเจ้าของหอยืนยัน");
       history.replaceState(null, "", location.pathname + location.search);
       await loadTenant();
     } catch (e) {
@@ -733,7 +767,8 @@ function ownerQr(room) {
       try {
         const r = await api(`/api/qr?room=${encodeURIComponent(room)}`, { method: "POST" });
         show(r);
-        toast(r.unbound ? "ถอดผู้เช่าเดิมและสร้าง QR ใหม่แล้ว" : "สร้าง QR ใหม่แล้ว");
+        toast((r.unbound ? "ถอดผู้เช่าเดิมและสร้าง QR ใหม่แล้ว" : "สร้าง QR ใหม่แล้ว") +
+          (r.prepayArchived ? " · ผู้เช่าเดิมมีสลิปโอนล่วงหน้าค้าง — ตรวจสอบ/คืนเงินเอง" : ""));
       } catch (e) {
         toast(e.message, true);
       }
@@ -794,6 +829,7 @@ function ownerRooms() {
     if (billedNow(r)) pill = r.bill.status === "paid" ? `<span class="pill ok">ชำระแล้ว</span>` : `<span class="pill">ออกบิลแล้ว</span>`;
     else if (O.draft[r.room]) pill = `<span class="pill ok">จดแล้ว</span>`;
     else pill = `<span class="pill todo">ยังไม่จด</span>`;
+    if (r.advance) pill = `<span class="pill warn">โอนล่วงหน้า</span> ${pill}`;
     const isNext = next && next.room === r.room;
     const sub = isNext ? "ห้องถัดไป" : (r.linked ?? r.tenant) ? "" : "ยังไม่ผูก LINE";
     return `<button class="roomcard${isNext ? " next" : ""}" data-room="${esc(r.room)}">
@@ -852,6 +888,8 @@ function ownerEntry(roomNo) {
       <label for="inE">ไฟเดือนนี้ (หน่วยที่ใช้)</label>
       <div class="in"><input id="inE" type="number" min="0" step="1" inputmode="numeric" value="${esc(val("elec"))}" placeholder="0" ${locked ? "disabled" : ""}><span class="unit">หน่วย</span></div>
     </div>
+    ${r.advance ? `<div class="card"><div class="m">ผู้เช่าโอนล่วงหน้าแล้ว ${esc(timeTh(r.advance.slipAt))} — จะติดไปกับบิลที่ออกรอบนี้</div>
+      ${r.advance.hasSlip ? `<button class="btn" id="advSlip" style="margin-top:10px">ดูสลิป</button>` : ""}</div>` : ""}
     <div class="card rows" id="calc"></div>
     <div class="hint warnText" id="hint"></div>
     ${locked ? `<div class="hint">ห้องนี้ออกบิลรอบ ${periodTh(O.period)} แล้ว — แก้ไขไม่ได้</div>` : ""}
@@ -861,6 +899,7 @@ function ownerEntry(roomNo) {
     </div>`;
 
   $("qrBtn").onclick = () => go(`qr/${encodeURIComponent(r.room)}`);
+  if ($("advSlip")) $("advSlip").onclick = () => showSlip(r.room, true);
 
   const units = () => ({ water: Number($("inW").value || 0), elec: Number($("inE").value || 0) });
   const calc = () => {
@@ -977,12 +1016,14 @@ function ownerBill() {
       });
       const done = out.rooms.filter((x) => !x.error);
       const skipped = out.rooms.length - done.length;
+      const prepaid = done.filter((x) => x.prepaid).map((x) => x.room);
       const sent = done.filter((x) => x.pushed).length;
       done.forEach((x) => delete O.draft[x.room]);
       saveDraft();
       toast(
         `ออกบิลรอบ ${periodTh(out.period)} แล้ว ${done.length} ห้อง · ส่งการ์ด ${sent} ห้อง` +
-          (skipped ? ` · ข้าม ${skipped} ห้อง (แจ้งชำระแล้วหรือข้อมูลไม่ถูกต้อง)` : "")
+          (skipped ? ` · ข้าม ${skipped} ห้อง (แจ้งชำระแล้วหรือข้อมูลไม่ถูกต้อง)` : "") +
+          (prepaid.length ? ` · ห้อง ${prepaid.join(", ")} แนบสลิปที่โอนไว้แล้ว รอยืนยัน` : "")
       );
       history.replaceState(null, "", "#home");
       await loadOwner();
@@ -1047,17 +1088,17 @@ function ownerReview(tab) {
   });
 }
 
-async function showSlip(room) {
+async function showSlip(room, advance) {
   const sheet = document.createElement("div");
   sheet.className = "sheet";
-  sheet.innerHTML = `<div class="card"><div class="row"><b>สลิปห้อง ${esc(room)}</b><button class="btn sm" id="closeSlip">ปิด</button></div>
+  sheet.innerHTML = `<div class="card"><div class="row"><b>สลิป${advance ? "โอนล่วงหน้า" : ""}ห้อง ${esc(room)}</b><button class="btn sm" id="closeSlip">ปิด</button></div>
     <div class="m" id="slipBody" style="margin-top:10px">กำลังโหลด…</div></div>`;
   document.body.appendChild(sheet);
   const close = () => sheet.remove();
   sheet.onclick = (e) => { if (e.target === sheet) close(); };
   $("closeSlip").onclick = close;
   try {
-    $("slipBody").outerHTML = `<img src="${await slipUrl(room)}" alt="สลิปห้อง ${esc(room)}">`;
+    $("slipBody").outerHTML = `<img src="${await slipUrl(room, advance)}" alt="สลิปห้อง ${esc(room)}">`;
   } catch (e) {
     $("slipBody").className = "err";
     $("slipBody").textContent = e.message;

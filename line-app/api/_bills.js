@@ -27,4 +27,17 @@ async function saveBill(bill) {
   }
 }
 
-module.exports = { indexBill, saveBill, PERIOD };
+// A new tenant must not read the previous tenant's bills. `tenancy:<room>` = { since: ISO } is
+// written when a tenant leaves the room (see api/qr.js); a bill is the current tenant's only if it
+// was issued at or after that moment. No record = the room was never reset since this was added:
+// show everything as before, so existing tenants keep their history. Every tenant change from
+// now on writes the record, so the gap only exists for rooms nobody has changed yet.
+const tenancyOf = (room) => store.get(`tenancy:${room}`);
+
+// A bill without `issuedAt` was written before this field existed, so it is older than any tenancy.
+function visibleToTenant(bill, tenancy) {
+  if (!tenancy || !tenancy.since) return true;
+  return !!bill && !!bill.issuedAt && bill.issuedAt >= tenancy.since;
+}
+
+module.exports = { indexBill, saveBill, tenancyOf, visibleToTenant, PERIOD };

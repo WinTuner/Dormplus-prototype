@@ -120,10 +120,12 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 | endpoint | auth | body/query | ผล |
 |---|---|---|---|
 | `GET /api/qr?room=203` | เจ้าของ | — | `{room, code, url, qr}` · สร้างรหัสให้ถ้ายังไม่มี |
-| `POST /api/qr?room=203` | เจ้าของ | — | **เปลี่ยนผู้เช่า:** ถอดผู้เช่าที่ผูกอยู่ (`unbound:true`) + รหัสใหม่ (`rotated:true`) |
+| `POST /api/qr?room=203` | เจ้าของ | — | **เปลี่ยนผู้เช่า:** ถอดผู้เช่าที่ผูกอยู่ (`unbound:true`) + รหัสใหม่ (`rotated:true`) + เขียน `tenancy:<room>` (ดูล่าง) · `prepayArchived:true` เมื่อมีสลิปโอนล่วงหน้าของคนเดิมถูกเก็บเข้า `prepay-old:*` |
 | `POST /api/qr` | ผู้ใช้ที่ล็อกอิน LINE | `{code, confirmMove?}` | `{ok:true, room, previous}` — เขียน `user-room:<userId>` + `room-user:<room>` + สลับเมนูผู้เช่า |
 
 - รหัส 10 ตัว (ไม่มี 0/O/1/I/L) · เก็บ 2 key: `room-qr:<room>` และ `qr-code:<code>` (ตัวหลังถูกลบเมื่อหมุน)
+- **ผู้เช่าใหม่ไม่เห็นบิลของคนเก่า:** เมื่อผู้เช่าออกจากห้อง — กด "เปลี่ยนผู้เช่า" (เขียนเสมอ แม้ไม่มีใครผูกอยู่) หรือผู้เช่าย้ายไปห้องอื่นด้วย `confirmMove` (เขียนให้ห้องที่ออก) — ระบบเขียน `tenancy:<room>` = `{ since: <ISO now> }` · การผูกเองไม่เขียน · ห้องที่ยังไม่มี `tenancy` แสดงทุกบิลเหมือนเดิม (ผู้เช่าปัจจุบันไม่เสียประวัติ ช่องโหว่เปิดเฉพาะหลังเปลี่ยนผู้เช่า ซึ่งจากนี้ทุกครั้งจะเขียน record)
+- **สลิปโอนล่วงหน้าของคนเดิม:** ตอนเขียน `tenancy` ถ้ามี `prepay:<room>` จะคัดลอกไป `prepay-old:<room>:<slipAt>` (ไฟล์รูปเก็บไว้) ตั้ง `prepay:<room>` เป็น `null` และ push ข้อความหา `OWNER_USER_ID` `ห้อง <room>: ผู้เช่าเดิมมีสลิปโอนล่วงหน้าค้างอยู่ — ไม่ถูกผูกกับผู้เช่าใหม่ ตรวจสอบ/คืนเงินเอง` (push พังแค่ log)
 - รหัสผิด/ถูกหมุนแล้ว → `404 NOT_FOUND`
 - ห้องที่ไม่มีทั้งบิลและผู้เช่า → `404 NOT_FOUND` (กันพิมพ์เลขห้องผิด)
 - **QR ผูกได้เฉพาะห้องที่ยังว่าง** — ห้องที่มีผู้เช่าผูกอยู่แล้วตอบ `409 ROOM_TAKEN` คนที่ถ่ายรูป QR ไปจึงแย่งห้องไม่ได้ · ผูกสำเร็จแล้วเจ้าของได้ข้อความแจ้ง · ย้ายห้องแล้วห้องเก่าเลิกส่งบิลให้ · ผิดเกิน 10 ครั้ง/ชม. → `429 TOO_MANY_ATTEMPTS`
@@ -168,7 +170,8 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 
 - **Auth:** Bearer idToken + ถ้าไม่ใช่ owner ต้องมี `user-room:<userId> === room`
 - **Query:** `room` (string, ไม่บังคับ — ถ้าไม่ส่งจะใช้ห้องที่ผูกไว้)
-- **200:** bill object ทั้งก้อนจาก `bill:<room>` บวก `hasSlip`:
+- **กรองตามสัญญาเช่า (ผู้เช่าเท่านั้น):** ผู้เช่าเห็นเฉพาะบิลที่ออก **ตั้งแต่เริ่มสัญญาเช่าปัจจุบัน** (`tenancy:<room>.since` — ดู §2.6): บิลที่ `issuedAt < since` หรือไม่มี `issuedAt` ถือเป็นของผู้เช่าคนก่อน · ห้องที่ไม่มี `tenancy` (ยังไม่เคยเปลี่ยนผู้เช่าหลังเพิ่มฟีเจอร์นี้) เห็นทุกบิลเหมือนเดิม · เจ้าของ/ผู้ช่วยไม่ถูกกรอง · บิลล่าสุดที่ถูกซ่อนตอบเหมือนไม่มีบิล (`404` + `error.advance`) · `period=` ที่ถูกซ่อน → `404` · `history=1` ตัดรายการที่ถูกซ่อนออก
+- **200:** bill object ทั้งก้อนจาก `bill:<room>` บวก `hasSlip` (และ `advance` เมื่อเรียกแบบ "บิลล่าสุด" ไม่ส่ง `period`/`history`):
 
 ```json
 {
@@ -186,19 +189,24 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
   "slipNote": null,
   "slipAt": "2026-11-12T...",
   "paidAt": "2026-11-13T...",
-  "hasSlip": true
+  "hasSlip": true,
+  "advance": null
 }
 ```
 
+`advance` = `{ slipAt, hasSlip, note }` จาก `prepay:<room>` เมื่อผู้เช่าโอนก่อนบิลออกแล้วยังไม่มีบิลมารับ มิฉะนั้น `null` · อ่านคู่กับบิลแบบขนาน · ไม่มีใน `period=` และ `history=1`
+
 field ที่มีจริงขึ้นกับว่าเขียนผ่าน path ไหน: `run` สร้าง `room, period, rent, water, elec, waterUnits, elecUnits, total, due, status`; `slip` เพิ่ม `slipPath, slipNote, slipAt`; webhook เพิ่ม `paidAt` (ดู §13) — `hasSlip` คำนวณสด (`!!bill.slipPath`) ไม่ได้เก็บลง Blob
-- **Error:** `400 VALIDATION` (ไม่มี `room` และยังไม่ผูกห้อง), `403 FORBIDDEN` (ผูกห้องอื่น), `404 NOT_FOUND` (ไม่มี `bill:<room>`), `401`/`403` จาก `requireUser`
-- **อ่าน Blob:** `user-room:<userId>`, `bill:<room>`
+- **Error:** `400 VALIDATION` (ไม่มี `room` และยังไม่ผูกห้อง), `403 FORBIDDEN` (ผูกห้องอื่น), `404 NOT_FOUND` (ไม่มีบิล — กรณีเรียกแบบบิลล่าสุด body เป็น `{ error: { code, message, advance } }` โดย `advance` เป็นรูปเดียวกับข้างบนหรือ `null` เพื่อให้หน้า LIFF แสดง "โอนแล้ว รอบิลออก"), `401`/`403` จาก `requireUser`
+- **อ่าน Blob:** `user-room:<userId>`, `bill:<room>`, `prepay:<room>` (เฉพาะแบบบิลล่าสุด), `tenancy:<room>` (เฉพาะผู้เช่า)
 - **Side effect:** ไม่มี
 - **หมายเหตุ:** ไม่มีการตรวจ `req.method` — เรียกด้วย POST ก็ได้ผลเหมือน GET
 
 ## 6. `POST /api/slip`
 
 `api/slip.js` — ผู้เช่าแนบสลิป (ไม่บังคับรูป) แล้วแจ้งเจ้าของให้ยืนยัน
+
+**สองทางตามสถานะบิลล่าสุด** (สำหรับผู้เช่า บิลล่าสุดที่ไม่ใช่ของสัญญาเช่าปัจจุบัน — ดู §5 — นับเป็น "ไม่มีบิล" จึงเข้าทางโอนก่อนบิลออก และไม่แตะบิลเก่า · เจ้าของไม่ถูกกรอง): ถ้า `bill:<room>` เป็น `unpaid`/`pending` สลิปผูกกับบิลนั้น (ทางปกติ) · ถ้าไม่มีบิลเลย หรือบิลล่าสุด `paid` แล้ว ถือว่าเป็น **สลิปโอนก่อนบิลออก** เก็บเป็น `prepay:<room>` และ `/api/run` จะผูกให้กับบิลรอบถัดไปเอง (ไม่มี `409 INVALID_STATE` สำหรับบิลที่ชำระแล้วอีกต่อไป)
 
 - **Auth:** Bearer idToken + สิทธิ์รายห้องแบบเดียวกับ `/api/bill`
 - **Body (JSON):**
@@ -216,23 +224,30 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 { "ok": true, "status": "pending", "total": 3796, "hasSlip": true }
 ```
 
-- **Error (ตามลำดับที่โค้ดเช็ก):** `405 METHOD_NOT_ALLOWED` → `401`/`403` จาก `requireUser` → `400 VALIDATION` (`note` ไม่ใช่ข้อความหรือยาวเกิน 500) → `400 VALIDATION` (ไม่มี room) → `403 FORBIDDEN` (ไม่ได้ผูกห้อง) → `404 NOT_FOUND` (ไม่พบบิล) → `409 INVALID_STATE` (บิล `paid` แล้ว) → `429 SLIP_LIMIT` / `429 SLIP_TOO_SOON` → `400 VALIDATION` (mime ไม่อยู่ใน 3 ชนิด) → `413 TOO_LARGE`
-- **จำกัดการส่ง (ผู้เช่าเท่านั้น เจ้าของไม่ติด):** ไม่เกิน 5 ครั้งต่อบิล และห่างกันอย่างน้อย 30 วินาที — ทุกสลิป push การ์ดหาเจ้าของ ซึ่งกินโควตาข้อความของ LINE OA · สลิปที่ถูกปฏิเสธไม่ส่งข้อความ · นับใน `slipCount` ของบิล
+ทางโอนก่อนบิลออก (ไม่มี `total` เพราะยังไม่มีบิล):
+
+```json
+{ "ok": true, "status": "advance", "hasSlip": true }
+```
+
+- **Error (ตามลำดับที่โค้ดเช็ก — ไม่มี `404` แล้ว เพราะห้องที่ไม่มีบิลเข้าทางโอนก่อนบิลออก):** `405 METHOD_NOT_ALLOWED` → `401`/`403` จาก `requireUser` → `400 VALIDATION` (`note` ไม่ใช่ข้อความหรือยาวเกิน 500) → `400 VALIDATION` (ไม่มี room) → `403 FORBIDDEN` (ไม่ได้ผูกห้อง) → `429 SLIP_LIMIT` / `429 SLIP_TOO_SOON` → `400 VALIDATION` (mime ไม่อยู่ใน 3 ชนิด) → `413 TOO_LARGE`
+- **จำกัดการส่ง (ผู้เช่าเท่านั้น เจ้าของไม่ติด):** ไม่เกิน 5 ครั้งต่อบิล และห่างกันอย่างน้อย 30 วินาที — ทุกสลิป push การ์ดหาเจ้าของ ซึ่งกินโควตาข้อความของ LINE OA · สลิปที่ถูกปฏิเสธไม่ส่งข้อความ · นับใน `slipCount` ของบิล (ทางโอนก่อนบิลออกนับใน `slipCount` / `slipAt` ของ `prepay:<room>` ด้วยกติกาเดียวกัน)
   - ⚠️ เป็น **best-effort**: Blob ไม่มี atomic counter ถ้ายิงหลาย request พร้อมกันอาจมีบางตัวหลุดเกิน 5 (ตัวนับกันสแปม ไม่ใช่ด่านความปลอดภัย)
   - การออกบิล `unpaid` รอบเดิมใหม่ (`/api/run`) จะสร้างบิลใหม่และรีเซ็ต `slipCount`
 - **เขียน Blob:** `slips/<room>-<Date.now()>.<ext>` (เฉพาะเมื่อมี `image`), `bill:<room>` และ `bill:<period>:<room>` = บิลเดิม + `status:"pending"`, `slipPath`, `slipNote`, `slipAt` (ISO), `slipCount`
 - **Side effect อื่น:** `push()` การ์ด `confirmBubble` ไปที่ `OWNER_USER_ID` — ถ้า push ล้มเหลวแค่ `console.error("owner push failed")` แล้วยังตอบ 200
 - ถ้าไม่ได้แนบรูปใหม่ `slipPath` เดิมถูกคงไว้ · ถ้าแนบรูปใหม่ รูปเดิมถูกลบหลังบันทึกบิลแล้ว (ลบไม่สำเร็จแค่ `console.error`)
+- **ทางโอนก่อนบิลออก:** ตรวจสิทธิ์ ตรวจ note และจำกัดการส่งเหมือนทางปกติ · เขียนรูปที่ `slips/<room>-advance-<Date.now()>.<ext>` และ `prepay:<room>` = `{ room, slipPath, slipNote, slipAt, slipCount, by }` (`slipCount` = ครั้งก่อน + 1, `by` = userId ผู้ส่ง) · ไม่แตะ `bill:*` · push ข้อความ text หา `OWNER_USER_ID`: `ห้อง <room> แจ้งโอนก่อนบิลออก — <note> · ระบบจะผูกสลิปนี้กับบิลรอบถัดไปให้เอง` (ไม่มี ` — <note>` ถ้าไม่มีหมายเหตุ · push ล้มเหลวไม่ fail request)
 
-## 7. `GET /api/slip-image?room=203`
+## 7. `GET /api/slip-image?room=203[&advance=1]`
 
 `api/slip-image.js` — stream รูปสลิปจาก private Blob
 
 - **Auth:** Bearer idToken + สิทธิ์รายห้อง
-- **Query:** `room` (string) — **ไม่มี fallback ไปห้องที่ผูกไว้** ถ้าไม่ส่งจะได้ `room = ""`
+- **Query:** `room` (string) — **ไม่มี fallback ไปห้องที่ผูกไว้** ถ้าไม่ส่งจะได้ `room = ""` · `advance=1` → stream `prepay:<room>.slipPath` (สลิปโอนก่อนบิลออก) ด้วยสิทธิ์แบบเดียวกัน; ไม่ส่ง = สลิปของ `bill:<room>` เหมือนเดิม — ผู้เช่าจะไม่ได้สลิปของบิลที่ถูกซ่อนตามสัญญาเช่า (§5) → `404 ยังไม่มีสลิป` (`advance=1` ไม่ต้องกรอง เพราะ `prepay` ของคนเดิมถูกเก็บออกตอนเปลี่ยนผู้เช่า)
 - **200:** byte ของรูป, `Content-Type` จาก `blob.blob.contentType` (fallback `image/jpeg`), `Cache-Control: private, no-store`
-- **Error:** `403 FORBIDDEN` (ไม่ได้ผูกห้องนั้น — กรณีไม่ส่ง `room` ผู้เช่าจะได้ 403 นี้), `404 NOT_FOUND` (บิลยังไม่มี `slipPath`, หรือ blob หาย), `401`/`403` จาก `requireUser`
-- **อ่าน Blob:** `user-room:<userId>`, `bill:<room>`, `get(bill.slipPath, {access:"private", useCache:false})`
+- **Error:** `403 FORBIDDEN` (ไม่ได้ผูกห้องนั้น — กรณีไม่ส่ง `room` ผู้เช่าจะได้ 403 นี้), `404 NOT_FOUND` (บิล — หรือ `prepay` เมื่อส่ง `advance` — ยังไม่มี `slipPath`, หรือ blob หาย), `401`/`403` จาก `requireUser`
+- **อ่าน Blob:** `user-room:<userId>`, `bill:<room>` (หรือ `prepay:<room>`), `get(bill.slipPath, {access:"private", useCache:false})`
 - **Side effect:** ไม่มี
 
 ## 8. `GET /api/rooms`
@@ -253,15 +268,16 @@ field ที่มีจริงขึ้นกับว่าเขียน�
       "meter": { "water": 4, "elec": 28, "at": "2026-11-12T..." },
       "bill": { "room": "201", "total": 3796, "status": "unpaid" },
       "linked": true,
-      "tenant": true
+      "tenant": true,
+      "advance": { "slipAt": "2026-11-10T...", "hasSlip": true }
     }
   ]
 }
 ```
 
-`period` = `BILL_PERIOD || null`; `meter`/`bill` เป็น `null` ถ้ายังไม่มี; `linked` บอกแค่ว่ามีผู้เช่าผูกห้องอยู่หรือไม่ (`tenant` เป็นค่าเดียวกัน เก็บไว้ให้หน้าเก่า) — **ไม่ส่ง LINE userId ของผู้เช่า** เพราะหน้าจอไม่ได้ใช้ และผู้ช่วยแบบดูอย่างเดียวไม่ควรได้; จำนวนห้องมาจาก `ROOMS` (default `201`–`212`)
+`period` = `BILL_PERIOD || null`; `meter`/`bill` เป็น `null` ถ้ายังไม่มี; `advance` = `{ slipAt, hasSlip }` ถ้าห้องนั้นมีสลิปโอนก่อนบิลออกรออยู่ (`prepay:<room>`) มิฉะนั้น `null`; `linked` บอกแค่ว่ามีผู้เช่าผูกห้องอยู่หรือไม่ (`tenant` เป็นค่าเดียวกัน เก็บไว้ให้หน้าเก่า) — **ไม่ส่ง LINE userId ของผู้เช่า** เพราะหน้าจอไม่ได้ใช้ และผู้ช่วยแบบดูอย่างเดียวไม่ควรได้; จำนวนห้องมาจาก `ROOMS` (default `201`–`212`)
 - **Error:** `403 FORBIDDEN` (ไม่ใช่ owner), `401`/`403` จาก `requireUser`
-- **อ่าน Blob:** `room:<room>`, `meter:<room>`, `bill:<room>`, `room-user:<room>` ต่อทุกห้อง (12 ห้อง default = 48 อ่านต่อ request · อ่านพร้อมกันทีละไม่เกิน 12 ห้อง)
+- **อ่าน Blob:** `room:<room>`, `meter:<room>`, `bill:<room>`, `room-user:<room>`, `prepay:<room>` ต่อทุกห้อง (12 ห้อง default = 60 อ่านต่อ request · อ่านพร้อมกันทีละไม่เกิน 12 ห้อง)
 - **Side effect:** ไม่มี
 
 ## 9. `POST /api/run`
@@ -286,6 +302,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
   "due": "2026-11-16",
   "rooms": [
     { "room": "201", "total": 3796, "pushed": true },
+    { "room": "203", "total": 3796, "pushed": true, "prepaid": true },
     { "room": "202", "error": "ค่ามิเตอร์ไม่ถูกต้อง" }
   ]
 }
@@ -293,8 +310,8 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 
 ห้องที่ข้อมูลเสียจะถูกใส่เป็น `{room, error}` **โดยไม่ทำให้ request ล้ม** (สถานะยัง 200) · ห้องเดียวกันซ้ำใน `readings` → ตัวแรกออกบิล ตัวที่ซ้ำได้ `error` · ห้องทำงานพร้อมกันทีละ 6 ห้อง (`rooms` ยังเรียงตาม `readings`) — 12 ห้องจาก ~12 วินาทีเหลือ ~1 วินาทีเมื่อแต่ละ round trip 80ms
 - **Error:** `405`, `401`/`403` จาก `requireUser`, `403 FORBIDDEN` (ไม่ใช่ owner), `400 VALIDATION` (`readings` ไม่ใช่ array/ว่าง), `400 VALIDATION` (ไม่มี period)
-- **เขียน Blob:** `meter:<room>` = `{water, elec, at}` และ `bill:<room>` = บิลใหม่ทั้งใบ `status:"unpaid"` (ข้ามห้องที่บิลรอบนั้นแจ้งชำระหรือชำระแล้ว · บิล `unpaid` ออกใหม่ทับได้เพื่อแก้เลขผิด · หน่วยต้องเป็นจำนวนเต็ม ≥ 0 และห้องต้องอยู่ใน `ROOMS`)
-- **Side effect อื่น:** `push()` การ์ด `billBubble` ให้ `room-user:<room>` ถ้ามีผู้เช่า; push ล้มเหลว → `pushed:false` + `console.error` (ไม่ fail request)
+- **เขียน Blob:** `meter:<room>` = `{water, elec, at}` และ `bill:<room>` = บิลใหม่ทั้งใบ (มี `issuedAt` = ISO ตอนออก/ออกซ้ำ ใช้แยกบิลของผู้เช่าปัจจุบันออกจากผู้เช่าคนก่อน) `status:"unpaid"` (ถ้ามี `prepay:<room>` บิลใหม่เริ่มที่ `status:"pending"` พร้อม `slipPath`, `slipNote`, `slipAt`, `slipCount` ที่คัดลอกจาก prepay และ `prepaid:true` แล้วตั้ง `prepay:<room>` เป็น `null` หลัง `saveBill` สำเร็จ · ข้ามห้องที่บิลรอบนั้นแจ้งชำระหรือชำระแล้ว (ไม่แตะ prepay) · บิล `unpaid` ออกใหม่ทับได้เพื่อแก้เลขผิด · หน่วยต้องเป็นจำนวนเต็ม ≥ 0 และห้องต้องอยู่ใน `ROOMS`)
+- **Side effect อื่น:** `push()` การ์ด `billBubble` ให้ `room-user:<room>` ถ้ามีผู้เช่า; push ล้มเหลว → `pushed:false` + `console.error` (ไม่ fail request) · ถ้าบิลมีสลิปจาก prepay จะ push การ์ด `confirmBubble` หา `OWNER_USER_ID` ด้วย เพื่อให้กดยืนยันได้ทันที (พังก็กลืน) และแถวผลลัพธ์ของห้องนั้นมี `prepaid:true`
 - การคำนวณ: `water = Math.round(waterUnits * waterRate)`, `elec = Math.round(elecUnits * elecRate)`, `total = rent + water + elec`
 
 ## 10. `POST /api/dev?do=seed` (header `x-seed-token`)
@@ -350,9 +367,9 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 | event | เงื่อนไข | เขียน Blob | ส่ง LINE |
 |---|---|---|---|
 | `follow` | มี `source.userId` | `user:<userId>` = `{ followedAt: <epoch ms> }` | `reply` ข้อความต้อนรับ (บอกให้พิมพ์ "บิล") |
-| `message` (text) | ข้อความ = `บิล` หรือ `bill` (case-insensitive เฉพาะ `bill`) | ไม่เขียน | ไม่มี `user-room:<userId>` → `reply` "ยังไม่ได้ผูกห้อง"; ไม่มี `bill:<room>` → `reply` "ยังไม่มีบิลรอบนี้"; ไม่งั้น `reply` การ์ด `billBubble` |
+| `message` (text) | ข้อความ = `บิล` หรือ `bill` (case-insensitive เฉพาะ `bill`) | ไม่เขียน | ไม่มี `user-room:<userId>` → `reply` "ยังไม่ได้ผูกห้อง"; ไม่มี `bill:<room>` หรือบิลนั้นไม่ใช่ของสัญญาเช่าปัจจุบัน (`tenancy`) → `reply` "ยังไม่มีบิลรอบนี้"; ไม่งั้น `reply` การ์ด `billBubble` |
 | `message` (text) | ตรง `/^ผูก\s*(\d{2,4})$/` | ไม่มี `bill:<room>` → ไม่เขียนอะไร; ไม่งั้นเขียน `user-room:<userId>` = `"<room>"` และ `room-user:<room>` = `userId` | `reply` "ผูกกับห้อง X แล้ว" หรือ "ไม่พบห้อง X" |
-| `postback` | `postback.data` มี `action=confirm` | `bill:<room>` = บิลเดิม + `status:"paid"`, `paidAt` (ISO); ถ้า `paid` อยู่แล้วไม่เขียน | `reply` ยืนยันกลับ; `push` ข้อความแจ้งผู้เช่าจาก `room-user:<room>` (เฉพาะเมื่อมีและไม่ใช่คนเดียวกัน) |
+| `postback` | `postback.data` มี `action=confirm` | `bill:<room>` = บิลเดิม + `status:"paid"`, `paidAt` (ISO); ถ้า `paid` อยู่แล้วไม่เขียน | `reply` ยืนยันกลับ; `push` ข้อความแจ้งผู้เช่าจาก `room-user:<room>` (เฉพาะเมื่อมี ไม่ใช่คนเดียวกัน และบิลนั้นเป็นของสัญญาเช่าปัจจุบัน) |
 | อื่น ๆ | — | — | ไม่มี (เมิน ยังตอบ 200) |
 
 รายละเอียดที่ควรรู้:

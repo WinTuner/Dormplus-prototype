@@ -2,7 +2,7 @@
 const { verify, reply, push, billBubble } = require("./_line");
 const store = require("./_store");
 const { isOwner } = require("./_auth");
-const { saveBill } = require("./_bills");
+const { saveBill, tenancyOf, visibleToTenant } = require("./_bills");
 
 async function readRaw(req) {
   const chunks = [];
@@ -63,7 +63,8 @@ async function handleEvent(event, baseUrl) {
           { type: "text", text: "ยังไม่ได้ผูกห้องครับ — สแกน QR หน้าห้องที่เจ้าของหอให้มา" },
         ]);
       }
-      const bill = await store.get(`bill:${room}`);
+      const latest = await store.get(`bill:${room}`);
+      const bill = visibleToTenant(latest, await tenancyOf(room)) ? latest : null; // not the previous tenant's
       if (!bill) {
         return reply(event.replyToken, [{ type: "text", text: `ห้อง ${room} ยังไม่มีบิลรอบนี้ครับ` }]);
       }
@@ -107,7 +108,8 @@ async function handleEvent(event, baseUrl) {
       await saveBill({ ...bill, status: "paid", paidAt: new Date().toISOString(), confirmedBy: userId });
 
       const tenant = await store.get(`room-user:${room}`);
-      if (tenant && tenant !== userId) {
+      // An old tenant's bill closing must not message whoever lives there now.
+      if (tenant && tenant !== userId && visibleToTenant(bill, await tenancyOf(room))) {
         await push(tenant, [{ type: "text", text: `ห้อง ${room} ชำระเงินแล้ว ✅ เจ้าของหอยืนยันเรียบร้อย` }]);
       }
       return reply(event.replyToken, [{ type: "text", text: `ยืนยันห้อง ${room} แล้ว ✅` }]);
