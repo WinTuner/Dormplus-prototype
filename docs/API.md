@@ -27,13 +27,13 @@
 
 ## กติกากลาง
 
-- Base: `https://api.domplus.app/v1`
+- Base: `https://line-backend-ten.vercel.app/v1` (deployment จริง) — โดเมน `api.domplus.app` ในเอกสารรุ่นแรกยังไม่มีจริง
 - เวลา: ISO-8601 UTC
 - เงิน: จำนวนเต็มหน่วย "บาท" (ไม่ใช้ทศนิยม)
 - รอบบิล: `period` = `YYYY-MM`
 - Error:
 ```json
-{ "error": { "code": "INVOICE_ALREADY_SENT", "message": "บิลรอบนี้ถูกส่งแล้ว" } }
+{ "error": { "code": "CONFLICT", "message": "บิลรอบ 2026-11 ออกไปแล้ว ..." } }
 ```
 | code | HTTP | ความหมาย |
 |---|---|---|
@@ -244,7 +244,7 @@ unpaid ──แนบสลิป──▶ pending ──เจ้าของ�
    └─── reject ────────┘
 ```
 - `paid` แก้ไม่ได้ (ต้องออกใบเสร็จใหม่/void)
-- ทุกการเปลี่ยนสถานะเขียน `audit_log`
+- `audit_log` เขียนตอนออกบิล (billing run), ยืนยัน (confirm) และตีกลับ (reject) — **การแนบสลิป (`unpaid` → `pending`) ไม่เขียน**
 
 ---
 ## `409 INVALID_STATE`
