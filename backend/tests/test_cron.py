@@ -18,7 +18,7 @@ def make_client(monkeypatch, drained: list | None = None):
     monkeypatch.setattr(cron_route, "due_for_reminder", lambda *_a, **_k: [{"id": "inv_1"}])
     monkeypatch.setattr(cron_route, "queue_reminders", lambda rows: len(rows))
 
-    def fake_drain():
+    async def fake_drain():
         if drained is not None:
             drained.append("drained")
 
