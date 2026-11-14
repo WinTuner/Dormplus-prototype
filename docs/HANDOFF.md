@@ -28,11 +28,11 @@
 1. 🟡 FastAPI app ตาม `docs/API.md` (ทุก endpoint + error code)
    — มีแล้ว: rooms, readings, billing run, invoices, slip, confirm, reject, `/me/invoices`, auth · เหลือ `GET /properties/:id`, `GET /invoices/:id`, webhook
 2. ✅ Postgres ตาม `db/schema.sql` + migration (Alembic) — `backend/migrations/`
-3. 🟡 Worker + Scheduler (Procrastinate) — โค้ดพร้อม (`app/queue.py` · `app/tasks.py` · `app/dunning.py`) แต่ **worker ยังไม่มี host** (Vercel รันไม่ได้) สำหรับ:
-   - `billing.run` — ออกบิลทั้งหอใน transaction เดียว (ตอนนี้ทำใน request แบบ synchronous แล้ว `job_id` = `null`)
-   - `notify.invoice` — ส่ง LINE ทีละห้อง + `message_log`
-   - `dunning` — cron รายวัน 1/5/10 วันหลังครบกำหนด
-   - `slip.verify` — เรียก SlipOK แล้วอัปเดตสถานะ (ตอนนี้ `verify.ok` = `null` เจ้าของกดยืนยันเอง)
+3. 🟡 Queue + cron (Procrastinate) — โค้ดพร้อม (`app/queue.py` · `app/tasks.py` · `app/dunning.py` · `app/routes/cron.py`) · **ตัวทวงรายวันไม่ต้องมี host แล้ว**: Vercel Cron ยิง `GET /v1/cron/daily` วันละครั้ง แล้ว drain คิวใน invocation เดียว (`run_worker(wait=False)`) เหลือแค่ตั้ง `CRON_SECRET` + `procrastinate schema --apply`
+   - ✅ `dunning` — cron รายวัน 1/5/10 วันหลังครบกำหนด (รอตั้ง env + เปิด cron บน production)
+   - ⬜ `billing.run` — ออกบิลทั้งหอใน transaction เดียว (ตอนนี้ทำใน request แบบ synchronous แล้ว `job_id` = `null`)
+   - ⬜ `notify.invoice` — ส่ง LINE ทีละห้อง + `message_log`
+   - ⬜ `slip.verify` — เรียก SlipOK แล้วอัปเดตสถานะ (ตอนนี้ `verify.ok` = `null` เจ้าของกดยืนยันเอง)
 4. 🟡 Auth: LINE Login → ตรวจ idToken → session cookie → resolve `property_id` — เสร็จแล้ว · ยังไม่มี RLS policy
 5. ⬜ Webhook LINE (ตรวจ signature, ตอบ 200 เร็ว, ประมวลผล async)
 
@@ -62,7 +62,7 @@
 - [x] ผู้เช่าแนบสลิป → `pending` → เจ้าของยืนยัน → `paid` + ใบเสร็จ — `backend/tests/test_slip_confirm_reject.py`
 - [ ] สลิปยอดไม่ตรง → ไม่ผ่านอัตโนมัติ
 - [x] เรียก API ของหอ A ด้วย session หอ B → 403 — `backend/tests/test_rooms.py`
-- [ ] cron ทวงทำงาน 1/5/10 วัน และไม่ส่งซ้ำในวันเดียวกัน — โค้ด + เทสต์พร้อม (`app/dunning.py`, `test_dunning.py`) แต่ยังไม่มี host ของ worker จึงยังไม่เคยรันจริง
+- [ ] cron ทวงทำงาน 1/5/10 วัน และไม่ส่งซ้ำในวันเดียวกัน — โค้ด + เทสต์พร้อม (`app/routes/cron.py`, `test_cron.py`, `test_dunning.py`) · เหลือตั้ง `CRON_SECRET` + apply schema แล้วรอรอบแรก
 
 ## 6. ลำดับงานที่แนะนำ (2 สัปดาห์)
 
@@ -81,7 +81,7 @@
 - LINE Channel ID / Secret / Access Token ของ OA ทดสอบ
 - บัญชี SlipOK (หรือผู้ให้บริการตรวจสลิป)
 - โดเมน + subdomain สำหรับ LIFF (ต้อง HTTPS)
-- สิทธิ์ Neon (มีแล้ว) / Railway หรือ Fly สำหรับ worker
+- สิทธิ์ Neon (มีแล้ว) — ไม่ต้องมี host ของ worker แล้ว (ใช้ Vercel Cron) เว้นแต่จะต้องการส่งถี่กว่ารายวัน
 
 ## 8. วิธีรันของจริง
 

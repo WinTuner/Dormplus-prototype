@@ -1,9 +1,11 @@
-"""Procrastinate queue. The API only *enqueues*; a worker on a real host drains the queue.
+"""Procrastinate queue. The API only *enqueues*; something must drain it.
 
-    procrastinate schema --apply        # once per database
-    procrastinate -a app.queue.app worker --with-periodic
+    python -m app.queue                             # once per database: apply the schema
+    GET /v1/cron/daily                              # what Vercel Cron calls (drains in-process)
+    procrastinate -a app.queue.app worker           # or a long-lived worker, if you host one
 
-Vercel functions cannot host that worker, so notifications are queued until one runs.
+`app/routes/cron.py` runs `run_worker(wait=False)`, so a serverless invocation can send the whole
+queue and return; nothing has to stay running between cron runs.
 """
 import procrastinate
 
@@ -20,3 +22,18 @@ app = procrastinate.App(
     # The worker imports these to find the tasks.
     import_paths=["app.tasks"],
 )
+
+
+def apply_schema() -> None:
+    """Create procrastinate's own tables.
+
+    `procrastinate schema --apply` refuses a sync connector, which is what a serverless function
+    wants, so the same migration runs from here: `python -m app.queue`.
+    """
+    with app.open():
+        app.schema_manager.apply_schema()
+
+
+if __name__ == "__main__":
+    apply_schema()
+    print("procrastinate schema applied")

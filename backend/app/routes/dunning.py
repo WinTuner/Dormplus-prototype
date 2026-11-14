@@ -1,8 +1,9 @@
 """POST /v1/dunning/run — queue today's reminders (1, 5 and 10 days past due).
 
-Call it from a scheduler. A cron job has no cookie, so it passes the shared token in a header:
+The daily Vercel Cron hits /v1/cron/daily, which does this and then sends the queue. This endpoint
+stays for running the enqueue step by hand; it also accepts an owner session.
 
-    curl -X POST -H "Authorization: Bearer $DUNNING_TOKEN" https://<host>/v1/dunning/run
+    curl -X POST -H "Authorization: Bearer $CRON_SECRET" https://<host>/v1/dunning/run
 
 A token in the URL (`?token=`) is refused: URLs end up in access logs.
 """
@@ -49,7 +50,7 @@ def run_dunning(
 
     presented = presented_token(request)
     if presented is not None:
-        if not settings.dunning_token or not hmac.compare_digest(presented, settings.dunning_token):
+        if not settings.cron_secret or not hmac.compare_digest(presented, settings.cron_secret):
             raise ApiError(401, "UNAUTHORIZED", "token ไม่ถูกต้อง")
         property_id = settings.property_id
     else:
