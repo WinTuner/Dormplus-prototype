@@ -171,7 +171,7 @@ curl -H "Authorization: Bearer $CRON_SECRET" https://line-backend-ten.vercel.app
 
 ต้องมี `LINE_CHANNEL_ACCESS_TOKEN` ด้วย ไม่งั้น task จะ log `skipped` แทนที่จะส่ง · ถ้าอยากส่งถี่กว่านี้ให้รัน `procrastinate -a app.queue.app worker` บน host ที่ค้างได้ ชี้ Postgres ตัวเดียวกัน
 
-> ตาราง "สถานะ" ด้านบนยังไม่ได้อัปเดตข้อคิว/ทวงอัตโนมัติ — ของจริงทำแล้วตามหัวข้อนี้
+> หมายเหตุ: คิว/ทวงอัตโนมัติทำงานแล้ว (ดูหัวข้อนี้และแถว "คิวงาน + ทวงอัตโนมัติ" ในตารางสถานะด้านบน)
 
 ## ตรวจ production หลัง deploy
 
