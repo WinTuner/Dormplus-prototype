@@ -1,6 +1,6 @@
 # DormPlus — Handoff: backend
 
-เอกสารส่งงานสำหรับคนรับช่วง back-end · อัปเดต 12 พ.ย. 2569
+เอกสารส่งงานสำหรับคนรับช่วง back-end · อัปเดต 14 พ.ย. 2569
 
 ## 1. ตอนนี้มีอะไรแล้ว
 
@@ -8,18 +8,20 @@
 |---|---|---|
 | Rich menu 2 ชุด | เสร็จ | `docs/richmenu-*.png` |
 | API contract | เสร็จ | `docs/API.md` |
-| Schema Postgres | เสร็จ | `db/schema.sql` |
+| Schema Postgres | เสร็จ | `db/schema.sql` (snapshot อ่านอย่างเดียว) · ตัวที่รันจริงคือ `backend/migrations/` (alembic ถึง `0003`) |
 | Backend จริง (FastAPI + Postgres) | บางส่วน | `backend/` — rooms, readings, billing run, invoices, slip/confirm/reject, LINE Login |
 | LINE app ที่ deploy จริง | ใช้ได้ | `line-app/` (Vercel + Blob + LIFF) — ส่งบิล/แนบสลิป/ยืนยันในแชท · ดู `line-app/HANDOFF.md` |
 | LINE OA / LIFF / auth (backend) | บางส่วน | LIFF login + session cookie เสร็จ · webhook/ส่งข้อความยังไม่มี (`backend/app/routes/auth.py`, `backend/liff/`) |
 | Deploy: `line-app` | ✅ | Vercel · auto จาก `master` · https://line-app-iota.vercel.app |
 | Deploy: `backend` | ✅ | Vercel (serverless) · auto จาก `master` · https://line-backend-ten.vercel.app |
-| Database จริง | ✅ | Neon Postgres (Vercel Marketplace) · schema `0001` + seed 42 ห้อง · `backend/.env` (ไม่อยู่ใน git) |
+| Database จริง | ✅ | Neon Postgres (Vercel Marketplace) · schema `0003` + seed 42 ห้อง · `backend/.env` (ไม่อยู่ใน git) |
 
 **สถานะ infra:** ทั้งสองโปรเจกต์ Vercel ผูก repo `WinTuner/domplus-prototype` และ deploy อัตโนมัติเมื่อ push `master`
-(Root Directory: `line-app` / `backend`, Branch Tracking: `master`) · CI ที่ GitHub มี job เดียวคือ `backend` (pytest + Postgres service)
+(Root Directory: `line-app` / `backend`, Branch Tracking: `master`) · CI ที่ GitHub มี 2 job: `backend` (pytest + Postgres service) และ `line-app` (syntax + smoke 3 ชุด + ตรวจ script ในหน้า LIFF)
 
 **`line-app/` คือของที่ผู้ใช้เห็นอยู่ตอนนี้** (การ์ดบิล, LIFF, การ์ดยืนยัน) · `backend/` deploy แล้วและมี DB จริง แต่ยังไม่มี UI ให้ผู้ใช้ — เป็นเป้าหมายระยะยาวตาม `docs/API.md`
+
+> มีหน้า LIFF สองใบ: `line-app/liff/bill.html` (ใบที่ OA ใช้จริง) และ `backend/liff/index.html` (หน้าของ stack backend ที่เรียก `/v1/*` ด้วย cookie — ยังไม่ผูกกับ OA) อย่าสับสนเวลาจะแก้ UI ให้ผู้ใช้จริง
 
 ## 2. สิ่งที่ต้องสร้าง
 
@@ -60,7 +62,7 @@
 - [x] ผู้เช่าแนบสลิป → `pending` → เจ้าของยืนยัน → `paid` + ใบเสร็จ — `backend/tests/test_slip_confirm_reject.py`
 - [ ] สลิปยอดไม่ตรง → ไม่ผ่านอัตโนมัติ
 - [x] เรียก API ของหอ A ด้วย session หอ B → 403 — `backend/tests/test_rooms.py`
-- [ ] cron ทวงทำงาน 1/5/10 วัน และไม่ส่งซ้ำในวันเดียว
+- [ ] cron ทวงทำงาน 1/5/10 วัน และไม่ส่งซ้ำในวันเดียวกัน — โค้ด + เทสต์พร้อม (`app/dunning.py`, `test_dunning.py`) แต่ยังไม่มี host ของ worker จึงยังไม่เคยรันจริง
 
 ## 6. ลำดับงานที่แนะนำ (2 สัปดาห์)
 
@@ -79,7 +81,7 @@
 - LINE Channel ID / Secret / Access Token ของ OA ทดสอบ
 - บัญชี SlipOK (หรือผู้ให้บริการตรวจสลิป)
 - โดเมน + subdomain สำหรับ LIFF (ต้อง HTTPS)
-- สิทธิ์ Supabase/Railway
+- สิทธิ์ Neon (มีแล้ว) / Railway หรือ Fly สำหรับ worker
 
 ## 8. วิธีรันของจริง
 
