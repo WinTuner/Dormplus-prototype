@@ -21,6 +21,8 @@
 
 **`line-app/` คือของที่ผู้ใช้เห็นอยู่ตอนนี้** (การ์ดบิล, LIFF, การ์ดยืนยัน) · `backend/` deploy แล้วและมี DB จริง แต่ยังไม่มี UI ให้ผู้ใช้ — เป็นเป้าหมายระยะยาวตาม `docs/API.md`
 
+> มีหน้า LIFF สองใบ: `line-app/liff/bill.html` (ใบที่ OA ใช้จริง) และ `backend/liff/index.html` (หน้าของ stack backend ที่เรียก `/v1/*` ด้วย cookie — ยังไม่ผูกกับ OA) อย่าสับสนเวลาจะแก้ UI ให้ผู้ใช้จริง
+
 ## 2. สิ่งที่ต้องสร้าง
 
 1. 🟡 FastAPI app ตาม `docs/API.md` (ทุก endpoint + error code)
