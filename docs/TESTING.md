@@ -142,7 +142,7 @@ pytest -q
 | `test_cron.py` | ไม่ (stub queue) | `GET /v1/cron/daily`: ไม่มี secret / secret ผิด / token ทาง query → 401 · secret ถูก → 200 `{"queued":1,"drained":true}` และ drain ใน invocation เดียว · ไม่ตั้ง `CRON_SECRET` → fail closed |
 | `test_rooms.py` | ใช่ | 401 ไม่มี session · `DEV_AUTH` header เลือก session · ผู้เช่า → 403 · หออื่นเห็น/แก้ห้องนี้ไม่ได้ · list ตาม period + invoice ของ period · บันทึกมิเตอร์เทียบเดือนก่อน, ส่งซ้ำทับได้, เลขลดลงเตือนแต่บันทึก, ออกบิลแล้วแก้ไม่ได้ (409), ห้องไม่รู้จัก, ค่าผิด → 422 |
 | `test_schema_and_seed.py` | ใช่ | seed สร้าง demo dorm และตัวเลขตรง prototype · seed ซ้ำไม่เปลี่ยนอะไร · DB กันบิลซ้ำ `(room, period)` · สถานะบิลถูกล็อกด้วย constraint |
-| `test_billing.py` | ใช่ | `POST /v1/billing/run`: ออกบิลเฉพาะห้องที่มี reading · 42 ห้องใน request เดียว · รันซ้ำ 409 · จดมิเตอร์ทีหลังแล้วรันซ้ำออกเฉพาะห้องนั้น · พังกลางทาง rollback ทั้งก้อน · ใช้มิเตอร์เดือนก่อนค่าล่าสุด · ห้องเหมาจ่าย/ห้องว่าง · ผู้เช่า → 403 · period ผิด → 400 · `GET /v1/invoices`: `days_overdue`, `summary`, กรองสถานะ, ค่า default period, หออื่นไม่เห็น |
+| `test_billing.py` | ใช่ | `POST /v1/billing/run`: ออกบิลเฉพาะห้องที่มี reading · 42 ห้องใน request เดียว · รันซ้ำ 409 · จดมิเตอร์ทีหลังแล้วรันซ้ำออกเฉพาะห้องนั้น · พังกลางทาง rollback ทั้งก้อน · ใช้มิเตอร์เดือนก่อนค่าล่าสุด · ห้องเหมาจ่าย/ห้องว่าง · ผู้เช่า → 403 · period ผิดรูป → 422 (pydantic pattern) · `GET /v1/invoices`: `days_overdue`, `summary`, กรองสถานะ, ค่า default period, หออื่นไม่เห็น |
 | `test_slip_confirm_reject.py` | ใช่ | สลิป → `pending` และเก็บ URL ตามที่หน้าเว็บส่ง · แนบห้องอื่น → 404 · แนบซ้ำ → 409 · ยืนยันแล้ว `paid` + `receipt_no` ไม่ซ้ำ · ยืนยันก่อนมีสลิปไม่ได้ · หออื่นยืนยันไม่ได้ · **ยืนยันรอ lock ระดับหอ** (`test_confirm_waits_for_the_dorm_lock`) · ตีกลับ → `unpaid` + `audit_log` |
 | `test_line_link.py` | ใช่ | ออก invite ให้ผู้เช่าที่ยังไม่มี LINE · invite ใหม่ยกเลิกอันเก่า · ผูกแล้ว login ได้ทันที · พิมพ์ตัวเล็ก/เว้นวรรคได้ · เปิดซ้ำได้ · คนอื่นใช้ซ้ำ 409 · หมดอายุ/ถูกยกเลิก 410 · รหัสผิด 404 · ผูกครั้งเดียวต่อบัญชี · รูมเมท · หออื่นทำไม่ได้ · ยกเลิกผูก/move-out ตัด session เดิม · เดารหัสถี่ถูก rate limit |
 | `test_dunning.py` | ใช่ | เลือกบิลตามวัน overdue (1/5/10) · kind ต่อบิล · `due_for_reminder` ใช้ `SELECT` เดียว · push ล้มไม่นับว่าส่งแล้วและ task โยน error ให้คิว retry · ผู้เช่าที่ไม่มี LINE ไม่ถูก enqueue · บิล `paid` ข้าม · เคย log kind นั้นแล้วไม่เลือกซ้ำ · หออื่นไม่ถูกแตะ |
@@ -152,7 +152,7 @@ pytest -q
 | fixture | ทำอะไร |
 |---|---|
 | `engine` (session scope) | ถ้าไม่มี `TEST_DATABASE_URL` → `pytest.skip` ทั้งไฟล์ที่ขอ · downgrade ถึง `base` แล้ว upgrade ถึง `head` ครั้งเดียวต่อ session |
-| `seeded` | truncate 10 ตาราง (`... restart identity cascade`) แล้วรัน `seed()` ใหม่ทุก test |
+| `seeded` | truncate 11 ตาราง (`... restart identity cascade`) แล้วรัน `seed()` ใหม่ทุก test |
 | `client_for` | สร้าง `TestClient` บน engine ที่ส่งมา และ override `get_engine` / `current_session` / `today` ได้ |
 | `owner`, `phone`, `line_ready`, `billed`, `second_dorm` | ตัวช่วยเฉพาะไฟล์ (สร้าง invite/ผู้เช่า, ตั้ง LINE ให้พร้อม, สร้างบิลก่อน test) |
 

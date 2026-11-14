@@ -130,9 +130,10 @@ def unlink_line(
     session: Session = Depends(owner_session),
     engine: Engine = Depends(get_engine),
 ) -> Response:
-    """Remove a tenant's LINE account. Their next LIFF login answers NOT_LINKED.
+    """Remove a tenant's LINE account. Their next request answers 401 SESSION_REVOKED.
 
-    A session cookie they already hold keeps working until it expires (up to 7 days)."""
+    The binding is re-checked on every tenant request (app/auth.py), so a cookie they already
+    hold stops working immediately, not when it expires."""
     with engine.begin() as conn:
         tenant = conn.execute(
             text("""select r.property_id from tenants t join rooms r on r.id = t.room_id

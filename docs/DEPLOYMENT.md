@@ -102,7 +102,7 @@ instance ที่ warm อยู่จะยังใช้ค่าเก่�
 
 ## 4. backend: ลำดับงานเมื่อแก้ schema (สำคัญที่สุด)
 
-`backend/migrations/versions/` คือ **schema of record** — `db/schema.sql` เป็น snapshot อ่านอย่างเดียวที่หยุดอยู่ที่ schema รุ่นแรก
+`backend/migrations/versions/` คือ **schema of record** — `db/schema.sql` เป็น snapshot อ่านอย่างเดียว (ปัจจุบันอัปเดตถึง `0003` แล้ว แต่ตัวที่รันจริงคือ alembic)
 ฐานข้อมูล Neon จริงอยู่ที่ **`0003`** (0001 initial · 0002 `link_codes` · 0003 `auth_failures`)
 
 เพราะ merge เข้า `master` = deploy ทันที **migration ต้องขึ้นก่อน merge ไม่ใช่หลัง** ไม่งั้นช่วงสั้น ๆ

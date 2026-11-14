@@ -28,7 +28,7 @@ cd line-app
 node smoke.js && node smoke-handlers.js && node smoke-reads.js   # offline tests, ไม่ต้อง npm install
 ```
 
-ต้องมี LINE OA + LIFF + Vercel + Blob ก่อน — ทำตาม [`line-app/README.md`](line-app/README.md) ข้อ 2–6 (สร้าง OA → deploy → ตั้ง env → seed → LIFF → ทดสอบ)
+ต้องมี LINE OA + LIFF + Vercel + Blob ก่อน — ทำตาม [`line-app/README.md`](line-app/README.md) ข้อ 2–7 (สร้าง OA → deploy → ตั้ง env → seed → LIFF → ทดสอบ)
 
 ## เริ่มใช้กับหอจริง (3 ขั้น ใน `line-app/`)
 
@@ -58,10 +58,10 @@ pytest
 | ส่วน | สถานะ |
 |---|---|
 | `line-app/` — ส่งบิลใน LINE · LIFF แนบสลิป · เจ้าของยืนยัน/จดมิเตอร์ | ✅ ใช้งานได้ (มีข้อจำกัดเรื่อง auth อ่านใน [`line-app/HANDOFF.md`](line-app/HANDOFF.md)) |
-| `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · สลิป · confirm/reject + ใบเสร็จ · LINE Login ผ่าน LIFF | 🟡 deploy แล้ว (Vercel + Neon) · test 58 ตัว · ยังไม่มีหน้า UI ฝั่งเจ้าของ |
+| `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · สลิป · confirm/reject + ใบเสร็จ · LINE Login ผ่าน LIFF | 🟡 deploy แล้ว (Vercel + Neon) · 106 tests (CI รันครบพร้อม Postgres) · ยังไม่มีหน้า UI ฝั่งเจ้าของ |
 | RLS policy (กรอง `property_id` ที่ระดับ DB) | ⬜ ตอนนี้กรองในโค้ด |
-| ส่งข้อความ LINE / webhook ฝั่ง backend | ⬜ `line-app/` ทำแล้ว แต่ backend ยังไม่ส่งเอง |
-| คิวงาน + ทวงอัตโนมัติ (Procrastinate) | ⬜ |
+| ส่งข้อความ LINE ฝั่ง backend | ✅ `app/line_push.py` + คิว `app/tasks.py` (ทวงค่าเช่า) · webhook รับ event ยัง ⬜ — LINE OA ชี้ที่ `line-app/` |
+| คิวงาน + ทวงอัตโนมัติ (Procrastinate) | ✅ `queue.py` · `dunning.py` (1/5/10 วัน) · `GET /v1/cron/daily` ให้ Vercel Cron เรียกวันละครั้งแล้ว drain คิวใน invocation เดียว |
 | ตรวจสลิปอัตโนมัติกับธนาคาร | ⬜ ประเมินแล้ว: ตัวฟรี (SlipVerify) ไม่น่าไว้ใจ → ถอยออก · รอเลือกเจ้าที่มีบริษัท/SLA (Checkslip · Check-Slip) |
 | หน้าจอเจ้าของของ backend (Thai web UI) | ⬜ `line-app/` มีหน้าจดมิเตอร์ของเจ้าของแล้ว |
 | QR ผูกผู้เช่ากับห้อง | ✅ `GET/POST /api/qr?room=` (เจ้าของสร้าง/หมุน) · ผู้เช่าสแกน → ผูกทันที |
@@ -83,7 +83,7 @@ pytest
 |---|---|
 | ![owner](docs/richmenu-owner.png) | ![tenant](docs/richmenu-tenant.png) |
 
-ขนาด 2500×1686 px (LINE large rich menu) — ใช้กับ `line-app/` ได้เลย
+ขนาด: เจ้าของ 2500×1686 px · ผู้เช่า 2500×843 px (compact) — ใช้กับ `line-app/` ได้เลย (ภาพในตารางข้างบนเป็นภาพตัวอย่าง แต่ขนาดจริงตามที่ระบุใน `line-app/scripts/_richmenu-defs.js`)
 
 ## เอกสาร
 

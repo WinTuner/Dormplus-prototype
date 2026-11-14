@@ -142,7 +142,7 @@ feat(backend): one daily cron that drains the queue, so no worker needs a host
 fix(line-app): faster reads, slip limits, owner removal, move confirm
 docs(line-app): the README endpoint table predates roles, move-confirm and revoke
 chore: prod smoke also checks the daily cron exists and needs its secret
-test(backend): the test suite needs a real session secret
+test(backend): give the suite a real session secret
 ```
 
 ข้อความอธิบาย "ทำไม" ไม่ใช่ "ทำอะไร" — ตรงกับสไตล์คอมเมนต์ในโค้ด

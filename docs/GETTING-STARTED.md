@@ -69,7 +69,7 @@ curl.exe -s -H "X-Dev-Property: p_1" "http://127.0.0.1:8000/v1/rooms?period=2026
 ```
 
 - `/docs` เปิดเฉพาะตอนไม่ใช่ production (`app/main.py`) — ใช้ดู route ทั้งหมดได้เลยในเครื่อง
-- seed ใส่ข้อมูลรอบ `2026-10` (มิเตอร์ครบ) และ `2026-11` (12 ห้อง + บิลค้าง 9 ใบ) รันซ้ำได้ไม่สร้างข้อมูลซ้ำ
+- seed ใส่ข้อมูลรอบ `2026-10` (มิเตอร์ครบทุกห้อง) และ `2026-11` (มิเตอร์ 12 ห้องแรก) · **บิลค้าง 9 ใบ** ที่ seed ไว้อยู่รอบ `2026-08/09/10` ไม่ใช่ `2026-11` · รันซ้ำได้ไม่สร้างข้อมูลซ้ำ
 - ถ้าไม่ส่ง `period` API จะใช้เดือนปัจจุบันตามเวลาไทย ซึ่งอาจไม่มีข้อมูลถ้าไม่ได้รันตอน พ.ย. 2026
 
 ### 3.2 line-app: smoke suite ที่ไม่ต่อเน็ต
@@ -83,7 +83,7 @@ node smoke-handlers.js
 node smoke-reads.js
 ```
 
-ผลที่ต้องเห็น (ยืนยันบน Node v26.13.0):
+ผลที่ต้องเห็น (ยืนยันบน Node v26.13.0) — บรรทัด QR ต้องมี `node_modules` (`qrcode-svg`) ถ้าไม่มีจะขึ้น `smoke: qrcode-svg not installed, QR check skipped` แทน:
 
 ```text
 smoke OK — QR renders and scales
@@ -133,7 +133,7 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 
 ลำดับย่อ (รายละเอียดทุกขั้นอยู่ที่ [`line-app/docs/GETTING-STARTED.md`](../line-app/docs/GETTING-STARTED.md) และ [`line-app/README.md`](../line-app/README.md)):
 
-1. `cd line-app && npm install` — dependency จริงมีตัวเดียวคือ `@vercel/blob` (smoke suite ไม่ต้องใช้)
+1. `cd line-app && npm install` — dependency มี 2 ตัว: `@vercel/blob` และ `qrcode-svg` (smoke suite ทำงานได้แม้ไม่ติดตั้ง — QR check จะถูกข้าม)
 2. `vercel link` แล้ว `vercel --prod` — <!-- VERIFY: ต้องมี Vercel CLI และสิทธิ์เข้าถึงโปรเจกต์ line-app ของทีม ซึ่งขึ้นกับบัญชีของคุณ ไม่ได้อยู่ใน repo -->
 3. ใส่ env บน Vercel (ทั้ง Production และ Preview แล้ว Redeploy — โค้ดอ่าน env ตอน module load) รายการเต็มที่ [`CONFIGURATION.md`](./CONFIGURATION.md)
 4. ตรวจคำขอแรกที่ไม่ต้องใช้ credential: `curl.exe -s https://<โดเมนของคุณ>/api/config` ต้องได้ `200`
@@ -152,7 +152,7 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 | `pytest` ได้ `86 skipped` | ไม่ได้ตั้ง `TEST_DATABASE_URL` — เป็นพฤติกรรมปกติ | ตั้ง `TEST_DATABASE_URL` ชี้ `domplus_test` ตามข้อ 3.3 |
 | `alembic upgrade head` → `connection refused` หรือต่อผิดฐาน | รันจากโฟลเดอร์อื่น (`.env` ไม่ถูกโหลด) หรือ `DATABASE_URL` ผิด | `cd backend` ก่อน แล้วเช็ก `DATABASE_URL` ใน `.env` |
 | `/v1/rooms` ตอบ `401 UNAUTHORIZED` | `DEV_AUTH=false` (ค่า default) จึงไม่มี session | ตั้ง `DEV_AUTH=true` **ในเครื่อง** แล้วรีสตาร์ต uvicorn |
-| เรียก `/v1/rooms` ได้ `[]` หรือไม่มีบิล | ยังไม่รัน `python -m app.seed` หรือส่ง `period` ไม่ตรงกับที่ seed ไว้ | รัน seed แล้วใช้ `?period=2026-11` |
+| เรียก `/v1/rooms` ได้ `[]` หรือไม่มีบิล | ยังไม่รัน `python -m app.seed` หรือส่ง `period` ไม่ตรงกับที่ seed ไว้ | รัน seed แล้วใช้ `?period=2026-10` (บิลค้างที่ seed อยู่รอบ 2026-08/09/10) |
 | `RuntimeError: SESSION_SECRET ... default` | ยังใช้ค่า `dev-only-change-me` จาก `.env.example` | เปลี่ยนเป็นค่าสุ่มยาว ๆ |
 | ตั้ง `$env:VAR=...` แล้วไม่ติด / `VAR=value pytest` ใช้ไม่ได้ | PowerShell ไม่รองรับ prefix แบบ bash | ใช้ `$env:VAR="..."` แล้วค่อยเรียกคำสั่ง หรือ `$env:VAR="..."; pytest` |
 | เข้า LIFF บน `http://127.0.0.1` แล้ว cookie ไม่ติด | `COOKIE_SECURE=true` (ค่า default) — cookie Secure ไม่ถูกส่งผ่าน http | ตั้ง `COOKIE_SECURE=false` เฉพาะเครื่องตัวเอง |

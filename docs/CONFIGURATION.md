@@ -24,7 +24,7 @@
 | `DATABASE_URL` | **จำเป็น** | **จำเป็น** | `postgresql+psycopg://postgres:postgres@localhost:5432/domplus` | ต่อ DB ไม่ได้ → `/healthz` ตอบ `503 DB_UNAVAILABLE`, route อื่นล้มเป็น 500 |
 | `SESSION_SECRET` | **จำเป็น** | **จำเป็น** | `dev-only-change-me` (ถูกปฏิเสธ) | `app/session.py` โยน `RuntimeError` — login และทุก request ที่มี cookie ล้มเป็น 500 |
 | `COOKIE_SECURE` | **ควรเป็น `true`** | `false` ถ้าเป็น HTTP | `true` | ตั้ง `true` บน `http://127.0.0.1` → browser ไม่ส่ง cookie `dp_session` กลับ → 401 ตลอด |
-| `DEV_AUTH` | ต้องเป็น `false` | `true` ได้ | `false` | เปิดบน production จริงจะถูกเพิกเฉย **แต่** ดูข้อ 3.3 (ขึ้นกับ `VERCEL_ENV`) |
+| `DEV_AUTH` | ต้องเป็น `false` | `true` ได้ | `false` | เปิดบน production จริงจะถูกเพิกเฉย **แต่** ขึ้นกับ `VERCEL_ENV` (ดู §1.3) |
 | `LINE_CHANNEL_ID` | **จำเป็นถ้าใช้ LINE Login** | ไม่ใส่ก็ได้ | `""` | `POST /v1/auth/line` ตอบ `503 LINE_NOT_CONFIGURED` |
 | `LIFF_ID` | **จำเป็นถ้าใช้หน้า LIFF** | ไม่ใส่ก็ได้ | `""` | `GET /v1/liff-config` คืน `{"liff_id": ""}` → หน้า LIFF `liff.init()` ไม่ได้ |
 | `LINE_CHANNEL_ACCESS_TOKEN` | **จำเป็นถ้าต้องส่งข้อความ** | ไม่ใส่ก็ได้ | `""` | push ไม่Throw แต่คืน `"skipped: no LINE_CHANNEL_ACCESS_TOKEN"` แล้ว log `skipped` — ผู้ใช้ไม่ได้รับข้อความ |
