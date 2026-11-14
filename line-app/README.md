@@ -157,17 +157,17 @@ LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js
 |---|---|---|
 | POST | `/api/webhook` | รับ event จาก LINE (ตรวจ signature) |
 | GET | `/api/config` | LIFF ID ให้หน้าเว็บ init (public) |
-| GET | `/api/me` | userId / ห้องที่ผูก / เป็นเจ้าของไหม |
+| GET | `/api/me` | userId / ห้องที่ผูก / `role` (owner · viewer) + `root` (เจ้าของคนแรก) |
 | GET | `/api/bill?room=203` | ดึงบิล (ต้องมี idToken; ผู้เช่าเห็นเฉพาะห้องตัวเอง) · `&period=2026-10` เลือกรอบ · `&history=1` ดูทุกรอบ |
-| POST | `/api/slip` | แนบสลิป (รูปได้) → `pending` + push การ์ดหาเจ้าของ |
+| POST | `/api/slip` | แนบสลิป (รูปได้) → `pending` + push การ์ดหาเจ้าของ · ผู้เช่า 5 ครั้ง/บิล ห่าง ≥ 30 วิ → `429 SLIP_LIMIT` / `SLIP_TOO_SOON` |
 | GET | `/api/slip-image?room=203` | ดูรูปสลิป (เฉพาะเจ้าของ/ผู้เช่าห้องนั้น) |
 | GET | `/api/rooms` | ทุกห้อง + มิเตอร์ล่าสุด (เจ้าของ/ผู้ช่วย) |
 | POST | `/api/run` | ออกรอบบิลจากหน่วยมิเตอร์ + ส่งการ์ด (เจ้าของเท่านั้น) |
 | POST | `/api/dev?do=seed` (header `x-seed-token`) | สร้างบิลทดสอบทุกห้อง |
 | POST | `/api/dev?do=sendbill` (header `x-seed-token`) | ยิงการ์ดบิลให้ userId หนึ่งคน |
-| POST | `/api/owner` | เจ้าของออก QR เพิ่มเจ้าของ · คนที่สแกนส่ง `{code}` มาแลกสิทธิ์ |
+| GET/POST/DELETE | `/api/owner` | GET = รายชื่อเจ้าของ/ผู้ช่วย · POST = ออก QR เชิญ (root เชิญ `owner` ได้, เจ้าของที่ถูกเชิญเชิญได้แค่ `viewer`) หรือแลกรหัส `{code}` · DELETE (`{userId}`, root เท่านั้น) = ถอนสิทธิ์ |
 | GET/POST | `/api/qr?room=203` | QR ประจำห้อง (GET อ่าน/สร้าง · POST = เปลี่ยนผู้เช่า: ถอดคนเดิม + รหัสใหม่) — เจ้าของเท่านั้น |
-| POST | `/api/qr` | ผู้เช่าแลกรหัสจาก QR หน้าห้อง (`{code}`) → ผูกห้อง · ห้องที่มีผู้เช่าผูกแล้ว → `409 ROOM_TAKEN` · ผิดเกิน 10 ครั้ง/ชม. → `429` |
+| POST | `/api/qr` | ผู้เช่าแลกรหัสจาก QR หน้าห้อง (`{code}`) → ผูกห้อง · ห้องที่มีผู้เช่าผูกแล้ว → `409 ROOM_TAKEN` · ผู้เช่าที่มีห้องอยู่แล้วต้องส่ง `confirmMove: true` ไม่งั้น `409 MOVE_CONFIRM_REQUIRED` · ผิดเกิน 10 ครั้ง/ชม. → `429` |
 
 ## ข้อจำกัดที่ยังเหลือ
 
@@ -177,7 +177,7 @@ LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js
 - **1 deploy = 1 หอ** — รายชื่อห้องมาจาก env `ROOMS` · เจ้าของหลายคนได้ (owner/viewer) · เจ้าของหอคนแรก (`OWNER_USER_ID`) คนเดียวที่เชิญเจ้าของเพิ่มและถอนสิทธิ์ใครได้ (หน้า "เจ้าของและผู้ช่วย")
 - **ไม่มีการตรวจสลิปกับธนาคาร** — เคยต่อ SlipVerify แล้วถอยออก (ผู้ให้บริการฟรีไม่น่าไว้ใจ) เจ้าของตรวจรูปเอง
 - **เพดาน Vercel Hobby 12 ฟังก์ชัน** — ตอนนี้ใช้ 11 (`api/*.js` ที่ไม่ขึ้นต้นด้วย `_`)
-- ข้อมูลอยู่ใน Vercel Blob แบบ key-value ไม่ใช่ Postgres (backend จริงอยู่ใน `pakdee-prototype/backend/`)
+- ข้อมูลอยู่ใน Vercel Blob แบบ key-value ไม่ใช่ Postgres (backend จริงอยู่ใน `backend/`)
 
 ## ดูรายละเอียดสำหรับทีมที่รับช่วงต่อ
 
