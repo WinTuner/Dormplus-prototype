@@ -1,12 +1,13 @@
 from functools import lru_cache
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
     """Read from environment variables or backend/.env (see .env.example)."""
 
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", populate_by_name=True)
 
     database_url: str = "postgresql+psycopg://postgres:postgres@localhost:5432/domplus"
 
@@ -20,8 +21,11 @@ class Settings(BaseSettings):
     # Messaging API token: the backend pushes reminders itself (app/line_push.py).
     line_channel_access_token: str = ""
 
-    # Shared secret for the daily dunning cron (?token= on POST /v1/dunning/run).
-    dunning_token: str = ""
+    # Shared secret for the daily cron. Vercel puts it in `Authorization: Bearer <CRON_SECRET>`
+    # by itself; DUNNING_TOKEN is the old name and still works.
+    cron_secret: str = Field(
+        default="", validation_alias=AliasChoices("CRON_SECRET", "DUNNING_TOKEN")
+    )
     # Which dorm this deployment serves (one property per deploy).
     property_id: str = "p_1"
 

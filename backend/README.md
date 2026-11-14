@@ -187,22 +187,30 @@ RLS เปิดไว้ที่ตาราง rooms, readings, invoices, inv
 
 ## คิวงาน + ทวงอัตโนมัติ (Procrastinate)
 
-reminders ไม่ถูกส่งจาก request — API แค่ **enqueue** แล้วมี worker ค่อยดึงไปส่ง (`app/queue.py`, `app/tasks.py`)
+reminders ไม่ถูกส่งจาก request — API แค่ **enqueue** แล้วค่อย **drain** ใน invocation เดียวกัน (`app/queue.py`, `app/tasks.py`)
 
 ```bash
-procrastinate schema --apply               # ครั้งเดียวต่อฐานข้อมูล (สร้างตารางของ Procrastinate)
-procrastinate -a app.queue.app worker      # process ที่ต้องรันค้างไว้ (Railway / Fly / VM)
+python -m app.queue                        # ครั้งเดียวต่อฐานข้อมูล (สร้างตารางของ Procrastinate)
 ```
 
-**ทริกเกอร์ทวงรายวัน** — เรียก endpoint นี้จาก cron (Vercel Cron, GitHub Actions, host ไหนก็ได้):
+> `procrastinate schema --apply` ใช้ไม่ได้กับ app นี้ เพราะ CLI บังคับ async connector — `python -m app.queue` ทำ migration ชุดเดียวกัน
+
+**ทางที่ใช้จริง: Vercel Cron (ฟรี ไม่ต้องมี host)**
+
+`backend/vercel.json` ตั้ง cron ไว้แล้ว: `GET /v1/cron/daily` ทุกวัน 02:00 UTC (09:00 ไทย)
+
+- Vercel ส่ง `Authorization: Bearer $CRON_SECRET` ให้เองถ้าตั้ง env `CRON_SECRET` ไว้บนโปรเจกต์
+- endpoint เดียวจบ: เลือกบิลที่เลยกำหนด → enqueue → `run_worker(wait=False)` ส่งจนคิวว่างแล้วจบ
+- Hobby รันได้วันละครั้ง (คลาดได้ถึง ±59 นาที) · function ได้ถึง 300 วินาที — 42 ห้องใช้ ~1 นาที
+- ถ้าคิวใหญ่เกิน 300 วินาที งานที่ยังไม่ถูกหยิบจะถูกส่งในรอบถัดไป (at-least-once)
 
 ```bash
-curl -X POST -H "Authorization: Bearer $DUNNING_TOKEN" "https://<host>/v1/dunning/run"
+curl -H "Authorization: Bearer $CRON_SECRET" "https://<host>/v1/cron/daily"   # ยิงมือก็ได้
 ```
 
-ส่ง token ทาง header เท่านั้น · `?token=` ถูกปฏิเสธ (401) เพราะ URL ติด access log
+**ทางเลือก: worker process ค้าง** (ถ้าต้องการส่งถี่กว่านั้น) — `procrastinate -a app.queue.app worker` บน Fly/Railway/VM ชี้ Postgres ตัวเดียวกัน
 
-- เลือกบิล `unpaid` ที่เลยกำหนด **1 / 5 / 10 วัน** และยังไม่เคยส่ง kind นั้น (กันซ้ำด้วย `message_log`)
-- ต้องมี `LINE_CHANNEL_ACCESS_TOKEN` (ตัวเดียวกับ OA) ไม่งั้น worker จะ log `skipped` แทนการส่ง
-- env เพิ่ม: `DUNNING_TOKEN` (สำหรับ cron) · `PROPERTY_ID` (ค่าเริ่มต้น `p_1`)
-- **Vercel รัน worker ไม่ได้** (serverless ไม่มี process ค้าง) — ต้องมี host ที่รัน `procrastinate worker` ชี้ Postgres ตัวเดียวกัน
+- เลือกบิล `unpaid` ที่เลยกำหนด **1 / 5 / 10 วัน** และยังไม่เคยส่ง kind นั้น (กันซ้ำด้วย `message_log`, นับเฉพาะ `line_status='ok'`)
+- ต้องมี `LINE_CHANNEL_ACCESS_TOKEN` (ตัวเดียวกับ OA) ไม่งั้น task จะ log `skipped` แทนการส่ง
+- env: `CRON_SECRET` (หรือชื่อเก่า `DUNNING_TOKEN`) · `PROPERTY_ID` (ค่าเริ่มต้น `p_1`)
+- `POST /v1/dunning/run` ยังอยู่สำหรับสั่ง enqueue อย่างเดียว (มี owner session ก็ได้)

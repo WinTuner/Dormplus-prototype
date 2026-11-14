@@ -394,3 +394,37 @@ curl -s "$BASE/v1/reports/summary"
 ```json
 { "billed": 43112, "paid": 3930, "pending": 0, "unpaid": 39182, "invoices": 12 }
 ```
+
+## Cron และการทวง (ไม่ใช้ session — ใช้ shared secret)
+
+### `GET /v1/cron/daily`
+
+ทางที่ production ใช้: Vercel Cron เรียกวันละครั้ง (`0 2 * * *` UTC = 09:00 ไทย) และ Vercel ใส่
+`Authorization: Bearer $CRON_SECRET` ให้เองเมื่อตั้ง env ไว้บนโปรเจกต์
+
+```bash
+curl -s -H "Authorization: Bearer $CRON_SECRET" "$BASE/v1/cron/daily"
+```
+
+```json
+{ "queued": 3, "drained": true }
+```
+
+- ทำสามอย่างใน invocation เดียว: เลือกบิล `unpaid` ที่เลยกำหนด 1/5/10 วัน → enqueue → drain คิว (`run_worker(wait=False)`)
+- ไม่ส่ง secret / secret ไม่ตรง / `CRON_SECRET` ว่าง → `401 UNAUTHORIZED` (ว่าง = ปฏิเสธเสมอ)
+- ยังไม่ได้ `procrastinate schema --apply` → `503 QUEUE_UNAVAILABLE`
+- ไม่มี retry จาก Vercel: รอบที่พลาดจะถูกชดเชยรอบถัดไป เพราะการเลือกบิลอิง `message_log` ไม่ใช่วันที่
+
+### `POST /v1/dunning/run`
+
+สั่ง enqueue อย่างเดียว (ไม่ส่ง) — ใช้ยิงมือ หรือ owner session ก็ได้
+
+```bash
+curl -s -X POST -H "Authorization: Bearer $CRON_SECRET" "$BASE/v1/dunning/run"
+```
+
+```json
+{ "queued": 3, "days": [1, 5] }
+```
+
+`?token=` ถูกปฏิเสธ `401` — token ต้องมาทาง header เท่านั้น (URL ติด access log)
