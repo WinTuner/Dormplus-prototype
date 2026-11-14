@@ -86,6 +86,7 @@ def test_cannot_invite_for_a_tenant_who_already_has_line(owner, phone):
 def test_only_the_dorms_owner_can_invite(client_for, seeded, line_ready):
     assert client_for(seeded, TENANT_P1).post("/v1/rooms/r_203/invite", json={}).status_code == 403
     with seeded.begin() as conn:
+        conn.execute(text("select set_config('app.property_id', 'p_2', true)"))
         conn.execute(text("insert into properties (id, name) values ('p_2', 'หอพักอีกแห่ง')"))
     res = client_for(seeded, OWNER_P2).post("/v1/rooms/r_203/invite", json={})
     assert res.status_code == 403
@@ -237,7 +238,10 @@ def test_reissuing_revokes_the_old_code_and_writes_an_audit_row(owner, client_fo
 
 def test_another_dorm_cannot_unlink(client_for, seeded, line_ready):
     with seeded.begin() as conn:
+        conn.execute(text("select set_config('app.property_id', 'p_2', true)"))
         conn.execute(text("insert into properties (id, name) values ('p_2', 'หอพักอีกแห่ง')"))
+    with seeded.begin() as conn:
+        # The tenant belongs to p_1, so this update runs under p_1 (the transaction above reverted).
         conn.execute(text("update tenants set line_user_id = 'U_x' where id = 't_203'"))
     assert client_for(seeded, OWNER_P2).delete("/v1/tenants/t_203/line").status_code == 403
     assert one(seeded, "select line_user_id from tenants where id = 't_203'").line_user_id == "U_x"

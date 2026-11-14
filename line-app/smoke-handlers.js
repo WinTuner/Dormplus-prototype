@@ -422,6 +422,292 @@ const { saveBill } = require("./api/_bills");
   r = await call(slipImage, { method: "GET", query: { room: "211" }, user: "Uowner" });
   assert.deepStrictEqual([r.status, r.body.error.code], [404, "NOT_FOUND"], "the owner sees 404 when there is no slip");
 
+  // ---------------------------------------------------------------- transfer before the bill
+  // 201: last month's bill is paid. 202: no bill at all. Neither room is used by the tests above.
+  const bill = require("./api/bill");
+  const rooms = require("./api/rooms");
+  const oct = { room: "201", period: "2026-10", rent: 3500, water: 0, elec: 0, total: 3500, status: "paid" };
+  await saveBill(oct);
+  data.set("user-room:Udave", "201");
+  data.set("room-user:201", "Udave");
+  data.set("user-room:Ueve", "202");
+  data.set("room-user:202", "Ueve");
+  const ownerTexts = () => pushed.filter((p) => p.to === "Uowner" && p.messages[0].type === "text").map((p) => p.messages[0].text);
+
+  r = await call(slip, { body: { image: png, note: "โอนแล้ว" }, user: "Udave" });
+  assert.deepStrictEqual([r.status, r.body.status, r.body.hasSlip], [200, "advance", true], "a slip after a paid bill is an advance slip");
+  let pre = data.get("prepay:201");
+  assert.deepStrictEqual([pre.room, pre.slipCount, pre.by, pre.slipNote], ["201", 1, "Udave", "โอนแล้ว"]);
+  assert.ok(/^slips\/201-advance-\d+\.png$/.test(pre.slipPath) && files.has(pre.slipPath));
+  assert.strictEqual(data.get("bill:201").status, "paid", "the paid bill is not reopened");
+  assert.strictEqual(data.get("bill:2026-10:201").slipPath ?? null, null, "and gets no slip");
+  assert.strictEqual(ownerTexts().pop(), "ห้อง 201 แจ้งโอนก่อนบิลออก — โอนแล้ว · ระบบจะผูกสลิปนี้กับบิลรอบถัดไปให้เอง");
+
+  r = await call(slip, { body: { image: png }, user: "Udave" });
+  assert.deepStrictEqual([r.status, r.body.error.code], [429, "SLIP_TOO_SOON"], "advance slips are limited like bill slips");
+  const firstAdvance = pre.slipPath;
+  data.set("prepay:201", { ...pre, slipAt: new Date(Date.now() - 60000).toISOString() });
+  await new Promise((resolve) => setTimeout(resolve, 2));
+  r = await call(slip, { body: { image: png }, user: "Udave" });
+  assert.strictEqual(r.status, 200);
+  // Kept on purpose: the slip that replaces it may already be copied onto a bill that is being
+  // written right now, and deleting the file would make that bill's slip 404.
+  assert.ok(files.has(firstAdvance), "the replaced advance photo is kept, not deleted");
+  assert.strictEqual(data.get("prepay:201").slipCount, 2);
+  assert.strictEqual(ownerTexts().pop(), "ห้อง 201 แจ้งโอนก่อนบิลออก · ระบบจะผูกสลิปนี้กับบิลรอบถัดไปให้เอง", "no note, no dash");
+
+  data.set("prepay:201", { ...data.get("prepay:201"), slipCount: 5, slipAt: new Date(Date.now() - 60000).toISOString() });
+  r = await call(slip, { body: {}, user: "Udave" });
+  assert.deepStrictEqual([r.status, r.body.error.code], [429, "SLIP_LIMIT"], "five advance slips per room");
+  data.set("prepay:201", { ...data.get("prepay:201"), slipCount: 2 });
+
+  r = await call(slip, { body: { room: "201" }, user: "Ueve" });
+  assert.strictEqual(r.status, 403, "an advance slip still needs the room binding");
+
+  r = await call(bill, { method: "GET", query: {}, user: "Udave" });
+  assert.strictEqual(r.status, 200);
+  assert.deepStrictEqual([r.body.status, r.body.advance.hasSlip, r.body.advance.note], ["paid", true, null], "the latest bill reports the advance slip");
+  r = await call(bill, { method: "GET", query: { period: "2026-10" }, user: "Udave" });
+  assert.ok(!("advance" in r.body), "a period call is unchanged");
+  r = await call(slipImage, { method: "GET", query: { room: "201", advance: "1" }, user: "Udave" });
+  assert.strictEqual(r.status, 200, "the tenant reads their advance slip");
+  r = await call(slipImage, { method: "GET", query: { room: "201" }, user: "Udave" });
+  assert.strictEqual(r.status, 404, "without advance the bill's own slip is meant");
+  r = await call(slipImage, { method: "GET", query: { room: "201", advance: "1" }, user: "Ueve" });
+  assert.strictEqual(r.status, 403);
+  r = await call(rooms, { method: "GET", user: "Uowner" });
+  assert.strictEqual(r.body.rooms.find((x) => x.room === "201").advance.hasSlip, true, "the owner's room list shows it");
+  assert.strictEqual(r.body.rooms.find((x) => x.room === "202").advance, null);
+
+  // A prepay belongs to the NEXT bill: issuing an older period must not consume it.
+  const prepay211 = { room: "211", slipPath: "slips/211-advance-1.png", slipAt: new Date().toISOString(), slipCount: 1, by: "Ufrank" };
+  data.set("bill:2026-12:211", { room: "211", period: "2026-12", total: 4000, status: "paid" });
+  data.set("bill:211", { room: "211", period: "2026-12", total: 4000, status: "paid" });
+  data.set("room-user:211", "Ufrank");
+  data.set("prepay:211", prepay211);
+  r = await call(run, { user: "Uowner", body: { period: "2026-11", readings: [{ room: "211", water: 1, elec: 1 }] } });
+  assert.strictEqual(r.body.rooms[0].prepaid, undefined, "a back-dated bill takes no advance slip");
+  assert.strictEqual(data.get("bill:2026-11:211").status, "unpaid");
+  assert.strictEqual(data.get("prepay:211").slipAt, prepay211.slipAt, "the advance slip is still waiting for the next bill");
+
+  // A stale prepay from someone who is no longer the tenant is not handed to the new one.
+  data.set("prepay:211", { ...prepay211, by: "Ugone" });
+  r = await call(run, { user: "Uowner", body: { period: "2027-01", readings: [{ room: "211", water: 1, elec: 1 }] } });
+  assert.strictEqual(r.body.rooms[0].prepaid, undefined, "a prepay from a former tenant is ignored");
+  assert.strictEqual(data.get("bill:2027-01:211").status, "unpaid");
+  assert.ok(data.get("prepay:211"), "and it is left for the owner to deal with");
+
+  // The same prepay from the current tenant is attached, and then cleared.
+  data.set("prepay:211", prepay211);
+  r = await call(run, { user: "Uowner", body: { period: "2027-02", readings: [{ room: "211", water: 1, elec: 1 }] } });
+  assert.strictEqual(r.body.rooms[0].prepaid, true, "the current tenant's prepay is attached");
+  assert.strictEqual(data.get("bill:2027-02:211").status, "pending");
+  assert.strictEqual(data.get("prepay:211"), null, "and consumed");
+
+  // 202 has no bill at all: advance too, and the 404 still carries the advance.
+  r = await call(bill, { method: "GET", query: {}, user: "Ueve" });
+  assert.deepStrictEqual([r.status, r.body.error.advance], [404, null]);
+  r = await call(slip, { body: { note: "ค่าห้อง" }, user: "Ueve" });
+  assert.deepStrictEqual([r.status, r.body.status, r.body.hasSlip], [200, "advance", false], "no bill yet: advance as well");
+  assert.strictEqual(data.get("bill:202") ?? null, null, "and no bill is invented");
+  r = await call(bill, { method: "GET", query: {}, user: "Ueve" });
+  assert.strictEqual(r.status, 404);
+  assert.strictEqual(r.body.error.code, "NOT_FOUND");
+  assert.strictEqual(r.body.error.advance.note, "ค่าห้อง", "the 404 body carries error.advance");
+
+  // Owner-sent advance slips are not rate limited.
+  r = await call(slip, { body: { room: "202" }, user: "Uowner" });
+  assert.strictEqual(r.status, 200, "owner may send right after the tenant");
+  r = await call(slip, { body: { room: "202" }, user: "Uowner" });
+  assert.deepStrictEqual([r.status, data.get("prepay:202").by], [200, "Uowner"], "and again at once");
+
+  // Issuing the bill attaches the slip and asks the owner to confirm.
+  const sentBefore = pushed.length;
+  r = await call(run, { user: "Uowner", body: { period: "2026-11", readings: [{ room: "201", water: 2, elec: 10 }] } });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.body.rooms[0].prepaid, true);
+  const nov201 = data.get("bill:2026-11:201");
+  assert.deepStrictEqual([nov201.status, nov201.prepaid, nov201.slipCount, nov201.slipNote], ["pending", true, 2, null]);
+  assert.ok(files.has(nov201.slipPath), "the slip photo now belongs to the bill");
+  assert.strictEqual(data.get("bill:201").slipPath, nov201.slipPath, "the newest copy agrees");
+  assert.strictEqual(data.get("prepay:201"), null, "the prepay is consumed");
+  const issued = pushed.slice(sentBefore);
+  assert.ok(issued.some((p) => p.to === "Udave" && p.messages[0].altText.includes("201")), "the tenant gets the bill card");
+  assert.ok(issued.some((p) => p.to === "Uowner" && p.messages[0].type === "flex" && p.messages[0].altText.startsWith("แจ้งชำระ ห้อง 201")),
+    "the owner gets a confirm card");
+  r = await call(bill, { method: "GET", query: {}, user: "Udave" });
+  assert.strictEqual(r.body.advance, null, "nothing is waiting any more");
+
+  // A room without a prepay is issued as before.
+  r = await call(run, { user: "Uowner", body: { period: "2026-11", readings: [{ room: "203", water: 1, elec: 1 }] } });
+  assert.strictEqual(data.get("bill:2026-11:203").status, "unpaid");
+  assert.ok(!("prepaid" in r.body.rooms[0]));
+
+  // The guard still wins: a pending bill is refused and the prepay left alone.
+  data.set("prepay:201", { room: "201", slipPath: null, slipNote: null, slipAt: new Date().toISOString(), slipCount: 1, by: "Udave" });
+  r = await call(run, { user: "Uowner", body: { period: "2026-11", readings: [{ room: "201", water: 3, elec: 3 }] } });
+  assert.ok(r.body.rooms[0].error);
+  assert.ok(data.get("prepay:201"), "a refused issue keeps the prepay");
+  data.set("prepay:201", null);
+
+  await tap("Uowner", "action=confirm&room=201&period=2026-11");
+  assert.strictEqual(data.get("bill:2026-11:201").status, "paid", "the owner's confirm closes the prepaid bill");
+  assert.strictEqual(data.get("bill:201").status, "paid");
+
+  // ---------------------------------------------------------------- a new tenant does not see the previous tenant's bills
+  // 210: the tenant change. 212 (Ustale is bound there above, so it is reset): a room with no
+  // tenancy record, then a tenant moving out of it. 204 is the room they move to.
+  {
+    const billApi = require("./api/bill");
+    const roomsApi = require("./api/rooms");
+    const { tenancyOf, visibleToTenant } = require("./api/_bills");
+    const mk = (room, period, status, extra = {}) => ({ room, period, rent: 3500, water: 0, elec: 0, total: 3500, status, ...extra });
+    const png1 = "data:image/png;base64,iVBORw0KGgo=";
+
+    assert.strictEqual(visibleToTenant({ issuedAt: "2020-01-01T00:00:00.000Z" }, null), true, "no tenancy: everything shows");
+    assert.strictEqual(visibleToTenant({}, { since: "2026-01-01T00:00:00.000Z" }), false, "no issuedAt predates any tenancy");
+    assert.strictEqual(visibleToTenant({ issuedAt: "2026-01-01T00:00:00.000Z" }, { since: "2026-01-01T00:00:00.000Z" }), true);
+
+    // The old tenant of 210: a paid October, an unpaid November with a slip photo and a prepay.
+    data.set("user-room:Uold", "210");
+    data.set("room-user:210", "Uold");
+    await saveBill(mk("210", "2026-10", "paid", { issuedAt: "2026-10-01T00:00:00.000Z" }));
+    files.set("slips/210-old.png", Buffer.from("x"));
+    await saveBill(mk("210", "2026-11", "pending", { issuedAt: "2026-11-01T00:00:00.000Z", slipPath: "slips/210-old.png", slipAt: "2026-11-02T00:00:00.000Z", slipCount: 1 }));
+    const oldPrepay = { room: "210", slipPath: "slips/210-advance-1.png", slipNote: "ล่วงหน้า", slipAt: "2026-11-03T04:05:06.000Z", slipCount: 1, by: "Uold" };
+    files.set(oldPrepay.slipPath, Buffer.from("y"));
+    data.set("prepay:210", oldPrepay);
+
+    r = await call(billApi, { method: "GET", query: {}, user: "Uold" });
+    assert.strictEqual(r.status, 200, "no tenancy record yet: the tenant sees everything as before");
+    assert.strictEqual(r.body.advance.hasSlip, true);
+
+    // The owner changes tenant.
+    const noticeCount = pushed.length;
+    r = await call(qr, { method: "POST", query: { room: "210" }, user: "Uowner" });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(r.body.prepayArchived, true, "the response says an advance slip was archived");
+    const newCode210 = r.body.code;
+    const since = (await tenancyOf("210")).since;
+    assert.ok(since && !Number.isNaN(Date.parse(since)), "tenancy:210 is written");
+    assert.deepStrictEqual(data.get("prepay-old:210:2026-11-03T04:05:06.000Z"), oldPrepay, "the old prepay is archived under its slipAt");
+    assert.strictEqual(data.get("prepay:210"), null, "and cleared");
+    assert.ok(files.has(oldPrepay.slipPath), "its photo is kept");
+    // The owner is told to check it, so it has to be readable; the new tenant must not see it.
+    r = await call(slipImage, { method: "GET", query: { room: "210", archived: "1" }, user: "Uowner" });
+    assert.strictEqual(r.status, 200, "the owner can open the archived slip");
+    r = await call(slipImage, { method: "GET", query: { room: "210", archived: "1" }, user: "Unew210" });
+    assert.strictEqual(r.status, 403, "the room's tenant cannot");
+    const notice = pushed.slice(noticeCount).find((p) => p.to === "Uowner" && p.messages[0].type === "text");
+    assert.strictEqual(notice.messages[0].text, "ห้อง 210: ผู้เช่าเดิมมีสลิปโอนล่วงหน้าค้างอยู่ — ไม่ถูกผูกกับผู้เช่าใหม่ ตรวจสอบ/คืนเงินเอง");
+
+    // The new tenant binds.
+    r = await call(qr, { body: { code: newCode210 }, user: "Unew" });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(data.get("room-user:210"), "Unew");
+
+    r = await call(billApi, { method: "GET", query: {}, user: "Unew" });
+    assert.deepStrictEqual([r.status, r.body.error.code], [404, "NOT_FOUND"], "the previous tenant's latest bill is hidden");
+    assert.strictEqual(r.body.error.advance, null, "and so is their advance slip");
+    r = await call(billApi, { method: "GET", query: { period: "2026-10" }, user: "Unew" });
+    assert.strictEqual(r.status, 404, "an old period is hidden too");
+    r = await call(billApi, { method: "GET", query: { period: "2026-11" }, user: "Unew" });
+    assert.strictEqual(r.status, 404);
+    r = await call(billApi, { method: "GET", query: { history: "1" }, user: "Unew" });
+    assert.deepStrictEqual([r.status, r.body.items], [200, []], "history is empty for the new tenant");
+    r = await call(slipImage, { method: "GET", query: { room: "210" }, user: "Unew" });
+    assert.deepStrictEqual([r.status, r.body.error.message], [404, "ยังไม่มีสลิป"], "the old slip photo is hidden");
+
+    const replies = [];
+    const realFetch = global.fetch;
+    global.fetch = async (url, opts = {}) => {
+      if (String(url).includes("/message/reply")) replies.push(JSON.parse(opts.body));
+      return realFetch(url, opts);
+    };
+    await webhook(hook, [{ type: "message", replyToken: "r", source: { userId: "Unew" }, message: { type: "text", text: "บิล" } }]);
+    assert.strictEqual(replies.pop().messages[0].text, "ห้อง 210 ยังไม่มีบิลรอบนี้ครับ", "chat 'บิล' says there is no bill");
+
+    // A slip from the new tenant goes the advance way and leaves the old bill alone.
+    const oldBill = JSON.stringify(data.get("bill:210"));
+    r = await call(slip, { body: { image: png1, note: "ใหม่" }, user: "Unew" });
+    assert.deepStrictEqual([r.status, r.body.status], [200, "advance"], "the new tenant's slip is an advance slip");
+    assert.strictEqual(JSON.stringify(data.get("bill:210")), oldBill, "the old bill is untouched");
+    assert.strictEqual(data.get("bill:2026-11:210").slipPath, "slips/210-old.png");
+    assert.strictEqual(data.get("prepay:210").by, "Unew");
+    r = await call(slipImage, { method: "GET", query: { room: "210", advance: "1" }, user: "Unew" });
+    assert.strictEqual(r.status, 200, "their own advance slip is visible to them");
+    data.set("prepay:210", null);
+
+    // The owner still sees everything.
+    r = await call(billApi, { method: "GET", query: { room: "210" }, user: "Uowner" });
+    assert.deepStrictEqual([r.status, r.body.period], [200, "2026-11"], "the owner sees the old latest bill");
+    r = await call(billApi, { method: "GET", query: { room: "210", history: "1" }, user: "Uowner" });
+    assert.strictEqual(r.body.items.length, 2);
+    r = await call(slipImage, { method: "GET", query: { room: "210" }, user: "Uowner" });
+    assert.strictEqual(r.status, 200, "and the old slip photo");
+    r = await call(roomsApi, { method: "GET", user: "Uowner" });
+    assert.strictEqual(r.body.rooms.find((x) => x.room === "210").bill.period, "2026-11", "/api/rooms still lists it");
+
+    // Confirming the old tenant's pending bill does not message the new tenant.
+    const beforeConfirm = pushed.length;
+    await tap("Uowner", "action=confirm&room=210&period=2026-11");
+    assert.strictEqual(data.get("bill:2026-11:210").status, "paid", "the owner can still close it");
+    assert.ok(!pushed.slice(beforeConfirm).some((p) => p.to === "Unew"), "the new tenant is not told");
+
+    // The owner issues a new bill: it carries issuedAt and the new tenant sees it.
+    const t0 = new Date().toISOString();
+    r = await call(run, { user: "Uowner", body: { period: "2026-12", readings: [{ room: "210", water: 1, elec: 2 }] } });
+    assert.strictEqual(r.body.rooms[0].pushed, true);
+    const fresh = data.get("bill:210");
+    assert.ok(fresh.issuedAt >= t0 && fresh.issuedAt >= since, "run.js stamps issuedAt");
+    assert.strictEqual(data.get("bill:2026-12:210").issuedAt, fresh.issuedAt);
+    r = await call(billApi, { method: "GET", query: {}, user: "Unew" });
+    assert.deepStrictEqual([r.status, r.body.period], [200, "2026-12"], "the new tenant sees the new bill");
+    r = await call(billApi, { method: "GET", query: { history: "1" }, user: "Unew" });
+    assert.deepStrictEqual(r.body.items.map((i) => i.period), ["2026-12"], "history shows only the new tenancy");
+    r = await call(billApi, { method: "GET", query: { period: "2026-10" }, user: "Unew" });
+    assert.strictEqual(r.status, 404);
+    // ...and they can send a slip for it.
+    r = await call(slip, { body: { image: png1 }, user: "Unew" });
+    assert.deepStrictEqual([r.status, r.body.status], [200, "pending"]);
+
+    // A tenant change with nobody bound and no prepay still starts a fresh tenancy.
+    r = await call(qr, { method: "POST", query: { room: "210" }, user: "Uowner" });
+    assert.ok(!("prepayArchived" in r.body), "no prepay: no flag");
+    assert.ok((await tenancyOf("210")).since >= fresh.issuedAt);
+    r = await call(billApi, { method: "GET", query: {}, user: "Unew" });
+    assert.strictEqual(r.status, 400, "the unbound tenant reads nothing");
+
+    // 212: never reset, so its tenant keeps their history. Then they move out with confirmMove.
+    data.set("room-user:212", "Ulong");
+    data.set("user-room:Ulong", "212");
+    data.set("user-room:Ustale", null);
+    for (const k of ["bill:212", "bills:212"]) data.delete(k); // earlier sections may have used 212
+    await saveBill(mk("212", "2026-10", "paid"));
+    await saveBill(mk("212", "2026-11", "unpaid"));
+    assert.strictEqual(await tenancyOf("212") ?? null, null);
+    r = await call(billApi, { method: "GET", query: {}, user: "Ulong" });
+    assert.deepStrictEqual([r.status, r.body.period], [200, "2026-11"], "no tenancy record: old bills (no issuedAt) still show");
+    r = await call(billApi, { method: "GET", query: { history: "1" }, user: "Ulong" });
+    assert.strictEqual(r.body.items.length, 2);
+    r = await call(billApi, { method: "GET", query: { period: "2026-10" }, user: "Ulong" });
+    assert.strictEqual(r.status, 200);
+
+    data.set("room-user:204", null);
+    data.set("user-room:Ubob", null);
+    data.set("qr-code:MOVE204", "204");
+    r = await call(qr, { body: { code: "MOVE204", confirmMove: true }, user: "Ulong" });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(data.get("room-user:212"), null);
+    assert.ok((await tenancyOf("212")).since, "moving out writes tenancy for the room left");
+    assert.strictEqual(await tenancyOf("204") ?? null, null, "and not for the room joined");
+    data.set("user-room:Unext", "212");
+    data.set("room-user:212", "Unext");
+    r = await call(billApi, { method: "GET", query: {}, user: "Unext" });
+    assert.strictEqual(r.status, 404, "the next tenant of 212 does not see Ulong's bills");
+    global.fetch = realFetch;
+  }
+
   // ---------------------------------------------------------------- the seed token itself
   process.env.VERCEL_ENV = "development";
   delete require.cache[require.resolve("./api/_auth")];
@@ -434,7 +720,7 @@ const { saveBill } = require("./api/_bills");
   assert.strictEqual(devAuth.seedTokenOk(reqWith({ "x-seed-token": "short" })), false, "a short SEED_TOKEN does not count as set");
   delete process.env.VERCEL_ENV;
 
-  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, seed token");
+  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, seed token");
 })().catch((err) => {
   console.error(err);
   process.exit(1);

@@ -43,6 +43,26 @@ async function unbindRoom(room) {
   return tenant;
 }
 
+// The tenant has left: the room's next tenancy starts now (bills issued before it stay hidden from
+// them, see _bills.js). An advance slip waiting in `prepay:<room>` was the leaving tenant's, so it is
+// archived instead of being handed to the next one, and the owner is told to deal with the money.
+// Returns whether a prepay was archived.
+async function endTenancy(room) {
+  await store.set(`tenancy:${room}`, { since: new Date().toISOString() });
+  const prepay = await store.get(`prepay:${room}`);
+  if (!prepay) return false;
+  await store.set(`prepay-old:${room}:${prepay.slipAt}`, prepay); // the photo file is kept
+  await store.set(`prepay-old:${room}`, prepay); // latest one, so the owner can open the photo
+  await store.set(`prepay:${room}`, null);
+  if (process.env.OWNER_USER_ID) {
+    const text = `ห้อง ${room}: ผู้เช่าเดิมมีสลิปโอนล่วงหน้าค้างอยู่ — ไม่ถูกผูกกับผู้เช่าใหม่ ตรวจสอบ/คืนเงินเอง`;
+    await push(process.env.OWNER_USER_ID, [{ type: "text", text }]).catch((err) =>
+      console.error("owner notice failed", err.message)
+    );
+  }
+  return true;
+}
+
 module.exports = async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   const userId = await requireUser(req, res);
@@ -68,11 +88,15 @@ async function roomQr(req, res, userId, room) {
   }
 
   const changing = req.method === "POST";
-  const unbound = changing ? await unbindRoom(room) : null;
+  // Rotate first: if a later step throws, the old sticker is already dead. Unbinding first would
+  // leave a room with no tenant and a QR that still binds.
   const entry = await ensureCode(room, changing);
+  const unbound = changing ? await unbindRoom(room) : null;
+  // Always, even if nobody was bound: whoever binds next starts a fresh tenancy.
+  const prepayArchived = changing ? await endTenancy(room) : false;
   const url = bindUrl(entry.code);
   const qr = url ? qrSvg(url) : null;
-  return res.status(200).json({ room, code: entry.code, url, qr, rotated: changing, unbound: !!unbound });
+  return res.status(200).json({ room, code: entry.code, url, qr, rotated: changing, unbound: !!unbound, ...(prepayArchived && { prepayArchived: true }) });
 }
 
 async function bind(req, res, userId, code) {
@@ -112,6 +136,7 @@ async function bind(req, res, userId, code) {
   }
   if (previous && previous !== room && (await store.get(`room-user:${previous}`)) === userId) {
     await store.set(`room-user:${previous}`, null);
+    await endTenancy(previous); // the room left behind starts a new tenancy
   }
   await store.set(`user-room:${userId}`, room);
   await store.set(`room-user:${room}`, userId);

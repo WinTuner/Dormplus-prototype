@@ -218,6 +218,7 @@ LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js
 | `scripts/setup-richmenu.js`, `scripts/set-richmenu-image.js`, `scripts/_richmenu-defs.js` | สร้าง/เปลี่ยนรูป rich menu 2 ชุด (เจ้าของ 6 ช่อง · ผู้เช่า 3 ช่อง compact) |
 | `liff/bill.html` | หน้าเดียว 2 บทบาท: ผู้เช่า (บิล · แนบสลิป · ประวัติย้อนหลัง) / เจ้าของ (จดมิเตอร์ · ออกบิล · ตรวจสลิป · รายงาน · QR ห้อง · QR เพิ่มเจ้าของ) |
 | `smoke.js` | smoke test แบบ offline — `node smoke.js` (ตรวจ signature + รูปการ์ด ไม่ต่อเน็ต) |
+| `smoke-usecases.js` | เทสต์ offline จัดตาม use case — `node smoke-usecases.js` (ดู [`../docs/TEST-CASES.md`](../docs/TEST-CASES.md)) |
 | `vercel.json` | rewrite `/` → `/liff/bill.html` |
 | `HANDOFF.md` | เอกสารส่งต่อทีม: แผนผัง, โครงข้อมูลใน Blob, กับดักที่เจอมาแล้ว |
 
@@ -242,6 +243,6 @@ LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js
 - **rate limit มี 2 จุด** — การแลกรหัส (QR ห้อง, รหัสเชิญเจ้าของ: ผิดได้ 10 ครั้ง/ชม./บัญชี) และการส่งสลิป (ผู้เช่าส่งได้ 5 ครั้ง/บิล ห่างกัน ≥ 30 วินาที เพราะทุกสลิปกินโควตาข้อความ LINE OA) · endpoint อื่นพึ่ง limit ของ Vercel
 - **ไม่มี cron** — บิลรอบใหม่เกิดเมื่อมีคนกดออกบิลจากหน้าเจ้าของ (`/api/run`) เท่านั้น ยังไม่มีตัวส่งบิลอัตโนมัติรายเดือน
 - **webhook รับแค่ `follow`, ข้อความ text, และ `postback`** — ถ้าผู้เช่าส่งรูปสลิปเข้ามาในแชทตรง ๆ จะไม่มีอะไรเกิดขึ้น ต้องแนบผ่านหน้า LIFF
-- **เทสต์เป็นแบบ offline** — `node smoke.js` (signature, การ์ด, สิทธิ์), `node smoke-handlers.js` (dev gate, ผูก QR + ยืนยันย้ายห้อง, rate limit, ยืนยันการชำระ, ออกบิล, cache idToken, สิทธิ์ + ถอนสิทธิ์, จำกัดสลิป) และ `node smoke-reads.js` (จำกัดการอ่านพร้อมกัน, ลำดับข้อมูล, ประวัติบิล, สิทธิ์) ไม่ต้อง `npm install` · CI รันทั้งสามไฟล์หลังติดตั้ง dependency เพื่อทดสอบ QR จริงด้วย
+- **เทสต์เป็นแบบ offline** — `node smoke.js` (signature, การ์ด, สิทธิ์), `node smoke-handlers.js` (dev gate, ผูก QR + ยืนยันย้ายห้อง, rate limit, ยืนยันการชำระ, ออกบิล, cache idToken, สิทธิ์ + ถอนสิทธิ์, จำกัดสลิป), `node smoke-reads.js` (จำกัดการอ่านพร้อมกัน, ลำดับข้อมูล, ประวัติบิล, สิทธิ์) และ `node smoke-usecases.js` (เทสต์ตาม use case — ดู [`../docs/TEST-CASES.md`](../docs/TEST-CASES.md)) ไม่ต้อง `npm install` · CI รันทั้งสี่ไฟล์หลังติดตั้ง dependency เพื่อทดสอบ QR จริงด้วย
 - **state ใน Blob เป็น key-value แบน** — ไม่มี transaction/lock ถ้าเขียน key เดียวกันพร้อมกัน ค่าที่เขียนทีหลังชนะ (เขียนทับด้วย `allowOverwrite`)
 - **`/api/config` เปิดสาธารณะโดยตั้งใจ** — คืนแค่ `liffId` ไม่มีข้อมูลอ่อนไหว

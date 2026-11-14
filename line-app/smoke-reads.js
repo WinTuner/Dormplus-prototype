@@ -52,7 +52,7 @@ function call(handler, { query = {}, user = "owner" } = {}) {
   assert.strictEqual(result.status, 200);
   assert.deepStrictEqual(result.body.rooms.map((r) => r.room), process.env.ROOMS.split(","));
   assert.ok(peak > 1, `room reads overlap (peak ${peak})`);
-  assert.ok(peak <= 48, `room reads bounded to 12 rooms × 4 reads (peak ${peak})`);
+  assert.ok(peak <= 60, `room reads bounded to 12 rooms × 5 reads (peak ${peak})`);
   assert.ok(!JSON.stringify(result.body).includes("Usecret-tenant-id"), "the room list never carries a tenant's LINE userId");
   assert.deepStrictEqual([result.body.rooms[0].linked, result.body.rooms[1].linked], [true, false], "only whether a tenant is bound");
 
