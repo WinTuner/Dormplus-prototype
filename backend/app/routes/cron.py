@@ -29,24 +29,27 @@ class CronOut(BaseModel):
     drained: bool
 
 
-def drain_queue() -> None:
+async def drain_queue() -> None:
     """Send every queued job now, then return — no long-lived worker.
 
     `wait=False` makes procrastinate stop as soon as the queue is empty. With a day's worth of
     reminders (one per room) that is well inside the 300s a function gets.
-    """
-    from app.queue import app as queue
 
-    queue.run_worker(
-        wait=False,
-        concurrency=4,
-        listen_notify=False,
-        install_signal_handlers=False,
-    )
+    The async app is deliberate: `run_worker` runs an event loop and needs the async connector.
+    """
+    from app.queue import async_app
+
+    async with async_app.open_async():
+        await async_app.run_worker_async(
+            wait=False,
+            concurrency=4,
+            listen_notify=False,
+            install_signal_handlers=False,
+        )
 
 
 @router.get("/cron/daily", response_model=CronOut)
-def daily_cron(
+async def daily_cron(
     request: Request,
     engine: Engine = Depends(get_engine),
     day: date = Depends(today),
@@ -63,7 +66,7 @@ def daily_cron(
     rows = due_for_reminder(engine, settings.property_id, day)
     try:
         queued = queue_reminders(rows)
-        drain_queue()
+        await drain_queue()
     except Exception as exc:  # noqa: BLE001 - a bare 500 in the cron log helps nobody
         raise ApiError(503, "QUEUE_UNAVAILABLE", f"คิวใช้งานไม่ได้ ({type(exc).__name__}) — ตรวจว่าสร้างตาราง procrastinate แล้วหรือยัง") from exc
     return CronOut(queued=queued, drained=True)

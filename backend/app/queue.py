@@ -23,6 +23,17 @@ app = procrastinate.App(
     import_paths=["app.tasks"],
 )
 
+# `App.run_worker` is only a thin wrapper around `asyncio.run(run_worker_async())`, and that path
+# requires an async connector; the sync one is what the request handlers use. The cron drain
+# therefore gets its own app on the async connector.
+#
+# Local note: psycopg's async mode refuses Windows' ProactorEventLoop, so a manual drain on Windows
+# needs asyncio.run(..., loop_factory=asyncio.SelectorEventLoop). Linux (Vercel) is unaffected.
+async_app = procrastinate.App(
+    connector=procrastinate.PsycopgConnector(conninfo=_conninfo()),
+    import_paths=["app.tasks"],
+)
+
 
 def apply_schema() -> None:
     """Create procrastinate's own tables.
