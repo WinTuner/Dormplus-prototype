@@ -11,7 +11,7 @@
 | Schema Postgres | เสร็จ | `db/schema.sql` (snapshot อ่านอย่างเดียว) · ตัวที่รันจริงคือ `backend/migrations/` (alembic ถึง `0003`) |
 | Backend จริง (FastAPI + Postgres) | บางส่วน | `backend/` — rooms, readings, billing run, invoices, slip/confirm/reject, LINE Login |
 | LINE app ที่ deploy จริง | ใช้ได้ | `line-app/` (Vercel + Blob + LIFF) — ส่งบิล/แนบสลิป/ยืนยันในแชท · ดู `line-app/HANDOFF.md` |
-| LINE OA / LIFF / auth (backend) | บางส่วน | LIFF login + session cookie เสร็จ · webhook/ส่งข้อความยังไม่มี (`backend/app/routes/auth.py`, `backend/liff/`) |
+| LINE OA / LIFF / auth (backend) | บางส่วน | LIFF login + session cookie เสร็จ · **ส่งข้อความ LINE ได้แล้ว** (`app/line_push.py` + คิว `app/tasks.py`) · ยังไม่มี webhook รับ event (LINE OA ชี้ที่ `line-app/`) · หน้า LIFF ของ backend อยู่ที่ `backend/liff/` |
 | Deploy: `line-app` | ✅ | Vercel · auto จาก `master` · https://line-app-iota.vercel.app |
 | Deploy: `backend` | ✅ | Vercel (serverless) · auto จาก `master` · https://line-backend-ten.vercel.app |
 | Database จริง | ✅ | Neon Postgres (Vercel Marketplace) · schema `0003` + seed 42 ห้อง · `backend/.env` (ไม่อยู่ใน git) |
@@ -28,7 +28,7 @@
 1. 🟡 FastAPI app ตาม `docs/API.md` (ทุก endpoint + error code)
    — มีแล้ว: rooms, readings, billing run, invoices, slip, confirm, reject, `/me/invoices`, auth · เหลือ `GET /properties/:id`, `GET /invoices/:id`, webhook
 2. ✅ Postgres ตาม `db/schema.sql` + migration (Alembic) — `backend/migrations/`
-3. 🟡 Queue + cron (Procrastinate) — โค้ดพร้อม (`app/queue.py` · `app/tasks.py` · `app/dunning.py` · `app/routes/cron.py`) · **ตัวทวงรายวันไม่ต้องมี host แล้ว**: Vercel Cron ยิง `GET /v1/cron/daily` วันละครั้ง แล้ว drain คิวใน invocation เดียว (`run_worker(wait=False)`) เหลือแค่ตั้ง `CRON_SECRET` + `procrastinate schema --apply`
+3. 🟡 Queue + cron (Procrastinate) — โค้ดพร้อม (`app/queue.py` · `app/tasks.py` · `app/dunning.py` · `app/routes/cron.py`) · **ตัวทวงรายวันไม่ต้องมี host แล้ว**: Vercel Cron ยิง `GET /v1/cron/daily` วันละครั้ง แล้ว drain คิวใน invocation เดียว (`run_worker(wait=False)`) เหลือแค่ตั้ง `CRON_SECRET` + สร้างตารางด้วย `python -m app.queue` (CLI `procrastinate schema --apply` ไม่รับ sync connector)
    - ✅ `dunning` — cron รายวัน 1/5/10 วันหลังครบกำหนด (รอตั้ง env + เปิด cron บน production)
    - ⬜ `billing.run` — ออกบิลทั้งหอใน transaction เดียว (ตอนนี้ทำใน request แบบ synchronous แล้ว `job_id` = `null`)
    - ⬜ `notify.invoice` — ส่ง LINE ทีละห้อง + `message_log`
