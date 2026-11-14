@@ -58,6 +58,9 @@ async function main() {
   const dunning = await get(`${BACKEND}/v1/dunning/run?token=guess`, { method: "POST" });
   check("dunning rejects a query-string token", dunning.status === 401, `HTTP ${dunning.status}`);
 
+  const cron = await get(`${BACKEND}/v1/cron/daily`);
+  check("daily cron exists and needs its secret", cron.status === 401, `HTTP ${cron.status}`);
+
   if (failed) {
     console.log(`\n${failed} check(s) failed`);
     process.exit(1);
