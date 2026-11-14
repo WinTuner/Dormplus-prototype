@@ -27,13 +27,13 @@
 
 ## กติกากลาง
 
-- Base: `https://api.domplus.app/v1`
+- Base: `https://line-backend-ten.vercel.app/v1` (deployment จริง) — โดเมน `api.domplus.app` ในเอกสารรุ่นแรกยังไม่มีจริง
 - เวลา: ISO-8601 UTC
 - เงิน: จำนวนเต็มหน่วย "บาท" (ไม่ใช้ทศนิยม)
 - รอบบิล: `period` = `YYYY-MM`
 - Error:
 ```json
-{ "error": { "code": "INVOICE_ALREADY_SENT", "message": "บิลรอบนี้ถูกส่งแล้ว" } }
+{ "error": { "code": "CONFLICT", "message": "บิลรอบ 2026-11 ออกไปแล้ว ..." } }
 ```
 | code | HTTP | ความหมาย |
 |---|---|---|
@@ -54,12 +54,13 @@
 แลก LINE idToken เป็น session
 ```json
 // req
-{ "id_token": "eyJ...", "role": "owner" }
+{ "id_token": "eyJ..." }
 // res 200
-{ "user": { "id": "u_1", "role": "owner", "property_id": "p_1", "name": "คุณแมว" } }
+{ "user": { "room_no": "203", "name": "สมชาย", "property_id": "p_1" } }
 ```
-- `role` = `owner` | `tenant`
-- tenant: ระบบหา `property_id` จากห้องที่ผูกกับ `line_user_id`
+- `LineLoginIn` รับแค่ `id_token` — ไม่มี `role` ใน request และ response ไม่มี `id`/`role`
+- ระบบหา `property_id` และห้องจาก `line_user_id` ในตาราง `tenants` เท่านั้น (ไม่รับจาก client)
+- ยังไม่มีทางล็อกอินของเจ้าของหอผ่าน LINE เลย — endpoint นี้สร้าง tenant session เสมอ ⬜
 
 ### `POST /auth/logout` → 204
 
@@ -103,7 +104,7 @@ LINE userId ผู้ใช้มองไม่เห็น เจ้าขอ�
 
 ### `DELETE /tenants/:id/line` → 204
 ยกเลิกการผูก LINE ของผู้เช่า · ครั้งหน้าที่เข้า LIFF จะได้ `403 NOT_LINKED`
-(cookie ที่ถืออยู่แล้วใช้ได้ต่อจนหมดอายุ ≤ 7 วัน)
+(cookie เดิมใช้ไม่ได้ทันที — ทุก request ของผู้เช่าตรวจ `still_linked` ใหม่ → `401 SESSION_REVOKED`)
 
 ---
 
@@ -194,14 +195,14 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
 ## การชำระเงิน
 
 ### `POST /invoices/:id/slip`
-ผู้เช่าแนบสลิป → ระบบตรวจ → ตั้งสถานะ `pending`
+ผู้เช่าแนบสลิป → ตั้งสถานะ `pending` (ยังไม่มีการตรวจสลิปอัตโนมัติ)
 ```json
 // req
 { "slip_url": "s3://slips/203-1109.jpg" }
 // res 200
-{ "status": "pending", "verify": { "ok": true, "amount": 3842, "provider": "slipok" } }
+{ "status": "pending", "verify": { "ok": null, "amount": 3842, "provider": "manual" } }
 ```
-- ถ้า API ตรวจล่ม → `status = "pending"`, `verify.ok = null` (รอเจ้าของตรวจ)
+- ยังไม่มี integration ตรวจสลิป (SlipOK ยังไม่ต่อ) → `verify.ok` เป็น `null` เสมอ, `provider` = `"manual"` จนกว่าเจ้าของจะกดยืนยัน
 
 ### `POST /invoices/:id/confirm`
 เจ้าของยืนยัน → `paid` + ออกใบเสร็จ
@@ -243,7 +244,7 @@ unpaid ──แนบสลิป──▶ pending ──เจ้าของ�
    └─── reject ────────┘
 ```
 - `paid` แก้ไม่ได้ (ต้องออกใบเสร็จใหม่/void)
-- ทุกการเปลี่ยนสถานะเขียน `audit_log`
+- `audit_log` เขียนตอนออกบิล (billing run), ยืนยัน (confirm) และตีกลับ (reject) — **การแนบสลิป (`unpaid` → `pending`) ไม่เขียน**
 
 ---
 ## `409 INVALID_STATE`
@@ -253,12 +254,12 @@ unpaid ──แนบสลิป──▶ pending ──เจ้าของ�
 
 | endpoint | สถานะที่ต้องเป็น | ถ้าไม่ใช่ |
 |---|---|---|
-| `POST /v1/invoices/:id/slip` | `unpaid` | `409` `INVALID_STATE` (`"บิลนี้อยู่สถานะ {status} แนบสลิปซ้ำไม่ได้"`) |
-| `POST /v1/invoices/:id/confirm` | `pending` | `409` `INVALID_STATE` (`"บิลนี้อยู่สถานะ {status} ยืนยันไม่ได้"`) |
+| `POST /v1/invoices/:id/slip` | `unpaid` | `409` `INVALID_STATE` (`"บิลนี้อยู่ในสถานะ {status} จึงแนบสลิปไม่ได้"`) |
+| `POST /v1/invoices/:id/confirm` | `pending` | `409` `INVALID_STATE` (`"บิลนี้อยู่ในสถานะ {status} จึงยืนยันไม่ได้"`) |
 
 ```json
 { "error": { "code": "INVALID_STATE",
-             "message": "บิลนี้อยู่สถานะ pending แนบสลิปซ้ำไม่ได้" } }
+             "message": "บิลนี้อยู่ในสถานะ pending จึงแนบสลิปไม่ได้" } }
 ```
 
 - `404 NOT_FOUND` (`"ไม่พบบิล"`) มาก่อนการตรวจสถานะเสมอ
@@ -286,7 +287,7 @@ curl -s "$BASE/v1/rooms?period=2026-11"
       "tenant": { "name": "ผู้เช่า 201", "line_linked": false },
       "reading": { "water_prev": 113, "water_now": 133, "elec_prev": 541, "elec_now": 571 },
       "invoice": { "id": 10, "total": 3930, "status": "paid", "due_date": "2026-11-09" } } ],
-  "period": "2026-11", "rates": { "water": 25, "elec": 7 } }
+  "period": "2026-11" }
 ```
 
 ### `PUT /v1/rooms/:id/reading`
@@ -306,12 +307,15 @@ curl -s -X PUT "$BASE/v1/rooms/13/reading" \
 ```bash
 curl -s -X POST "$BASE/v1/billing/run" \
   -H "Content-Type: application/json" \
-  -d '{}'
+  -d '{"period":"2026-11"}'
 ```
 
 ```json
-{ "ok": true, "billed": 12 }
+{ "job_id": null, "period": "2026-11", "rooms_to_bill": 12,
+  "skipped_no_reading": 0, "skipped_no_previous_reading": 0 }
 ```
+
+- `period` เป็น field บังคับ — ส่ง `{}` จะได้ `422 VALIDATION`
 
 ### `GET /v1/invoices`
 
@@ -387,6 +391,8 @@ curl -s -X POST "$BASE/v1/invoices/inv_202_2026-11/reject" \
 
 ### `GET /v1/reports/summary`
 
+⬜ ยังไม่มี route นี้ใน `backend/` (`app/main.py` mount แค่ auth, rooms, billing, me, dunning, cron, invites) — ตัวอย่างด้านล่างเป็นสัญญาที่วางไว้
+
 ```bash
 curl -s "$BASE/v1/reports/summary"
 ```
@@ -412,7 +418,7 @@ curl -s -H "Authorization: Bearer $CRON_SECRET" "$BASE/v1/cron/daily"
 
 - ทำสามอย่างใน invocation เดียว: เลือกบิล `unpaid` ที่เลยกำหนด 1/5/10 วัน → enqueue → drain คิว (`run_worker(wait=False)`)
 - ไม่ส่ง secret / secret ไม่ตรง / `CRON_SECRET` ว่าง → `401 UNAUTHORIZED` (ว่าง = ปฏิเสธเสมอ)
-- ยังไม่ได้ `procrastinate schema --apply` → `503 QUEUE_UNAVAILABLE`
+- ยังไม่ได้สร้างตารางคิว (`python -m app.queue` ครั้งเดียวต่อฐานข้อมูล) → `503 QUEUE_UNAVAILABLE`
 - ไม่มี retry จาก Vercel: รอบที่พลาดจะถูกชดเชยรอบถัดไป เพราะการเลือกบิลอิง `message_log` ไม่ใช่วันที่
 
 ### `POST /v1/dunning/run`
