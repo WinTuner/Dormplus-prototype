@@ -170,10 +170,15 @@ alembic revision -m "add xyz"   # แล้วเขียน op.execute(...) �
 ```
 
 RLS ทำงานจริงแล้ว (migration `0004`): ทุก connection ถูกตั้ง `app.property_id` ตอน connect (`app/db.py`)
-policy ของทุกตารางที่ผูกกับหอจึงกรองให้เห็นเฉพาะหอเดียว · ใช้ `force row level security` เพราะ app
-ต่อด้วย user เจ้าของตาราง (เจ้าของข้าม policy ได้ถ้าไม่ force) · ตารางลูกเดินขึ้นไปที่ `rooms` ผ่าน FK ·
+policy ของทุกตารางที่ผูกกับหอจึงกรองให้เห็นเฉพาะหอเดียว · ตารางลูกเดินขึ้นไปที่ `rooms` ผ่าน FK ·
 `auth_failures` ไม่มี RLS (ผูกกับบัญชี LINE) · ค่า setting ว่าง/NULL = ไม่เห็นแถวใดเลย
 การกรอง `property_id` ในโค้ดยังอยู่ — RLS เป็นชั้นกันพลาด
+
+**role ของ app ต้องไม่มี `BYPASSRLS`** — `neondb_owner` บน Neon มีค่านี้ (ตรวจด้วย
+`select rolbypassrls from pg_roles where rolname = current_user`) จึงข้าม policy ทั้งหมด แม้เปิด
+`force row level security` · production ต่อด้วย role `dormplus_app` (DML บนทุกตาราง + sequences,
+ไม่มี BYPASSRLS) ส่วน alembic ใช้ owner ตามปกติ · ถ้าเปลี่ยน role ต้องตรวจด้วยว่า
+`select count(*) from rooms` เห็นข้อมูลหลังตั้ง `app.property_id` แล้ว
 
 ## งานถัดไป (HANDOFF ข้อ 6)
 
