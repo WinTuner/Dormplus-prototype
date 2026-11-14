@@ -91,6 +91,15 @@
 cd line-app && node smoke.js && node smoke-handlers.js && node smoke-reads.js   # offline tests
 ```
 
+หลัง merge/deploy ตรวจของจริง (ไม่ต้องล็อกอิน):
+
+```bash
+node scripts/prod-smoke.mjs              # ทั้งสองโปรเจกต์
+LINE_APP=https://… BACKEND=https://… node scripts/prod-smoke.mjs
+```
+
+ตรวจ: หน้า LIFF 200 + เป็น build ปัจจุบัน · `/api/me` 401 · `/api/dev` 404 · header nosniff/X-Frame-Options อยู่ถูกที่ · backend `/healthz` ok · `/docs` + `/openapi.json` ปิด · `/v1/rooms` 401 · dunning ปฏิเสธ `?token=`
+
 `backend/` — FastAPI + Postgres:
 
 ```bash
