@@ -102,12 +102,7 @@ create table audit_log (
   created_at  timestamptz not null default now()
 );
 
--- RLS: เปิดใช้แล้วกรองด้วย property_id จาก session
-alter table rooms        enable row level security;
-alter table readings     enable row level security;
-alter table invoices     enable row level security;
-alter table invoice_items enable row level security;
-alter table payments     enable row level security;
+-- RLS: เปิดใช้ + policy อยู่ในหัวข้อ 0004 ท้ายไฟล์ (เดิมเปิดไว้เฉย ๆ ไม่มี policy จึงไม่มีผล)
 
 -- 0002: รหัสเชิญผูก LINE กับห้อง (เก็บเฉพาะ SHA-256 hash)
 create table link_codes (
@@ -134,3 +129,60 @@ create table auth_failures (
   created_at timestamptz not null default now()
 );
 create index on auth_failures (scope, actor, created_at);
+
+-- 0004: RLS จริง — ทุก connection ถูกปักหมุดที่หอเดียวด้วย `app.property_id` (app/db.py)
+-- `force` สำคัญ: app ต่อด้วย user ที่เป็นเจ้าของตาราง และเจ้าของข้าม policy ได้ถ้าไม่ force
+-- ค่า setting ว่าง/NULL → predicate เป็น NULL → ไม่เห็นแถวใดเลย (fail closed)
+-- auth_failures ไม่มี RLS เพราะผูกกับบัญชี LINE ไม่ใช่หอ
+
+alter table properties   enable row level security;  alter table properties   force row level security;
+alter table rooms        enable row level security;  alter table rooms        force row level security;
+alter table tenants      enable row level security;  alter table tenants      force row level security;
+alter table readings     enable row level security;  alter table readings     force row level security;
+alter table invoices     enable row level security;  alter table invoices     force row level security;
+alter table invoice_items enable row level security; alter table invoice_items force row level security;
+alter table payments     enable row level security;  alter table payments     force row level security;
+alter table message_log  enable row level security;  alter table message_log  force row level security;
+alter table audit_log    enable row level security;  alter table audit_log    force row level security;
+alter table link_codes   enable row level security;  alter table link_codes   force row level security;
+
+create policy properties_property on properties for all
+  using (id = current_setting('app.property_id', true))
+  with check (id = current_setting('app.property_id', true));
+
+create policy rooms_property on rooms for all
+  using (property_id = current_setting('app.property_id', true))
+  with check (property_id = current_setting('app.property_id', true));
+
+-- ตารางลูกไม่มี property_id: policy เดินขึ้นไปที่ rooms ผ่าน FK
+create policy tenants_property on tenants for all
+  using (exists (select 1 from rooms r where r.id = tenants.room_id and r.property_id = current_setting('app.property_id', true)))
+  with check (exists (select 1 from rooms r where r.id = tenants.room_id and r.property_id = current_setting('app.property_id', true)));
+
+create policy readings_property on readings for all
+  using (exists (select 1 from rooms r where r.id = readings.room_id and r.property_id = current_setting('app.property_id', true)))
+  with check (exists (select 1 from rooms r where r.id = readings.room_id and r.property_id = current_setting('app.property_id', true)));
+
+create policy invoices_property on invoices for all
+  using (exists (select 1 from rooms r where r.id = invoices.room_id and r.property_id = current_setting('app.property_id', true)))
+  with check (exists (select 1 from rooms r where r.id = invoices.room_id and r.property_id = current_setting('app.property_id', true)));
+
+create policy invoice_items_property on invoice_items for all
+  using (exists (select 1 from invoices i join rooms r on r.id = i.room_id where i.id = invoice_items.invoice_id and r.property_id = current_setting('app.property_id', true)))
+  with check (exists (select 1 from invoices i join rooms r on r.id = i.room_id where i.id = invoice_items.invoice_id and r.property_id = current_setting('app.property_id', true)));
+
+create policy payments_property on payments for all
+  using (exists (select 1 from invoices i join rooms r on r.id = i.room_id where i.id = payments.invoice_id and r.property_id = current_setting('app.property_id', true)))
+  with check (exists (select 1 from invoices i join rooms r on r.id = i.room_id where i.id = payments.invoice_id and r.property_id = current_setting('app.property_id', true)));
+
+create policy message_log_property on message_log for all
+  using (invoice_id is null or exists (select 1 from invoices i join rooms r on r.id = i.room_id where i.id = message_log.invoice_id and r.property_id = current_setting('app.property_id', true)))
+  with check (invoice_id is null or exists (select 1 from invoices i join rooms r on r.id = i.room_id where i.id = message_log.invoice_id and r.property_id = current_setting('app.property_id', true)));
+
+create policy audit_log_property on audit_log for all
+  using (property_id = current_setting('app.property_id', true))
+  with check (property_id = current_setting('app.property_id', true));
+
+create policy link_codes_property on link_codes for all
+  using (property_id = current_setting('app.property_id', true))
+  with check (property_id = current_setting('app.property_id', true));

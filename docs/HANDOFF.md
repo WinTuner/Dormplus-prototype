@@ -33,7 +33,7 @@
    - ⬜ `billing.run` — ออกบิลทั้งหอใน transaction เดียว (ตอนนี้ทำใน request แบบ synchronous แล้ว `job_id` = `null`)
    - ⬜ `notify.invoice` — ส่ง LINE ทีละห้อง + `message_log`
    - ⬜ `slip.verify` — เรียก SlipOK แล้วอัปเดตสถานะ (ตอนนี้ `verify.ok` = `null` เจ้าของกดยืนยันเอง)
-4. 🟡 Auth: LINE Login → ตรวจ idToken → session cookie → resolve `property_id` — เสร็จแล้ว · ยังไม่มี RLS policy
+4. ✅ Auth: LINE Login → ตรวจ idToken → session cookie → resolve `property_id` — เสร็จแล้ว · **RLS ใช้งานจริงแล้ว** (migration `0004`: force RLS + policy กรองด้วย `app.property_id` ที่ตั้งต่อ connection ใน `app/db.py`)
 5. ⬜ Webhook LINE (ตรวจ signature, ตอบ 200 เร็ว, ประมวลผล async)
 
 ## 3. กติกาที่ห้ามพลาด

@@ -154,6 +154,7 @@ def test_flat_rate_rooms_need_no_reading_and_vacant_rooms_are_skipped(client_for
 
 def test_a_room_without_an_earlier_reading_is_not_billed(client_for, seeded):
     with seeded.begin() as conn:
+        conn.execute(text("select set_config('app.property_id', 'p_2', true)"))
         conn.execute(text("insert into properties (id, name) values ('p_2', 'หอพักอีกแห่ง')"))
         conn.execute(text("insert into rooms (id, property_id, room_no, rent) values ('r_p2_101', 'p_2', '101', 2800)"))
         conn.execute(text("insert into readings (id, room_id, period, water_now, elec_now) "
@@ -212,6 +213,7 @@ def test_period_defaults_to_this_month(client_for, seeded):
 
 def test_another_dorm_sees_none_of_these_invoices(client_for, seeded):
     with seeded.begin() as conn:
+        conn.execute(text("select set_config('app.property_id', 'p_2', true)"))
         conn.execute(text("insert into properties (id, name) values ('p_2', 'หอพักอีกแห่ง')"))
     body = client_for(seeded, OWNER_P2, BILL_DAY).get("/v1/invoices?period=2026-10").json()
     assert body["items"] == []

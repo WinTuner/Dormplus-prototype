@@ -14,6 +14,8 @@ TENANT_P1 = Session(user_id="u_tenant", role="tenant", property_id="p_1")
 def second_dorm(seeded):
     """A second dorm p_2 with one room, to prove dorms cannot see or touch each other."""
     with seeded.begin() as conn:
+        # RLS compares against app.property_id; switch it for this transaction only.
+        conn.execute(text("select set_config('app.property_id', 'p_2', true)"))
         conn.execute(text("insert into properties (id, name) values ('p_2', 'หอพักอีกแห่ง')"))
         conn.execute(text("insert into rooms (id, property_id, room_no, rent) values ('r_p2_101', 'p_2', '101', 2800)"))
     return seeded

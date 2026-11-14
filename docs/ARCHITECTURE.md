@@ -139,9 +139,12 @@ schema อยู่ที่ `db/schema.sql` (snapshot อ่านอย่า�
 | ความปลอดภัย | `link_codes`, `auth_failures`, `audit_log` | รหัสเชิญ (เก็บเฉพาะ SHA-256), rate limit การเดารหัส, audit trail |
 | คิว | ตารางของ Procrastinate (สร้างโดย `python -m app.queue`) | job queue ฝังใน Postgres ตัวเดียวกับโดเมน |
 
-RLS ถูก `enable` ไว้ที่ `rooms`, `readings`, `invoices`, `invoice_items`, `payments`, `link_codes`
-(`db/schema.sql`) **แต่ยังไม่มี policy** — การกรอง `property_id` จึงเกิดในโค้ดทุก query
-(`backend/app/auth.py` เป็นผู้กำหนด `property_id` ของ session) ไม่ใช่ที่ DB
+RLS ทำงานจริงตั้งแต่ migration `0004`: ทุก connection ถูกปักหมุดที่หอเดียวด้วย `app.property_id`
+(`backend/app/db.py` → `attach_property`) และ policy เทียบ `property_id` กับค่านั้น · ใช้
+`force row level security` เพราะ app ต่อด้วย user ที่เป็นเจ้าของตาราง (เจ้าของข้าม policy ได้ถ้าไม่ force)
+ตารางลูก (`tenants`, `readings`, `invoices`, `invoice_items`, `payments`, `message_log`) ไม่มีคอลัมน์
+`property_id` จึงเดินขึ้นไปที่ `rooms` ผ่าน FK ใน policy · `auth_failures` ไม่มี RLS (ผูกกับบัญชี LINE ไม่ใช่หอ)
+การกรองในโค้ดยังอยู่ครบ — RLS เป็นชั้นกันพลาด ไม่ได้แทนที่
 
 <!-- VERIFY: ฐานข้อมูลจริงคือ Neon Postgres ที่สร้างผ่าน Vercel Marketplace — ข้อความนี้มาจาก backend/README.md และ docs/HANDOFF.md ไม่สามารถยืนยันได้จากเรพ (connection string อยู่ใน backend/.env ที่ไม่ถูก commit) -->
 

@@ -176,10 +176,13 @@ def test_a_reminder_already_logged_is_not_selected_again(seeded):
 
 def test_other_dorms_are_not_touched(seeded):
     with seeded.begin() as conn:
+        conn.execute(text("select set_config('app.property_id', 'p_2', true)"))
         conn.execute(text("insert into properties (id, name) values ('p_2', 'หออื่น')"))
     add_invoice(seeded, "inv_other", "r_201", date(2026, 11, 19))
     set_line(seeded, "t_201", "U_201")
     with seeded.begin() as conn:
+        # Moving the room to p_2 also has to happen under p_2, or RLS rejects the new value.
+        conn.execute(text("select set_config('app.property_id', 'p_2', true)"))
         conn.execute(text("update rooms set property_id = 'p_2' where id = 'r_201'"))
 
     assert dunning.due_for_reminder(seeded, "p_1", TODAY) == []

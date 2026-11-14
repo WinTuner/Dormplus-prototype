@@ -20,7 +20,7 @@ from datetime import date
 
 from app.auth import Session, current_session
 from app.clock import today
-from app.db import get_engine
+from app.db import attach_property, get_engine
 from app.main import create_app
 from app.seed import seed
 
@@ -44,7 +44,8 @@ def engine():
     cfg = alembic_config(TEST_DATABASE_URL)
     command.downgrade(cfg, "base")
     command.upgrade(cfg, "head")
-    eng = create_engine(TEST_DATABASE_URL)
+    # The RLS policies read app.property_id; the app sets it on connect, so the tests do too.
+    eng = attach_property(create_engine(TEST_DATABASE_URL), "p_1")
     yield eng
     eng.dispose()
 

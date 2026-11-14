@@ -169,14 +169,17 @@ Dockerfile         image สำหรับ deploy (context = root ของ rep
 alembic revision -m "add xyz"   # แล้วเขียน op.execute(...) เอง (ไม่มี autogenerate เพราะไม่ใช้ ORM model)
 ```
 
-RLS เปิดไว้ที่ตาราง rooms, readings, invoices, invoice_items, payments และ link_codes แต่ยังไม่มี policy
-ตอนนี้ app ต่อด้วย user เจ้าของตาราง จึงยังไม่โดน RLS กรอง ทุก query กรอง `property_id` จาก session ในโค้ดแทน
+RLS ทำงานจริงแล้ว (migration `0004`): ทุก connection ถูกตั้ง `app.property_id` ตอน connect (`app/db.py`)
+policy ของทุกตารางที่ผูกกับหอจึงกรองให้เห็นเฉพาะหอเดียว · ใช้ `force row level security` เพราะ app
+ต่อด้วย user เจ้าของตาราง (เจ้าของข้าม policy ได้ถ้าไม่ force) · ตารางลูกเดินขึ้นไปที่ `rooms` ผ่าน FK ·
+`auth_failures` ไม่มี RLS (ผูกกับบัญชี LINE) · ค่า setting ว่าง/NULL = ไม่เห็นแถวใดเลย
+การกรอง `property_id` ในโค้ดยังอยู่ — RLS เป็นชั้นกันพลาด
 
 ## งานถัดไป (HANDOFF ข้อ 6)
 
 - [x] วัน 1–2: schema + migration + seed 42 ห้อง
 - [x] วัน 3–4: `/rooms` + `/readings` · LINE Login ผ่าน LIFF → session cookie
-- [ ] วัน 3–4 (ค้าง): RLS policy กรอง `property_id`
+- [x] วัน 3–4 (ค้าง): RLS policy กรอง `property_id`
 - [x] วัน 5–6: `/billing/run` + `/invoices` (ยังไม่ส่ง LINE · `job_id` = null)
 - [ ] วัน 5–6 (ค้าง): หน้าเจ้าของ (`web/`) ต่อ backend จริง
 - [ ] วัน 7–8: Procrastinate worker + ส่ง LINE จริง 1 หอ + `message_log`
