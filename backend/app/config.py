@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     liff_id: str = ""
     # Messaging API token: the backend pushes reminders itself (app/line_push.py).
     line_channel_access_token: str = ""
+    # Messaging API channel secret: verifies X-Line-Signature on /v1/webhooks/line/:property_id.
+    line_channel_secret: str = ""
 
     # Shared secret for the daily cron. Vercel puts it in `Authorization: Bearer <CRON_SECRET>`
     # by itself; DUNNING_TOKEN is the old name and still works.
