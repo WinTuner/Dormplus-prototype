@@ -23,7 +23,7 @@ repo นี้แยกเป็นสองครึ่งที่ deploy แ�
 
 > ไม่มี Jest/Vitest/Playwright และไม่มี coverage tool ใน repo นี้ — ทุกอย่างข้างบนคือทั้งหมดที่มี
 
-**catalogue ของเคสคือ [`docs/TEST-CASES.md`](TEST-CASES.md)**: 260 เคสใน 19 use case โดยแบ่งเป็น ✅ 209 เคสที่ automation แตะ, 🖐 23 เคสที่ต้องทำมือกับ LINE/LIFF จริง และ ⏳ 28 เคสที่ **ยังไม่สร้างฟีเจอร์** (จึงยังไม่มี test) — ใน 209 เคสนั้น 156 เคสมี id ของตัวเองใน `smoke-usecases.js`, 44 เคสชี้ไปที่ backend pytest และอีก 9 เคสชี้ไปเคสที่ automate ไว้แล้วใน UC อื่น (หรือ `smoke-cron.js`)
+**catalogue ของเคสคือ [`docs/TEST-CASES.md`](TEST-CASES.md)**: 263 เคสใน 19 use case โดยแบ่งเป็น ✅ 212 เคสที่ automation แตะ, 🖐 23 เคสที่ต้องทำมือกับ LINE/LIFF จริง และ ⏳ 28 เคสที่ **ยังไม่สร้างฟีเจอร์** (จึงยังไม่มี test) — ใน 212 เคสนั้น 156 เคสมี id ของตัวเองใน `smoke-usecases.js`, 47 เคสชี้ไปที่ backend pytest และอีก 9 เคสชี้ไปเคสที่ automate ไว้แล้วใน UC อื่น (หรือ `smoke-cron.js`)
 
 ---
 
@@ -187,7 +187,7 @@ pytest -q
 
 | สภาพ | ผล |
 |---|---|
-| `pytest -q` ไม่มี Postgres | **20 passed, 91 skipped** (test ที่ไม่ต้องใช้ DB รันได้หมด) |
+| `pytest -q` ไม่มี Postgres | **23 passed, 108 skipped** (test ที่ไม่ต้องใช้ DB รันได้หมด) |
 | `pytest --collect-only -q` | **131 tests collected** ใน 13 ไฟล์ |
 
 ### 3.3 ไฟล์ test แต่ละไฟล์
@@ -280,16 +280,16 @@ cd ..\backend; $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@lo
 
 **ไม่มีการตั้ง coverage threshold ที่ไหนเลย** — ไม่มี `.coveragerc`, `.nycrc`, `pytest-cov`, หรือ `--cov` ใน CI และ `line-app` ไม่มี coverage tool (ทดสอบด้วย `assert` ตรง ๆ) ดังนั้นตัวเลข coverage ที่ "ควรมี" ไม่มีอยู่ใน repo นี้
 
-สิ่งที่พอวัดได้คือ **ความครอบของ use case** จาก [`docs/TEST-CASES.md`](TEST-CASES.md) (260 เคส / 19 UC):
+สิ่งที่พอวัดได้คือ **ความครอบของ use case** จาก [`docs/TEST-CASES.md`](TEST-CASES.md) (263 เคส / 19 UC):
 
 | สถานะในเอกสาร | จำนวน | ใครตรวจ |
 |---|---|---|
 | ✅ automated — id ของตัวเองใน `smoke-usecases.js` | 156 | `line-app/smoke-usecases.js` |
-| ✅ automated — ชี้ไป backend pytest | 44 | `backend/tests/*.py` |
+| ✅ automated — ชี้ไป backend pytest | 47 | `backend/tests/*.py` |
 | ✅ automated — ชี้ไปเคสที่ automate แล้วใน UC อื่น (หรือ `smoke-cron.js`) | 9 | `smoke-usecases.js` / `smoke-cron.js` |
 | 🖐 manual | 23 | คนกดกับ LINE OA + LIFF จริง (ข้อ 7) |
 | ⏳ ยังไม่สร้าง | 28 | ยังไม่มีฟีเจอร์ จึงยังไม่มี test |
-| **รวม** | **260** | |
+| **รวม** | **263** | |
 
 ตัวเลข 198 ไม่ได้แปลว่าโค้ดทุกบรรทัดถูกตรวจ — เคสหนึ่งอาจ assert หลายอย่างหรือแค่ทางเดียวของ handler
 
@@ -426,7 +426,7 @@ test อัตโนมัติที่ครอบส่วนนี้: `lin
 
 ## เอกสารที่เกี่ยวข้อง
 
-- [`docs/TEST-CASES.md`](TEST-CASES.md) — catalogue 260 เคส / 19 UC พร้อมสถานะ ✅/🖐/⏳ และโค้ดที่แต่ละเคสอ้างถึง
+- [`docs/TEST-CASES.md`](TEST-CASES.md) — catalogue 263 เคส / 19 UC พร้อมสถานะ ✅/🖐/⏳ และโค้ดที่แต่ละเคสอ้างถึง
 - [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — โครงสร้างสองครึ่ง, data flow, state machine ของบิล
 - [`docs/CONFIGURATION.md`](CONFIGURATION.md) — env ทุกตัว (`TEST_DATABASE_URL`, `CRON_SECRET`, `DEV_AUTH`)
 - [`line-app/docs/TESTING.md`](../line-app/docs/TESTING.md) — matrix ระดับ endpoint, LINE e2e script, ตาราง race เต็ม

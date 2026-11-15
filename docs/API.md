@@ -20,10 +20,10 @@
 | `POST /auth/line/link` | ✅ (รหัสเชิญ) |
 | `POST /rooms/:id/invite` · `DELETE /rooms/:id/invite` | ✅ |
 | `DELETE /tenants/:id/line` | ✅ |
-| `GET /properties/:id` | ⬜ |
-| `GET /invoices/:id` (รายละเอียด + items) | ⬜ |
+| `GET /properties/:id` | ✅ |
+| `GET /invoices/:id` (รายละเอียด + items) | ✅ |
 | `GET /v1/reports/summary` | ⬜ |
-| `POST /webhooks/line/:property_id` | ⬜ |
+| `POST /webhooks/line/:property_id` | ✅ (endpoint + signature; **ยังไม่ผูก OA**) |
 
 ## กติกากลาง
 
@@ -406,7 +406,7 @@ curl -s -X POST "$BASE/v1/invoices/inv_202_2026-11/reject" \
 
 ### `GET /v1/reports/summary`
 
-⬜ ยังไม่มี route นี้ใน `backend/` (`app/main.py` mount แค่ auth, rooms, billing, me, dunning, cron, invites) — ตัวอย่างด้านล่างเป็นสัญญาที่วางไว้
+⬜ ยังไม่มี route นี้ใน `backend/` (`app/main.py` mount auth, properties, rooms, billing, me, dunning, cron, invites, webhooks — ไม่มี reports) — ตัวอย่างด้านล่างเป็นสัญญาที่วางไว้
 
 ```bash
 curl -s "$BASE/v1/reports/summary"

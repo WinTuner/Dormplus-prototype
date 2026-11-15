@@ -333,3 +333,93 @@ def test_queue_down_still_returns_the_bills(client_for, seeded, monkeypatch):
     assert res.status_code == 202
     assert (res.json()["queued"], res.json()["drained"]) == (0, False)
     assert scalar(seeded, "select count(*) from invoices where period = '2026-11'") == 12
+
+# --- review follow-ups ---------------------------------------------------------------------------
+
+def test_a_failed_drain_keeps_the_queued_count(client_for, seeded, monkeypatch):
+    link_line(seeded, "r_201", "r_202")
+
+    def fake_notify(rows):
+        return len(rows), "9"
+
+    async def broken_drain():
+        raise RuntimeError("worker could not start")
+
+    monkeypatch.setattr(billing, "notify_invoices", fake_notify)
+    monkeypatch.setattr(billing, "drain_queue", broken_drain)
+
+    body = run(client_for(seeded, OWNER_P1, BILL_DAY)).json()
+    # The two messages really are in the queue; saying 0 would be a lie the owner cannot act on.
+    assert (body["queued"], body["drained"], body["job_id"]) == (2, False, "9")
+
+
+def test_a_tenant_without_a_room_is_refused(client_for, seeded):
+    run(client_for(seeded, OWNER_P1, BILL_DAY))
+    roomless = Session(user_id="u_noroom", role="tenant", property_id="p_1")
+    assert client_for(seeded, roomless, BILL_DAY).get(
+        "/v1/invoices/inv_201_2026-11").status_code == 403
+
+
+def test_two_tenants_in_one_room_get_one_message(client_for, seeded, monkeypatch):
+    with seeded.begin() as conn:
+        conn.execute(text("update tenants set line_user_id = 'U_OLD', moved_in = date '2026-01-01' "
+                          "where room_id = 'r_201'"))
+        conn.execute(text("insert into tenants (id, room_id, name, line_user_id, moved_in) "
+                          "values ('t_201_new', 'r_201', 'ผู้เช่าใหม่', 'U_NEW', date '2026-11-01')"))
+
+    seen = {}
+    async def no_drain():
+        return None
+
+    monkeypatch.setattr(billing, "notify_invoices",
+                        lambda rows: (seen.setdefault("rows", rows), (len(rows), "1"))[1])
+    monkeypatch.setattr(billing, "drain_queue", no_drain)
+
+    run(client_for(seeded, OWNER_P1, BILL_DAY))
+    rooms = [r["room_no"] for r in seen["rows"]]
+    assert rooms.count("201") == 1, "a room with roommates gets one bill message, not two"
+    assert [r["line_user_id"] for r in seen["rows"] if r["room_no"] == "201"] == ["U_NEW"]
+
+
+def test_all_42_bills_reach_the_tenant_and_the_message_log(client_for, seeded, monkeypatch):
+    from app import notify as notify_module, tasks
+
+    read_all_rooms_for_november(seeded)
+    with seeded.begin() as conn:
+        conn.execute(text("update tenants set line_user_id = 'U_' || room_id"))
+
+    calls = []
+
+    class FakePush:
+        def defer(self, **kwargs):
+            calls.append(kwargs)
+            return len(calls)
+
+    class FakeApp:
+        def open(self):
+            class Ctx:
+                def __enter__(self_inner): return None
+                def __exit__(self_inner, *exc): return False
+            return Ctx()
+
+        def configure_task(self, name):
+            return FakePush()
+
+    async def no_drain():
+        return None
+
+    monkeypatch.setattr(notify_module, "app", FakeApp())
+    monkeypatch.setattr(billing, "drain_queue", no_drain)
+
+    body = run(client_for(seeded, OWNER_P1, BILL_DAY)).json()
+    assert (body["rooms_to_bill"], body["queued"], body["drained"]) == (42, 42, True)
+
+    # Run each queued job the way the worker would, with LINE answering 200.
+    monkeypatch.setattr(tasks.line_push, "push_text", lambda to, text: "ok")
+    monkeypatch.setattr(tasks, "get_engine", lambda: seeded)
+    for call in calls:
+        tasks.push_text(**call)
+
+    assert scalar(seeded, "select count(*) from message_log where kind = 'invoice'") == 42
+    assert scalar(seeded, "select count(*) from message_log "
+                          "where kind = 'invoice' and line_status = 'ok'") == 42

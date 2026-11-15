@@ -24,6 +24,16 @@ AUDIT_SQL = text("""
 """)
 
 
+def signature_matches(secret: str, raw: bytes, header: str) -> bool:
+    """True when `header` is the Base64 HMAC-SHA256 of the exact bytes received.
+
+    Compared as bytes: `hmac.compare_digest` refuses non-ASCII str, and a header LINE would never
+    send must be a plain mismatch (401), not a crash.
+    """
+    expected = base64.b64encode(hmac.new(secret.encode(), raw, hashlib.sha256).digest())
+    return hmac.compare_digest(expected, header.encode("latin-1", "replace"))
+
+
 @router.post("/webhooks/line/{property_id}")
 async def line_webhook(
     property_id: str,
@@ -45,10 +55,8 @@ async def line_webhook(
         raise ApiError(404, "NOT_FOUND", "ไม่พบหอนี้")
 
     raw = await request.body()
-    expected = base64.b64encode(
-        hmac.new(settings.line_channel_secret.encode(), raw, hashlib.sha256).digest()
-    ).decode()
-    if not hmac.compare_digest(expected, request.headers.get("X-Line-Signature", "")):
+    if not signature_matches(settings.line_channel_secret, raw,
+                             request.headers.get("X-Line-Signature", "")):
         raise ApiError(401, "UNAUTHORIZED", "signature ไม่ถูกต้อง")
 
     try:

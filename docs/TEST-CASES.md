@@ -121,9 +121,11 @@ UC-07 และ UC-08 เพิ่มเข้ามาหลังแผนภ�
 | TC-03-15 | เจ้าของเห็นผลออกบิลจริงบนหน้าจอ LIFF และผู้เช่าได้รับการ์ดใน LINE จริง | LINE OA + LIFF จริง | กรอกหน่วยทุกห้อง กดออกบิล | แสดงผลต่อห้อง · การ์ดถึงผู้เช่า · ปุ่มเปิดหน้าบิลถูกห้อง | 🖐 ทดสอบมือกับ LINE จริง |
 | TC-03-16 | backend: ออกบิลห้องที่มีมิเตอร์เดือนนี้ · 42 ห้องในคำขอเดียว · ออกซ้ำ 409 · ล้มกลางทางย้อนทั้งชุด | seed + มิเตอร์ | `POST /v1/billing/run` | 202 และยอดตรงสัญญา | ✅ `backend/tests/test_billing.py::test_bills_the_rooms_that_have_this_months_reading`<br>`backend/tests/test_billing.py::test_all_42_rooms_in_one_request`<br>`backend/tests/test_billing.py::test_running_again_is_409_and_creates_nothing`<br>`backend/tests/test_billing.py::test_a_failure_halfway_rolls_back_the_whole_run` |
 | TC-03-17 | backend: ผู้เช่าออกบิลไม่ได้ · period ผิดถูกปฏิเสธ · ผู้เช่าที่ไม่มีมิเตอร์เดือนก่อนไม่ถูกออกบิล | — | เรียก `/v1/billing/run` | 403 / 422 / ข้ามห้อง | ✅ `backend/tests/test_billing.py::test_tenants_cannot_run_billing`<br>`backend/tests/test_billing.py::test_bad_period_is_rejected`<br>`backend/tests/test_billing.py::test_a_room_without_an_earlier_reading_is_not_billed` |
-| TC-03-18 | backend: ออกบิลแล้วส่งข้อความบิลเข้า LINE และ drain ในคำขอเดียว | ห้อง 3 ห้องผูก LINE | `POST /v1/billing/run` | `queued = 3`, `drained = true`, `job_id` = งานแรก · งาน `kind="invoice"` ต่อใบ · บิลทุกห้องที่พร้อมยังถูกสร้าง | ✅ `backend/tests/test_billing.py::test_run_notifies_the_rooms_that_have_a_tenant`<br>`backend/tests/test_notify.py` |
-| TC-03-19 | backend: คิวไม่พร้อม (ยังไม่ apply schema) ต้องไม่ออกบิลล้ม | มีผู้เช่าผูก LINE | `POST /v1/billing/run` โดยคิวโยน exception | 202 · `queued: 0, drained: false` · บิลครบ 12 ใบใน DB | ✅ `backend/tests/test_billing.py::test_queue_down_still_returns_the_bills` |
-| TC-03-18 | backend: ส่งบิลทาง LINE (queue) ใช้ line item เดียว | — | ออกบิลแล้วคิวส่ง push | batch เดียว ไม่ N+1 | ✅ `backend/tests/test_billing.py::test_create_invoice_batches_line_item_execute` |
+| TC-03-20 | backend: ออกบิลแล้วส่งข้อความบิลเข้า LINE และ drain ในคำขอเดียว | ห้อง 3 ห้องผูก LINE | `POST /v1/billing/run` | `queued = 3`, `drained = true`, `job_id` = งานแรก · งาน `kind="invoice"` ต่อใบ · บิลทุกห้องที่พร้อมยังถูกสร้าง | ✅ `backend/tests/test_billing.py::test_run_notifies_the_rooms_that_have_a_tenant`<br>`backend/tests/test_notify.py` |
+| TC-03-21 | backend: คิวไม่พร้อม (ยังไม่ apply schema) ต้องไม่ออกบิลล้ม · drain ล้มก็ยังคืน `queued` จริง | มีผู้เช่าผูก LINE | `POST /v1/billing/run` โดยคิวโยน exception | 202 · `queued: 0, drained: false` · บิลครบ 12 ใบใน DB · ถ้า enqueue สำเร็จแต่ drain ล้ม → `queued` ยังเป็นจำนวนจริง, `drained: false` | ✅ `backend/tests/test_billing.py::test_queue_down_still_returns_the_bills`<br>`backend/tests/test_billing.py::test_a_failed_drain_keeps_the_queued_count` |
+| TC-03-18 | backend: ออกบิลหลายรายการเขียน `invoice_items` เป็น batch เดียว | — | ออกบิล 1 ห้อง 3 รายการ | `insert into invoice_items` ครั้งเดียว (executemany) ไม่ใช่ 3 ครั้ง | ✅ `backend/tests/test_billing.py::test_create_invoice_batches_line_item_execute` |
+| TC-03-22 | backend: 42 ห้องได้ข้อความครบและ `message_log` ครบ 42 แถว | ผูก LINE ทุกห้อง + จดมิเตอร์ พ.ย. ครบ | `POST /v1/billing/run` แล้วรันงานที่เข้าคิว | `queued = 42, drained = true` · เมื่อ worker รัน (LINE ตอบ 200) `message_log` มี 42 แถว `kind='invoice'`, `line_status='ok'` | ✅ `backend/tests/test_billing.py::test_all_42_bills_reach_the_tenant_and_the_message_log` |
+| TC-03-23 | backend: ห้องที่มีรูมเมทได้ข้อความครั้งเดียวถึงคนล่าสุด | ห้อง 201 มีผู้เช่า 2 คนผูก LINE ต่างกัน | ออกบิล | `room 201` ปรากฏครั้งเดียวในงานที่เข้าคิว และเป็น `line_user_id` ของคนที่ `moved_in` ใหม่สุด | ✅ `backend/tests/test_billing.py::test_two_tenants_in_one_room_get_one_message` |
 
 ## UC-04 ยืนยันการชำระ (include ออกใบเสร็จ)
 
@@ -328,6 +330,7 @@ UC-07 และ UC-08 เพิ่มเข้ามาหลังแผนภ�
 | TC-10-11 | backend: ผู้เช่าเห็นเฉพาะใบแจ้งหนี้ของห้องตัวเองจาก session | ผูก LINE แล้ว | `GET /v1/me/invoices` | รายการใบแจ้งหนี้ของห้อง (12 งวดล่าสุด) | ✅ `backend/tests/test_line_link.py::test_linking_binds_line_to_the_room_and_logs_in` |
 | TC-10-13 | backend: เจ้าของอ่านบิลใบเดียวได้ทุกห้องของหอ | ออกบิลรอบ พ.ย. แล้ว | `GET /v1/invoices/:id` | 200 · `items` 3 บรรทัด (`ค่าเช่า`/`ค่าน้ำ`/`ค่าไฟ`) · `payment` = `null` ก่อนจ่าย | ✅ `backend/tests/test_billing.py::test_owner_reads_any_invoice_of_the_dorm` |
 | TC-10-14 | backend: ผู้เช่าเห็นเฉพาะบิลห้องตัวเอง · ใบอื่น/หออื่น 404 · `payment` ขึ้นหลังแนบสลิป | ผู้เช่าห้อง 201 | `GET /v1/invoices/:id` | บิล 201 → 200 · บิล 202 → 404 · ใบของหออื่น → 404 · หลังแนบสลิป `status: pending`, `payment.verify_ok: null` | ✅ `backend/tests/test_billing.py::test_tenant_reads_own_room_invoice_only`<br>`backend/tests/test_billing.py::test_payment_appears_after_the_slip`<br>`backend/tests/test_billing.py::test_invoice_of_another_dorm_is_404` |
+| TC-10-15 | backend: ผู้เช่าที่ไม่มี `room_id` ใน session ต้องถูกปฏิเสธ (ไม่เห็นทั้งหอ) | session `role=tenant` แต่ `room_id` ว่าง | `GET /v1/invoices/:id` | `403 FORBIDDEN` (fail closed) | ✅ `backend/tests/test_billing.py::test_a_tenant_without_a_room_is_refused` |
 
 ## UC-11 แจ้งชำระ (แนบสลิป)
 
@@ -581,14 +584,14 @@ endpoint พร้อมและตรวจ signature จริง แต่ *
 |---|---|---:|---:|---:|---:|
 | UC-01 | ตั้งค่าหอ (ค่าเช่า · อัตราน้ำไฟ) | 10 | 8 | 0 | 2 |
 | UC-02 | จดมิเตอร์น้ำ–ไฟ | 14 | 12 | 1 | 1 |
-| UC-03 | ออกบิล (คำนวณบิล · ส่งบิลทาง LINE) | 20 | 18 | 1 | 1 |
+| UC-03 | ออกบิล (คำนวณบิล · ส่งบิลทาง LINE) | 22 | 20 | 1 | 1 |
 | UC-04 | ยืนยันการชำระ (include ออกใบเสร็จ) | 16 | 14 | 1 | 1 |
 | UC-05 | ดูห้องค้างชำระ (ค้างกี่งวด · เกินกี่วัน) | 11 | 8 | 1 | 2 |
 | UC-06 | ดูรายรับ | 7 | 4 | 1 | 2 |
 | UC-07 | เพิ่ม/ถอนเจ้าของและผู้ช่วย | 16 | 14 | 1 | 1 |
 | UC-08 | เปลี่ยนผู้เช่า / หมุน QR ห้อง | 17 | 15 | 2 | 0 |
 | UC-09 | ผูกบัญชี LINE กับห้อง | 17 | 16 | 1 | 0 |
-| UC-10 | ดูบิล | 14 | 13 | 1 | 0 |
+| UC-10 | ดูบิล | 15 | 14 | 1 | 0 |
 | UC-11 | แจ้งชำระ (แนบสลิป) | 16 | 14 | 1 | 1 |
 | UC-12 | ตรวจสลิปอัตโนมัติ | 8 | 0 | 1 | 7 |
 | UC-13 | ชำระหลายงวดในสลิปเดียว | 12 | 8 | 1 | 3 |
@@ -598,7 +601,7 @@ endpoint พร้อมและตรวจ signature จริง แต่ *
 | UC-17 | แจ้งชำระก่อนบิลออก (โอนก่อน) | 26 | 20 | 4 | 2 |
 | UC-18 | ยกเลิกบิล (void) และออกบิลใหม่ | 13 | 11 | 1 | 1 |
 | UC-19 | รับ event จาก LINE (webhook ฝั่ง backend) | 5 | 5 | 0 | 0 |
-| **รวม** | | **260** | **209** | **23** | **28** |
+| **รวม** | | **263** | **212** | **23** | **28** |
 
 หมายเหตุ: คอลัมน์ ✅ รวมทั้ง test ใน `line-app/smoke-usecases.js` (156 ข้อ) และ test ที่มีอยู่แล้วใน `backend/tests/` ที่ผูกกับกรณีนั้น (บางแถวอ้างหลายฟังก์ชัน นับเป็น 1 TC) แถว ✅ ที่อ้าง pytest ไม่ได้ถูกรันโดยชุดนี้ — รันด้วย `cd backend && pytest -q`
 

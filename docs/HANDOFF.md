@@ -57,7 +57,7 @@
 ## 5. เกณฑ์ว่า "เสร็จ"
 
 - [x] ออกบิล 42 ห้องได้ใน 1 request และ rollback ทั้งก้อนถ้าล้ม — `backend/tests/test_billing.py`
-- [x] ส่ง LINE ครบ 42 ห้อง และ `message_log` มี 42 แถว — พิสูจน์ด้วยเทสต์ (`backend/tests/test_billing.py::test_run_notifies_the_rooms_that_have_a_tenant`, `tests/test_notify.py`); **ยังไม่ได้ส่งจริงหาผู้เช่า** (ต้องมีผู้เช่าผูก LINE + คิวถูก apply schema)
+- [x] ส่ง LINE ครบ 42 ห้อง และ `message_log` มี 42 แถว — พิสูจน์ด้วยเทสต์ (`backend/tests/test_billing.py::test_all_42_bills_reach_the_tenant_and_the_message_log`: ผูก LINE 42 ห้อง → ออกบิล → รันงานที่เข้าคิวด้วย LINE ที่ stub → `message_log` 42 แถว `kind='invoice'`) · **ยังไม่เคยส่งจริงหาผู้เช่า** (ต้องมีผู้เช่าจริงผูก LINE + คิวถูก apply schema บนฐานจริง)
 - [x] กดออกบิลซ้ำ → 409 ไม่สร้างซ้ำ — `backend/tests/test_billing.py`
 - [x] ผู้เช่าแนบสลิป → `pending` → เจ้าของยืนยัน → `paid` + ใบเสร็จ — `backend/tests/test_slip_confirm_reject.py`
 - [ ] สลิปยอดไม่ตรง → ไม่ผ่านอัตโนมัติ

@@ -1,4 +1,4 @@
-"""POST /v1/webhooks/line/{property_id} — verify the signature, then log what arrived.
+﻿"""POST /v1/webhooks/line/{property_id} â€” verify the signature, then log what arrived.
 
 Mutation of the section below must stay in step with docs/API.md ("Webhook").
 """
@@ -81,3 +81,11 @@ def test_missing_secret_is_503(seeded, client_for, monkeypatch):
         assert post(client_for(seeded), body, sign(body)).status_code == 503
     finally:
         get_settings.cache_clear()
+
+def test_a_header_with_non_ascii_characters_does_not_match(seeded, client_for, line_secret):
+    """A header LINE would never send must fail the check, not crash the handler."""
+    from app.routes import webhooks
+
+    body = b'{"events":[]}'
+    assert webhooks.signature_matches(SECRET, body, "ünïcode") is False
+    assert webhooks.signature_matches(SECRET, body, sign(body)) is True

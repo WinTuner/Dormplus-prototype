@@ -1,4 +1,6 @@
 """GET /v1/properties/{id} — the owning dorm's settings."""
+from sqlalchemy import text
+
 from app.auth import Session
 from app.seed import PROPERTY_NAME, room_numbers
 
@@ -16,6 +18,11 @@ def test_owner_reads_own_property(seeded, client_for):
 
 
 def test_other_property_is_404(seeded, client_for):
+    # The other dorm must really exist, otherwise the 404 could just be "no such row" and the
+    # ownership check would be untested.
+    with seeded.begin() as conn:
+        conn.execute(text("select set_config('app.property_id', 'p_2', true)"))
+        conn.execute(text("insert into properties (id, name) values ('p_2', 'หอพักอีกแห่ง')"))
     # Never 403: the caller must not learn that another dorm exists.
     assert client_for(seeded, OWNER).get("/v1/properties/p_2").status_code == 404
 

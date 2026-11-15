@@ -226,12 +226,15 @@ async def run_billing(
                     {"property_id": session.property_id, "today": day, "ids": created},
                 ).mappings().all()
             queued, first = notify_invoices([dict(row) for row in rows])
-            if queued:  # draining an empty queue would only open a connection
-                await drain_queue()
-                drained = True
         except Exception:  # noqa: BLE001 - logged, and the answer still explains the run
             logger.exception("invoice notify failed for %s bills of %s", len(created), body.period)
-            queued, first, drained = 0, None, False
+            queued, first = 0, None
+        if queued:  # draining an empty queue would only open a connection
+            try:
+                await drain_queue()
+                drained = True
+            except Exception:  # noqa: BLE001 - the jobs are queued; the next drain sends them
+                logger.exception("draining the invoice queue failed for %s", body.period)
 
     return BillingRunOut(job_id=str(first) if first else None, period=body.period,
                          rooms_to_bill=len(created), skipped_no_reading=no_reading,
@@ -320,6 +323,10 @@ def get_invoice(
     404 rather than 403, so the caller cannot learn that the bill exists (docs/API.md).
     """
     room_id = session.room_id if session.role == "tenant" else None
+    if session.role == "tenant" and not room_id:
+        # Without this the query would drop the room filter and show a roomless tenant the whole
+        # dorm. Fail closed, like every other tenant route.
+        raise ApiError(403, "FORBIDDEN", "เฉพาะผู้เช่าที่ผูกห้องแล้ว")
     with engine.connect() as conn:
         row = conn.execute(
             INVOICE_DETAIL_SQL,

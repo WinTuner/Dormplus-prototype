@@ -65,7 +65,7 @@ pytest
 | `line-app/` — ส่งบิลใน LINE · LIFF แนบสลิป · เจ้าของยืนยัน/จดมิเตอร์ | ✅ ใช้งานได้ (ข้อจำกัดที่เหลือ: [`line-app/README.md`](line-app/README.md) หัวข้อ "ข้อจำกัดที่ยังเหลือ") |
 | `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · สลิป · confirm/reject + ใบเสร็จ · LINE Login ผ่าน LIFF | 🟡 deploy แล้ว (Vercel + Neon) · 131 tests (CI รันครบพร้อม Postgres) · ยังไม่มีหน้า UI ฝั่งเจ้าของ |
 | RLS policy (กรอง `property_id` ที่ระดับ DB) | ✅ migration `0004` — `force row level security` ทุกตารางที่ผูกหอ (ยกเว้น `auth_failures`) · production ต้องต่อด้วย role ที่ไม่ `BYPASSRLS` (เช่น `dormplus_app`) ไม่งั้น policy ไม่มีผล |
-| ส่งข้อความ LINE ฝั่ง backend | ✅ `app/line_push.py` + คิว `app/tasks.py` (ทวงค่าเช่า) · webhook รับ event ยัง ⬜ — LINE OA ชี้ที่ `line-app/` |
+| ส่งข้อความ LINE ฝั่ง backend | ✅ `app/line_push.py` + คิว `app/tasks.py` (ทวงค่าเช่า + ส่งบิลเมื่อออกบิล) · webhook รับ event มีแล้ว (`POST /v1/webhooks/line/:property_id`, ตรวจ signature) แต่ OA ยังชี้ที่ `line-app/` |
 | คิวงาน + ทวงอัตโนมัติ (Procrastinate) | ✅ `queue.py` · `dunning.py` (1/5/10 วัน) · `GET /v1/cron/daily` ให้ Vercel Cron เรียกวันละครั้งแล้ว drain คิวใน invocation เดียว |
 | ตรวจสลิปอัตโนมัติกับธนาคาร | ⬜ ประเมินแล้ว: ตัวฟรี (SlipVerify) ไม่น่าไว้ใจ → ถอยออก · รอเลือกเจ้าที่มีบริษัท/SLA (Checkslip · Check-Slip) |
 | หน้าจอเจ้าของของ backend (Thai web UI) | ⬜ `line-app/` มีหน้าจดมิเตอร์ของเจ้าของแล้ว |
@@ -154,7 +154,7 @@ node smoke-cron.js      # /api/cron: ชนิดการเตือน, dedup
 npm test                # รันสามตัวแรกตามลำดับ (usecases/cron ไม่อยู่ใน npm test แต่ CI รัน)
 ```
 
-`node smoke-usecases.js` คือชุดเดียวกับ [`docs/TEST-CASES.md`](docs/TEST-CASES.md) (260 เคสในเอกสาร, 156 เคสที่ automate ได้ — เคสที่เหลือเป็น manual/LINE e2e หรือ pytest ฝั่ง backend) และ CI รันทั้งห้าไฟล์
+`node smoke-usecases.js` คือชุดเดียวกับ [`docs/TEST-CASES.md`](docs/TEST-CASES.md) (263 เคสในเอกสาร, 156 เคสที่ automate ได้ — เคสที่เหลือเป็น manual/LINE e2e หรือ pytest ฝั่ง backend) และ CI รันทั้งห้าไฟล์
 
 **`backend/`** — ต้องมี Postgres ก่อน (test ที่ต้องใช้ DB จะถูกข้ามถ้าไม่ได้ตั้ง `TEST_DATABASE_URL`):
 
@@ -246,7 +246,7 @@ exit code 1 ถ้ามีข้อไหนตก — ใช้เป็น ga
 | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | env ของทั้งสองฝั่ง + ค่า default |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | deploy ทั้งสองโปรเจกต์ Vercel · Neon · cron · rollback |
 | [`docs/TESTING.md`](docs/TESTING.md) | ชุดทดสอบ offline, pytest, manual matrix, CI |
-| [`docs/TEST-CASES.md`](docs/TEST-CASES.md) | 260 test case ใน 19 use case (เคสไหน automate, เคสไหน manual) |
+| [`docs/TEST-CASES.md`](docs/TEST-CASES.md) | 263 test case ใน 19 use case (เคสไหน automate, เคสไหน manual) |
 | [`docs/HANDOFF.md`](docs/HANDOFF.md) | งานที่เหลือ + เกณฑ์ "เสร็จ" |
 | [`backend/README.md`](backend/README.md) | endpoint · session · migration · test ของ backend |
 
