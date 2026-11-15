@@ -992,7 +992,8 @@ const { saveBill } = require("./api/_bills");
     assert.strictEqual(r.status, 200);
     const voidedOnce = JSON.parse(JSON.stringify(data.get("bill:2026-11:209")));
     assert.deepStrictEqual([voidedOnce.status, voidedOnce.receiptNo], ["void", "R202611-209"]);
-    assert.strictEqual(data.get("bill-voids:209") ?? null, null, "nothing is archived until the bill is re-issued");
+    // Archived the moment it is voided, so a bill cancelled and never re-issued is still readable.
+    assert.deepStrictEqual(data.get("bill-voids:209"), ["2026-11:1"], "the void is archived at once");
     r = await reissue();
     assert.deepStrictEqual([r.status, r.body.rooms[0].reissued, !!r.body.rooms[0].error], [200, true, false]);
     assert.deepStrictEqual(data.get("bill-void:2026-11:209:1"), voidedOnce, "the void bill is kept exactly as it was");

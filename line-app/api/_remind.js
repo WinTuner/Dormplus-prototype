@@ -18,6 +18,9 @@ const dayNumber = (ymd) => {
   return Date.UTC(y, m - 1, d) / DAY_MS;
 };
 
+const markKey = (room, bill, kind) => `reminded:${room}:${bill.period}:${kind}:${bill.rev || 1}`;
+const legacyMarkKey = (room, bill, kind) => `reminded:${room}:${bill.period}:${kind}`;
+
 // A window per kind (not the exact day) so a missed cron run still sends it once the next one runs.
 function kindFor(daysLeft) {
   if (daysLeft >= 1 && daysLeft <= 3) return "before_3";
@@ -106,7 +109,12 @@ async function remindRoom(room, today, baseUrl, out) {
     })
     .filter((w) => w.kind);
   // One read per window, side by side (a loop of awaits made them wait for each other).
-  const sentBefore = await Promise.all(windows.map((w) => store.get(`reminded:${room}:${w.bill.period}:${w.kind}`)));
+  // A mark is per bill revision: a voided bill that is re-issued (rev+1, possibly a new due date)
+  // must be reminded again. The revision-less key is still read, so marks written before this
+  // deploy keep counting and the first run after it does not repeat everything.
+  const sentBefore = await Promise.all(
+    windows.map(async (w) => (await store.get(markKey(room, w.bill, w.kind))) || (await store.get(legacyMarkKey(room, w.bill, w.kind))))
+  );
   const due = windows.filter((_, i) => !sentBefore[i]);
   if (!due.length) return;
 
@@ -132,7 +140,7 @@ async function remindRoom(room, today, baseUrl, out) {
         out.sent.push({ room, period: bill.period, kind });
         // The tenant already has the message. If the mark is lost we only risk a repeat tomorrow,
         // so it must not abort the rest of the room's reminders.
-        await store.set(`reminded:${room}:${bill.period}:${kind}`, at).catch((err) =>
+        await store.set(markKey(room, bill, kind), at).catch((err) =>
           console.error("reminder mark failed", room, bill.period, kind, err.message)
         );
       })

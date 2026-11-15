@@ -126,7 +126,7 @@ const kinds = (r) => r.sent.map((s) => `${s.room}:${s.period}:${s.kind}`);
   assert.strictEqual((await runReminders({ today: "2026-11-14" })).sent.length, 0, "same window, already sent");
   assert.strictEqual((await runReminders({ today: "2026-11-15" })).sent.length, 0);
   assert.deepStrictEqual(kinds(await runReminders({ today: "2026-11-16" })), ["203:2026-11:due_0"], "next kind when its window starts");
-  assert.ok(typeof data.get("reminded:203:2026-11:before_3") === "string", "marked with an ISO time");
+  assert.ok(typeof data.get("reminded:203:2026-11:before_3:1") === "string", "marked with an ISO time");
   assert.deepStrictEqual(kinds(await runReminders({ today: "2026-11-17" })), ["203:2026-11:after_1"]);
   assert.strictEqual((await runReminders({ today: "2026-11-18" })).sent.length, 0);
 
@@ -179,7 +179,7 @@ const kinds = (r) => r.sent.map((s) => `${s.room}:${s.period}:${s.kind}`);
   console.error = origErr;
   assert.strictEqual(r.failed, 1);
   assert.deepStrictEqual(r.sent, []);
-  assert.strictEqual(data.has("reminded:203:2026-11:before_3"), false, "failed push is not marked");
+  assert.strictEqual(data.has("reminded:203:2026-11:before_3:1"), false, "failed push is not marked");
   failPushTo = null;
   r = await runReminders({ today: "2026-11-14" });
   assert.deepStrictEqual(kinds(r), ["203:2026-11:before_3"], "retried on the next run");
@@ -227,10 +227,20 @@ const kinds = (r) => r.sent.map((s) => `${s.room}:${s.period}:${s.kind}`);
   assert.deepStrictEqual(kinds(r), ["203:2026-10:after_10", "203:2026-11:before_3"]);
   const toTenant = pushed.filter((p) => p.to === "U203");
   assert.deepStrictEqual([toTenant.length, toTenant[0].messages.length], [1, 2], "both cards travel in one push");
-  assert.ok(data.get("reminded:203:2026-10:after_10") && data.get("reminded:203:2026-11:before_3"), "each kind is marked on its own");
+  assert.ok(data.get("reminded:203:2026-10:after_10:1") && data.get("reminded:203:2026-11:before_3:1"), "each kind is marked on its own");
   pushed = [];
   await runReminders({ today: "2026-11-13" });
   assert.strictEqual(pushed.filter((p) => p.to === "U203").length, 0, "and not sent again");
+
+  // A re-issued bill (rev 2) is a new bill: rev 1's mark must not silence it.
+  await saveBill(bill("203", "2026-11", { rev: 2, due: "2026-11-16" }));
+  assert.deepStrictEqual(kinds(await runReminders({ today: "2026-11-13" })), ["203:2026-11:before_3"], "rev 2 is reminded while rev 1 stays marked");
+
+  // A mark written before revisions existed still counts, so the first run after deploy repeats nothing.
+  reset(); tenant("203");
+  await saveBill(bill("203", "2026-11"));
+  data.set("reminded:203:2026-11:before_3", "2026-11-13T00:00:00.000Z");
+  assert.deepStrictEqual(kinds(await runReminders({ today: "2026-11-13" })), [], "a pre-deploy mark is honoured");
 
   // More than 5 cards for one room: pushed in batches of 5 (LINE's limit).
   reset(); tenant("203");

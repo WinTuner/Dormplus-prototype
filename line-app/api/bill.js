@@ -1,8 +1,8 @@
 // GET /api/bill?room=203[&period=2026-10][&history=1]
 // A tenant sees only their own room; the owner sees all. Without `period` the newest bill is used,
 // with `history=1` the caller gets the list of periods that still have a stored bill.
-// `voided=1` (owner and helper only) lists the cancelled bills that were later re-issued
-// (`bill-void:` archive, see api/run.js): { items: [...] }, newest first; add `period=` to narrow.
+// `voided=1` (owner and helper only) lists the cancelled bills (`bill-void:` archive): { items: [...] },
+// newest first; add `period=` to narrow.
 //
 // POST /api/bill { action: "void", room, period, reason } — the owner cancels a bill (ยกเลิกบิล).
 // A paid bill is never edited in place: void it, then re-issue it from /api/run (which bumps `rev`).
@@ -11,7 +11,7 @@ const { requireUser, canView, isOwner } = require("./_auth");
 const { ROOMS } = require("./_rooms");
 const { mapLimit } = require("./_async");
 const { push } = require("./_line");
-const { saveBill, tenancyOf, visibleToTenant, receiptNoOf, PERIOD: STRICT_PERIOD } = require("./_bills");
+const { saveBill, archiveVoid, tenancyOf, visibleToTenant, receiptNoOf, PERIOD: STRICT_PERIOD } = require("./_bills");
 
 const PERIOD = /^\d{4}-\d{2}$/;
 const HISTORY_READ_CONCURRENCY = 6;
@@ -101,15 +101,18 @@ async function voidBill(req, res, userId) {
 
   // The receipt number and the slip stay on the record: a void bill is evidence, not a deletion.
   // `latest` was read above, so saveBill does not read it again; the tenant lookup runs alongside.
+  const voided = {
+    ...bill,
+    status: "void",
+    voidedAt: new Date().toISOString(),
+    voidedBy: userId,
+    voidReason: reason,
+    statusBefore: bill.status,
+  };
   const [, tenant, tenancy] = await Promise.all([
-    saveBill({
-      ...bill,
-      status: "void",
-      voidedAt: new Date().toISOString(),
-      voidedBy: userId,
-      voidReason: reason,
-      statusBefore: bill.status,
-    }, { latest }),
+    // Archive at once, not only when run.js re-issues it: a bill cancelled and never re-issued must
+    // still show up in `?voided=1`. archiveVoid is idempotent, so run.js archiving again is harmless.
+    saveBill(voided, { latest }).then(() => archiveVoid(voided)),
     store.get(`room-user:${room}`),
     tenancyOf(room),
   ]);

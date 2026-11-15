@@ -428,7 +428,8 @@ function tenantSlip() {
     </label>
     <input type="file" id="file" accept="image/*">
     ${adv
-      ? `<div class="card"><div class="m">ยังไม่มีบิลที่ต้องชำระ — สลิปนี้จะถูกผูกกับบิลรอบถัดไปแทนยอดบิล</div></div>
+      ? `<div class="card"><div class="m" id="advNote">ยังไม่มีบิลที่ต้องชำระ — สลิปนี้จะถูกผูกกับบิลรอบถัดไปแทนยอดบิล</div>
+      <div id="multi"></div></div>
     <div class="hint">เมื่อเจ้าของหอออกบิล สถานะจะเป็น “รอตรวจสอบ” จนกว่าเจ้าของหอจะยืนยัน</div>`
       : `<div class="card"><div class="row"><span class="m">ยอดในบิล</span><b id="amount">${fmt(b.total)} บาท</b></div>
       <div id="multi"></div></div>
@@ -436,29 +437,35 @@ function tenantSlip() {
 
   bottom(`<button class="btn primary" id="send" disabled>ส่งสลิป</button>`);
 
-  // One slip can pay several unpaid months: offer a checkbox per period when there is more than one.
-  // `periods` stays null (today's behaviour: the newest bill) unless the choice differs from that.
+  // One slip can pay several unpaid months: offer a checkbox per period. In advance mode (no bill,
+  // or the newest is paid/void) this list is what lets a tenant still pay an older overdue month.
+  // `periods` stays null (the newest bill) unless the choice differs from that.
   let periods = null;
   let hasFile = false;
   const refresh = () => ($("send").disabled = !hasFile || (periods !== null && !periods.size));
-  if (!adv) {
-    api(`/api/bill?room=${encodeURIComponent(T.room)}&history=1`).then((h) => {
-      const open = h.items.filter((i) => i.status === "unpaid" || i.status === "pending");
-      if (open.length < 2 || !$("multi")) return;
-      const newest = open[0].period; // history is newest first
-      periods = new Set([newest]);
-      $("multi").innerHTML = `<div class="m" style="margin-top:10px">จ่ายหลายงวดในสลิปเดียว</div>` + open
-        .map((i) => `<label class="opt"><input type="checkbox" value="${esc(i.period)}" ${i.period === newest ? "checked" : ""}>
+  api(`/api/bill?room=${encodeURIComponent(T.room)}&history=1`).then((h) => {
+    const open = h.items.filter((i) => i.status === "unpaid" || i.status === "pending");
+    if (!open.length || !$("multi")) return;
+    if (!adv && open.length < 2) return; // one open bill: the default form already pays it
+    if (adv) {
+      header(`ห้อง ${T.room} · ค้างชำระ ${open.length} งวด`, "แนบสลิป", "invoice");
+      const note = $("advNote");
+      if (note) note.textContent = "มีบิลค้างชำระ — เลือกงวดที่สลิปนี้จ่าย";
+    }
+    const newest = open[0].period; // history is newest first
+    periods = new Set([newest]);
+    $("multi").innerHTML = `<div class="m" style="margin-top:10px">จ่ายหลายงวดในสลิปเดียว</div>` + open
+      .map((i) => `<label class="opt"><input type="checkbox" value="${esc(i.period)}" ${i.period === newest ? "checked" : ""}>
           <span class="grow">${periodTh(i.period)} ${statusPill(i.status)}</span><span>${fmt(i.total)} บาท</span></label>`)
-        .join("");
-      $("multi").onchange = () => {
-        periods = new Set([...$("multi").querySelectorAll("input:checked")].map((x) => x.value));
-        const sum = open.filter((i) => periods.has(i.period)).reduce((n, i) => n + Number(i.total || 0), 0);
-        $("amount").textContent = `${fmt(sum)} บาท`;
-        refresh();
-      };
-    }).catch(() => {}); // the plain single-bill form still works without the list
-  }
+      .join("");
+    $("multi").onchange = () => {
+      periods = new Set([...$("multi").querySelectorAll("input:checked")].map((x) => x.value));
+      const sum = open.filter((i) => periods.has(i.period)).reduce((n, i) => n + Number(i.total || 0), 0);
+      const amount = $("amount");
+      if (amount) amount.textContent = `${fmt(sum)} บาท`;
+      refresh();
+    };
+  }).catch(() => {}); // the plain single-bill form still works without the list
 
   $("file").onchange = () => {
     const file = $("file").files[0];
