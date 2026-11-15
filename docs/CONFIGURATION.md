@@ -9,9 +9,9 @@
 | **backend** | FastAPI + Postgres (Neon/Supabase) | `line-backend` (`backend/`) | `backend/app/config.py` ผ่าน `pydantic-settings` → env หรือ `backend/.env` |
 | **line-app** | Vercel serverless JS + Vercel Blob | `line-app` (`line-app/`) | `process.env` ตรง ๆ ใน `line-app/api/*.js` — **ไม่มี dotenv** |
 
-> **สำคัญ:** ทั้งสองครึ่งเป็นคนละโปรเจกต์ Vercel จึงมีชุด env แยกกัน ค่าที่ชื่อซ้ำกัน (เช่น `LIFF_ID`) ต้องใส่ทั้งสองโปรเจกต์ ไม่ใช่ใส่ที่เดียวแล้วใช้ร่วม
+> **สำคัญ:** ทั้งสองครึ่งเป็นคนละโปรเจกต์ Vercel จึงมีชุด env แยกกัน ค่าที่ชื่อซ้ำกัน (เช่น `LIFF_ID`, `CRON_SECRET`) ต้องใส่ทั้งสองโปรเจกต์ ไม่ใช่ใส่ที่เดียวแล้วใช้ร่วม — และ `CRON_SECRET` ทั้งสองที่ **ไม่ใช่ค่าเดียวกันก็ได้**
 
-ที่มา: `backend/app/config.py`, `backend/.env.example`, `line-app/api/*.js`, `backend/vercel.json`, `line-app/vercel.json`, `line-app/README.md`, `Dockerfile`
+ที่มา: `backend/app/config.py`, `backend/app/db.py`, `backend/.env.example`, `line-app/api/*.js`, `backend/vercel.json`, `line-app/vercel.json`, `backend/README.md`, `line-app/README.md`, `Dockerfile`
 
 ---
 
@@ -28,23 +28,29 @@
 | `LINE_CHANNEL_ID` | **จำเป็นถ้าใช้ LINE Login** | ไม่ใส่ก็ได้ | `""` | `POST /v1/auth/line` ตอบ `503 LINE_NOT_CONFIGURED` |
 | `LIFF_ID` | **จำเป็นถ้าใช้หน้า LIFF** | ไม่ใส่ก็ได้ | `""` | `GET /v1/liff-config` คืน `{"liff_id": ""}` → หน้า LIFF `liff.init()` ไม่ได้ |
 | `LINE_CHANNEL_ACCESS_TOKEN` | **จำเป็นถ้าต้องส่งข้อความ** | ไม่ใส่ก็ได้ | `""` | push ไม่Throw แต่คืน `"skipped: no LINE_CHANNEL_ACCESS_TOKEN"` แล้ว log `skipped` — ผู้ใช้ไม่ได้รับข้อความ |
-| `CRON_SECRET` | **จำเป็นถ้าใช้ Vercel Cron** | ไม่ใส่ก็ได้ | `""` | `/v1/cron/daily` ตอบ 401 ทุกครั้ง (ไม่มีทางรัน) |
-| `DUNNING_TOKEN` | ทางเลือกแทน `CRON_SECRET` | — | — | ชื่อเก่าที่ยังรับผ่าน `AliasChoices`; ถ้าตั้งทั้งคู่ `CRON_SECRET` ชนะ |
-| `PROPERTY_ID` | **ควรตั้งให้ตรงข้อมูล** | `p_1` | `p_1` | ไม่ error แต่ cron/dunning จะเลือกบิลของหอ `p_1` เท่านั้น — ข้อมูลหออื่นไม่ถูกทวง |
+| `CRON_SECRET` | ไม่บังคับ (cron ของ backend ปิดอยู่) | ไม่ใส่ก็ได้ | `""` | endpoint `/v1/cron/daily` ยังอยู่แต่ตอบ 401 ทุกครั้ง จนกว่าจะตั้งค่านี้ — ใช้เมื่อยิงมือหรือเปิด cron กลับ (ดู §1.4) |
+| `DUNNING_TOKEN` | ทางเลือกแทน `CRON_SECRET` | — | — | ชื่อเก่าที่ยังรับผ่าน `AliasChoices`; ถ้าตั้งทั้งคู่ `CRON_SECRET` ชนะ · **alias นี้มีเฉพาะฝั่ง backend** `line-app` ไม่รับชื่อนี้ |
+| `PROPERTY_ID` | **จำเป็นต้องตรงข้อมูล** | `p_1` | `p_1` | ไม่ error แต่ทุก connection ถูกตั้ง `app.property_id` เป็นค่านี้ → RLS จะไม่เห็นแถวของหออื่นเลย และ cron จะเลือกบิลเฉพาะหอนี้ (ดู §1.6) |
 | `VERCEL_ENV` | platform ฉีดให้ | ไม่ต้องตั้ง | `""` | ใช้ตัดสิน `is_production` (ปิด `/docs`, ปิด `DEV_AUTH`) |
 | `TEST_DATABASE_URL` | — | เฉพาะตอนรัน `pytest` | ไม่มี | ไม่ตั้ง → test ที่ต้องใช้ DB ถูกข้าม; **ฐานนี้ถูกล้างทุกครั้งที่รัน test** |
 | `PORT` | platform ฉีดให้ | ไม่ต้องตั้ง | `8000` | Dockerfile ใช้ `${PORT:-8000}` |
 
-### 1.1 `DATABASE_URL` — pooled vs unpooled
+### 1.1 `DATABASE_URL` — pooled vs unpooled และ role ที่ใช้
 
-- **runtime บน Vercel:** ใช้ endpoint **pooled** ของ Neon (host ที่มี `-pooler`) + `?sslmode=require` ตาม `backend/README.md`
-- **alembic / เครื่องมือ single-process:** ใช้ endpoint **unpooled** เพราะ migration รัน DDL หลายคำสั่งใน transaction เดียว (`backend/README.md` ข้อ "ฐานข้อมูลจริง (Neon)" และ `backend/.env` คอมเมนต์กำกับไว้)
+- **runtime บน Vercel:** ใช้ endpoint **pooled** (host ที่มี `-pooler`) + `?sslmode=require` ตาม `backend/README.md`
+- **alembic / เครื่องมือ single-process:** ใช้ endpoint **unpooled** เพราะ migration รัน DDL หลายคำสั่งใน transaction เดียว (`backend/README.md`)
+- **role ของ runtime ต้องเป็น `dormplus_app`** — role นี้มีสิทธิ์ DML บนทุกตาราง + sequences แต่ **ไม่มี `BYPASSRLS`** ซึ่งจำเป็นเพราะ RLS policy ของ migration `0004` จะถูกข้ามทั้งหมดถ้า role มีค่านี้ (`neondb_owner` บน Neon มี) ตรวจด้วย `select rolbypassrls from pg_roles where rolname = current_user`
+- **alembic ใช้ role ที่มีสิทธิ์ DDL (owner) แยกจาก runtime** — migration สร้าง/แก้ตารางและ policy จึงใช้ `neondb_owner` ได้ ส่วน `DATABASE_URL` ที่ production ใช้เสิร์ฟ request ต้องเป็น `dormplus_app` เท่านั้น
+- ถ้าเปลี่ยน role ต้องตรวจว่า `select count(*) from rooms` เห็นข้อมูล **หลัง** ตั้ง `app.property_id` แล้ว (ถ้าเห็น 0 แถว ให้สงสัย `BYPASSRLS` หรือ setting ที่ยังไม่ถูกตั้ง)
 - scheme ต้องเป็น `postgresql+psycopg://` (ไม่ใช่ `postgresql://`) — `backend/.env.example` ระบุให้เปลี่ยน scheme หลังคัดลอกจาก dashboard
-- `migrations/env.py` อ่าน `DATABASE_URL` ผ่าน `get_settings()`; `alembic.ini` **ไม่มี** `sqlalchemy.url`
-- test ใช้ `TEST_DATABASE_URL` แยก และจะ truncate ทุกตาราง — ห้ามชี้มาที่ฐานจริง ใช้ Neon branch แยก
+- `migrations/env.py` อ่าน `DATABASE_URL` ผ่าน `get_settings()` (หรือ `config.attributes["database_url"]` เมื่อ test ส่งเข้ามา); `alembic.ini` **ไม่มี** `sqlalchemy.url`
+- test ใช้ `TEST_DATABASE_URL` แยก และจะ truncate ทุกตาราง — ห้ามชี้มาที่ฐานจริง ใช้ Neon branch แยก (CI ต่อด้วย `postgres` ซึ่งเป็น superuser จึงข้าม RLS — `tests/test_rls.py` ระบุเรื่องนี้ไว้)
+
+> `backend/.env.example` อ้างหน้าคัดลอก connection string ของ **Supabase** ส่วน `backend/README.md` อธิบาย production ด้วย **Neon** (pooled) — ทั้งสองใช้ได้ ขอแค่ได้ URI ที่มี `?sslmode=require` และเปลี่ยน scheme เป็น `postgresql+psycopg://`
 
 <!-- VERIFY: ชื่อ endpoint pooled/unpooled จริงของ Neon และว่า production ตั้ง `?sslmode=require` ครบหรือไม่ — อยู่ใน Vercel Project → Settings → Environment Variables ไม่มีในเรพ -->
 <!-- VERIFY: `DATABASE_URL` บน Vercel ของโปรเจกต์ `line-backend` ชี้ Neon ตัวเดียวกับที่ `backend/.env` ใช้หรือคนละตัว — เทียบจาก dashboard เท่านั้น -->
+<!-- VERIFY: role ที่ผูกกับ `DATABASE_URL` บน production คือ `dormplus_app` จริง (ไม่ใช่ `neondb_owner`) — ตรวจได้จาก dashboard/psql เท่านั้น -->
 
 ### 1.2 `SESSION_SECRET`
 
@@ -64,22 +70,27 @@
 - `is_production` เป็นจริง **เฉพาะเมื่อ `VERCEL_ENV == "production"`**
 - ⚠️ บน Docker / Railway / Cloud Run (`Dockerfile` รองรับ) ที่ไม่มี `VERCEL_ENV` ค่า `is_production` เป็น `false` → ถ้าตั้ง `DEV_AUTH=true` ไว้ จะ**ใช้งานได้จริง** ใครก็สวมบทเจ้าของได้ ต้องมั่นใจว่า `DEV_AUTH=false` บนทุก deployment ที่ไม่ใช่เครื่องตัวเอง
 
-### 1.4 `CRON_SECRET` / `DUNNING_TOKEN`
+### 1.4 `CRON_SECRET` / `DUNNING_TOKEN` — cron รันที่ line-app ไม่ใช่ backend
 
-`backend/vercel.json` ประกาศ cron ไว้แล้ว:
+**cron ที่ส่งข้อความทวงจริงคือของ `line-app`** เพราะ `line-app` เป็นตัวที่ถือ LINE userId ของผู้เช่าและส่งการ์ดบิลอยู่แล้ว
 
-```json
-"crons": [{ "path": "/v1/cron/daily", "schedule": "0 2 * * *" }]
-```
+- `line-app/vercel.json`: `"crons": [{ "path": "/api/cron", "schedule": "0 2 * * *" }]`
+- `backend/vercel.json`: **ไม่มี `crons` แล้ว** (มีแค่ `git.deploymentEnabled`) — ตั้งใจปิดไว้เพื่อไม่ให้ผู้เช่าที่ผูก LINE กับ backend ได้เตือนสองชุด ถ้าเปิดทั้งคู่จะมีการทวงซ้ำ
+- endpoint ฝั่ง backend (`GET /v1/cron/daily`) **ยังอยู่** ใช้ยิงมือ/ทดสอบได้ และเปิด cron กลับได้ถ้าย้ายการทวงมาฝั่งนี้ (แล้วปิดของ `line-app`) — ต้องตั้ง `CRON_SECRET` บนโปรเจกต์ `line-backend` ก่อน ไม่งั้นได้ 401
+
+ฝั่ง backend (`app/routes/cron.py`):
 
 - Vercel เรียกเป็น `GET` และใส่ `Authorization: Bearer <CRON_SECRET>` ให้เองเมื่อตั้ง env นี้บนโปรเจกต์
-- `app/routes/cron.py` เทียบด้วย `hmac.compare_digest` — ไม่มี header, ไม่มี secret, หรือค่าไม่ตรง → `401 UNAUTHORIZED`
+- เทียบด้วย `hmac.compare_digest` — ไม่มี header, ไม่มี secret, หรือค่าไม่ตรง → `401 UNAUTHORIZED`
 - `app/routes/dunning.py` (`POST /v1/dunning/run`) รับ token ทาง header เท่านั้น **token ใน query string (`?token=`) ถูกปฏิเสธ 401** เพราะ URL หลุดเข้า access log; endpoint นี้ยังรับ owner session ได้ถ้าไม่ส่ง header
-- `DUNNING_TOKEN` คือชื่อเก่าที่ยังใช้ได้ (`AliasChoices("CRON_SECRET", "DUNNING_TOKEN")`)
+- `DUNNING_TOKEN` คือชื่อเก่าที่ยังใช้ได้ (`AliasChoices("CRON_SECRET", "DUNNING_TOKEN")`) — **เฉพาะ backend**; `line-app` อ่าน `process.env.CRON_SECRET` ตรง ๆ ไม่มี alias
 - ถ้าคิว Procrastinate ยังไม่ถูกสร้าง (`python -m app.queue`) cron จะตอบ `503 QUEUE_UNAVAILABLE`
 
-<!-- VERIFY: บน Vercel dashboard ตั้ง `CRON_SECRET` ไว้หรือยัง และ cron `/v1/cron/daily` ถูก register จริงบน plan Hobby — `vercel.json` เป็นเพียงคำประกาศ -->
-<!-- VERIFY: Hobby plan อนุญาต cron วันละครั้งและคลาดได้ถึง ±59 นาทีตามที่ README กล่าว — ตรวจที่ Vercel → Settings → Cron Jobs -->
+ฝั่ง line-app (`line-app/api/cron.js`) — ดู §2.4
+
+<!-- VERIFY: บน Vercel dashboard ตั้ง `CRON_SECRET` ไว้บนทั้งสองโปรเจกต์หรือยัง และ cron `/api/cron` (line-app) ถูก register จริงบน plan Hobby — `vercel.json` เป็นเพียงคำประกาศ -->
+<!-- VERIFY: Hobby plan อนุญาต cron วันละครั้งและคลาดได้ถึง ±59 นาทีตามที่ README กล่าว — ตรวจที่ Vercel → Project → Cron Jobs (ทั้งสองโปรเจกต์) -->
+<!-- VERIFY: cron ของ `line-backend` ถูกถอดออกจาก dashboard ด้วยหรือแค่ถอดจาก `vercel.json` — ถ้า dashboard ยังมีอยู่ จะยังถูกยิงและได้ 401 -->
 
 ### 1.5 กลุ่ม LINE ฝั่ง backend
 
@@ -89,36 +100,42 @@
 | `LIFF_ID` | `app/main.py` | `GET /v1/liff-config` คืนให้หน้า LIFF (public โดยตั้งใจ) |
 | `LINE_CHANNEL_ACCESS_TOKEN` | `app/line_push.py` | Messaging API push; ว่าง → คืน `skipped:` ไม่ throw |
 
-> `LINE_CHANNEL_ACCESS_TOKEN` ถูกอ่านโดย `Settings` แต่ **ไม่ปรากฏใน `backend/.env.example`** — ถ้าคัดลอก example ไปใช้ ต้องเพิ่มเองไม่งั้นการทวงหนี้จะ log `skipped` เงียบ ๆ
+> `LINE_CHANNEL_ACCESS_TOKEN` ถูกอ่านโดย `Settings` แต่ **ไม่ปรากฏใน `backend/.env.example`** — ถ้าคัดลอก example ไปใช้ ต้องเพิ่มเองไม่งั้นการทวงหนี้จะ log `skipped` เงียบ ๆ (ตอนนี้การทวงจริงอยู่ที่ `line-app` จึงกระทบเฉพาะตอนเปิด cron ฝั่งนี้)
 
-### 1.6 `PROPERTY_ID`
+### 1.6 `PROPERTY_ID` — ตัวคุม RLS และการเลือกบิล
 
-"1 deploy = 1 หอ" — session ทุกอันถือ `property_id` และ route ห้ามรับค่านี้จาก client (`backend/app/auth.py`) ค่า `PROPERTY_ID` ใช้เฉพาะตอน cron/dunning เลือกบิล (`due_for_reminder`) ถ้าตั้งผิดจะไม่ error แต่จะไม่พบบิลที่ถึงกำหนด
+"1 deploy = 1 หอ" — `app/db.py` เรียก `attach_property()` ทุกครั้งที่สร้าง engine แล้วรัน `select set_config('app.property_id', <PROPERTY_ID>, false)` **บนทุก connection ที่ connect** (รวมถึง test) ทำให้ policy ของ migration `0004` กรองทุกตารางให้เห็นเฉพาะหอเดียว
+
+- ค่า setting ว่าง/NULL = **ไม่เห็นแถวใดเลย** ไม่ใช่เห็นทุกแถว — ถ้าตั้งผิดจะดูเหมือน "ข้อมูลหาย" ไม่ใช่ error
+- การกรอง `property_id` ในโค้ดยังอยู่ครบ — RLS เป็นชั้นกันพลาด ไม่ได้แทนที่
+- session ทุกอันถือ `property_id` และ route ห้ามรับค่านี้จาก client (`backend/app/auth.py`)
+- ค่าเดียวกันนี้ยังใช้ตอน cron/dunning เลือกบิล (`due_for_reminder`) ถ้าตั้งผิดจะไม่พบบิลที่ถึงกำหนด
 
 ---
 
 ## 2. line-app (serverless JS)
 
-โค้ดอ่าน `process.env` **17 ตัว** ใน `line-app/api/*.js` (นับจาก `api/config.js`, `api/dev.js`, `api/me.js`, `api/owner.js`, `api/qr.js`, `api/rooms.js`, `api/run.js`, `api/slip.js`, `api/webhook.js`, `api/_auth.js`, `api/_line.js`, `api/_rooms.js`) บวกตัวแปรที่ `@vercel/blob` อ่านเอง
+โค้ดอ่าน `process.env` **18 ตัว** ใน `line-app/api/*.js` (นับจาก `api/config.js`, `api/cron.js`, `api/dev.js`, `api/me.js`, `api/owner.js`, `api/qr.js`, `api/rooms.js`, `api/run.js`, `api/slip.js`, `api/webhook.js`, `api/_auth.js`, `api/_line.js`, `api/_remind.js`, `api/_rooms.js`) บวกตัวแปรที่ `@vercel/blob` อ่านเอง
 
 | Variable | Prod | Local | Default | ผลเมื่อไม่มี / ผิด |
 |---|---|---|---|---|
 | `LINE_CHANNEL_SECRET` | **จำเป็น** | ต้องตั้งเอง | — | `verify()` คืน `false` → webhook ตอบ `401 bad signature` ทุก request (อาการ "Verify ไม่ผ่าน") |
-| `LINE_CHANNEL_ACCESS_TOKEN` | **จำเป็น** | ต้องตั้งเอง | — | `call()` throw; `webhook`/`run`/`slip` ดักไว้จึงยัง 200 แต่ไม่มีข้อความออก; `api/dev.js` ไม่ดัก → **500** |
-| `LIFF_ID` | **จำเป็นถ้าใช้ LIFF** | ไม่ใส่ก็ได้ | `null` (จาก `api/config.js`) | `/api/config` คืน `liffId: null` → หน้าเว็บขึ้น "เปิดหน้านี้จากปุ่มในแชท LINE เท่านั้น"; ปุ่มในการ์ดเป็น URL ตรง; ถ้าไม่มี `LOGIN_CHANNEL_ID` ด้วย ทุก endpoint ที่ต้องล็อกอินตอบ 401 |
+| `LINE_CHANNEL_ACCESS_TOKEN` | **จำเป็น** | ต้องตั้งเอง | — | `call()` throw; `webhook`/`run`/`slip`/`cron` ดักไว้จึงยัง 200 แต่ไม่มีข้อความออก; `api/dev.js` ไม่ดัก → **500** |
+| `CRON_SECRET` | **จำเป็น ถ้าจะให้มีการทวงอัตโนมัติ** | ไม่ใส่ก็ได้ | `""` | `/api/cron` ตอบ `503 NOT_CONFIGURED` (ว่างหรือสั้นกว่า 16 ตัว) → ไม่มีใครถูกทวง แต่ระบบอื่นทำงานปกติ |
+| `LIFF_ID` | **จำเป็นถ้าใช้ LIFF** | ไม่ใส่ก็ได้ | `null` (จาก `api/config.js`) | `/api/config` คืน `liffId: null` → หน้าเว็บขึ้น "เปิดหน้านี้จากปุ่มในแชท LINE เท่านั้น"; ปุ่มในการ์ดเป็น URL ตรง (`<baseUrl>/liff/bill.html`); ถ้าไม่มี `LOGIN_CHANNEL_ID` ด้วย ทุก endpoint ที่ต้องล็อกอินตอบ 401 |
 | `LOGIN_CHANNEL_ID` | ไม่บังคับ | ไม่บังคับ | อนุมานจากส่วนหน้า `-` ของ `LIFF_ID` | ถ้า LIFF อยู่คนละ provider กับ LINE Login ต้องตั้ง ไม่งั้นตรวจ idToken ไม่ผ่าน (403) |
-| `OWNER_USER_ID` | **จำเป็น** | ไม่ใส่ก็ได้ | — | ไม่มี root owner → `/api/rooms`, `/api/run` ตอบ 403 และไม่มีการ์ด "ยืนยันการชำระ" ส่งถึงใคร |
+| `OWNER_USER_ID` | **จำเป็น** | ไม่ใส่ก็ได้ | — | ไม่มี root owner → `/api/rooms`, `/api/run` ตอบ 403 และไม่มีการ์ด "ยืนยันการชำระ" ส่งถึงใคร · cron ก็ไม่ส่งสรุปทวงให้เจ้าของ |
 | `SEED_TOKEN` | **ไม่ควรตั้ง** | ตั้งได้ | — | ถ้าไม่ตั้งหรือสั้นกว่า 16 ตัว → `/api/dev` ตอบ 403 และ bypass ปิด (ปลอดภัยกว่า) |
 | `ALLOW_SEED_BYPASS` | **ต้องไม่ตั้ง / `false`** | `true` ได้ | — (ปิด) | ไม่มีผลบน production; บน preview เปิด bypass + `/api/dev` (preview ใช้ Blob ชุดเดียวกับ production — อันตราย) |
 | `RICHMENU_OWNER_ID` | ไม่บังคับ | ไม่บังคับ | — | ไม่สลับ rich menu ให้เจ้าของที่ถูกเชิญ (`api/owner.js`) |
 | `RICHMENU_TENANT_ID` | ไม่บังคับ | ไม่บังคับ | — | ไม่สลับ rich menu ให้ผู้เช่าที่ผูกห้อง (`api/qr.js`) |
-| `PUBLIC_BASE_URL` | แนะนำ | ไม่บังคับ | `` `https://${req.headers.host}` `` | ใช้ host ของ request — บน Vercel ปกติถูกต้อง |
-| `ROOMS` | **ควรตั้งให้ตรงหอ** | ไม่บังคับ | `201`…`212` (12 ห้อง) | ใช้ห้อง 201–212; อ่านครั้งเดียวตอน module load |
+| `PUBLIC_BASE_URL` | แนะนำ | ไม่บังคับ | `` `https://${req.headers.host}` `` | ใช้ host ของ request — บน Vercel ปกติถูกต้อง · `api/cron.js` ใช้ค่านี้ทำลิงก์ในข้อความทวง |
+| `ROOMS` | **ควรตั้งให้ตรงหอ** | ไม่บังคับ | `201`…`212` (12 ห้อง) | ใช้ห้อง 201–212; อ่านครั้งเดียวตอน module load · cron ก็วนเฉพาะห้องในลิสต์นี้ |
 | `DEFAULT_RENT` | ไม่บังคับ | ไม่บังคับ | `3500` | ค่าเช่าเริ่มต้น/ห้อง |
 | `WATER_RATE` | ไม่บังคับ | ไม่บังคับ | `25` | ค่าน้ำ/หน่วย |
 | `ELEC_RATE` | ไม่บังคับ | ไม่บังคับ | `7` | ค่าไฟ/หน่วย |
 | `BILL_PERIOD` | ไม่บังคับ | ไม่บังคับ | `""` (seed ใช้ `2026-11`) | `/api/run` ถ้า body ไม่ส่ง `period` และ env ว่าง → `400 VALIDATION`; `/api/rooms` คืน `period: null` |
-| `BILL_DUE` | ไม่บังคับ | ไม่บังคับ | `""` (seed ใช้ `2026-11-16`) | บิลเก็บ `due: ""`/`null` → การ์ดแสดงค่าว่าง |
+| `BILL_DUE` | ไม่บังคับ | ไม่บังคับ | `""` (seed ใช้ `2026-11-16`) | บิลเก็บ `due: ""`/`null` → การ์ดแสดงค่าว่าง และ **cron จะข้ามบิลนั้น** (`candidateBills` ต้องมี `due`) |
 | `VERCEL_ENV` | platform ฉีดให้ | `vercel dev` ตั้งเป็น `development` | `""` | ใช้ปิด bypass บน production (`IS_PRODUCTION`) |
 
 ตัวแปรที่ **โค้ดไม่เคยอ่านเอง** แต่ platform/library ต้องใช้:
@@ -152,8 +169,22 @@
 
 ### 2.3 `OWNER_USER_ID` / `RICHMENU_*`
 
-- `OWNER_USER_ID` = LINE userId ของเจ้าของหอคนแรก ("root") ตัดสินสิทธิ์ใน `roleOf()`/`isRoot()` และเป็นปลายทางการ์ดยืนยันการชำระ; root คนเดียวที่เชิญ/ถอนเจ้าของคนอื่นได้ (เจ้าของเพิ่มเติมเก็บใน Blob key `owner:<userId>`)
+- `OWNER_USER_ID` = LINE userId ของเจ้าของหอคนแรก ("root") ตัดสินสิทธิ์ใน `roleOf()`/`isRoot()` และเป็นปลายทางการ์ดยืนยันการชำระ; root คนเดียวที่เชิญ/ถอนเจ้าของคนอื่นได้ (เจ้าของเพิ่มเติมเก็บใน Blob key `owner:<userId>`) · cron ใช้ค่านี้ส่งสรุปทวงให้เจ้าของ (`_remind.js`)
 - `RICHMENU_OWNER_ID` ใช้ตอนรับสิทธิ์เจ้าของ (`api/owner.js`), `RICHMENU_TENANT_ID` ใช้ตอนผู้เช่าผูกห้องด้วย QR (`api/qr.js`) — ไม่ตั้งก็แค่ไม่สลับเมนู
+
+### 2.4 `CRON_SECRET` (line-app) — ตัวที่ทำให้มีการทวงจริง
+
+`GET /api/cron` ถูกเรียกโดย Vercel Cron วันละครั้ง (`line-app/vercel.json`: `0 2 * * *` = 02:00 UTC = 09:00 เวลาไทย)
+
+- ต้องยาว **≥ 16 ตัว** (`MIN_SECRET_LENGTH` ใน `api/cron.js`) สุ่มเอา เช่น `openssl rand -hex 24`; สั้นกว่านั้นถือว่ายังไม่ตั้ง
+- เมื่อตั้ง env นี้บนโปรเจกต์ Vercel จะแนบ `Authorization: Bearer <CRON_SECRET>` ให้เอง — ไม่ต้องตั้ง header ที่ไหน
+- รับเฉพาะ `GET`: ไม่ใช่ GET → `405 METHOD_NOT_ALLOWED` · ไม่ได้ตั้ง/สั้นไป → `503 NOT_CONFIGURED` · header ไม่ตรง → `401 UNAUTHORIZED`
+- ไม่ใช่ `DUNNING_TOKEN` — ชื่อเก่านั้นเป็น alias ของ backend เท่านั้น
+- วันที่คิดตามเวลาไทย (`Asia/Bangkok`) ไม่ใช่ UTC ของเซิร์ฟเวอร์
+- กันรันซ้อนด้วย Blob key `cron-lock` (15 นาที): ถ้ารอบก่อนยังไม่จบ รอบใหม่ตอบ `200 {"skipped":"another run is in progress"}` — Vercel retry จึงไม่ทำให้ส่งซ้ำ
+- ตั้งแล้ว **ต้อง Redeploy** — env ของ Vercel มีผลกับ deployment ใหม่ · `cron.js` อ่าน `CRON_SECRET` ทุก request แต่ `_line.js` / `_auth.js` / `_rooms.js` อ่านตอน module load (ดูข้อ 12)
+
+<!-- VERIFY: มีการตั้ง `CRON_SECRET` (≥ 16 ตัว) บนโปรเจกต์ `line-app` แล้วหรือยัง และค่าเดียวกับที่ Vercel ใช้แนบ header — เห็นได้ที่ Project → Settings → Environment Variables -->
 
 ---
 
@@ -179,13 +210,15 @@ PROPERTY_ID=p_1
 - env ของ process ชนะไฟล์ `.env`
 - ต้องรันคำสั่งจากโฟลเดอร์ `backend/` ไม่งั้นหา `.env` ไม่เจอ (ค่า default จะถูกใช้)
 - `.gitignore` ของ backend คือ `.env*` — ไฟล์ `backend/.env.local` ที่มีอยู่เป็น artifact ของ Vercel CLI (`VERCEL_OIDC_TOKEN`) **ห้าม commit และห้ามคัดลอก token ลงเอกสาร**
+- ถ้าใช้ role `dormplus_app` ในเครื่องด้วย ต้องสร้าง role นั้นใน Postgres local และให้สิทธิ์ DML ก่อน ไม่งั้น connection แรกจะ error — หรือใช้ superuser ในเครื่องแล้วรู้ไว้ว่า RLS จะถูกข้าม (test จึงต้องมี `tests/test_rls.py` แยก)
 - ไม่มี `config.json` / `config.yaml`; `alembic.ini` เก็บแค่ `script_location` กับ logger ไม่มี connection string
 
 ### 3.2 `line-app` ไม่มีไฟล์ config
 
 - ไม่มี `.env`, `.env.example`, dotenv ใน dependency (`package.json` มี `@vercel/blob` + `qrcode-svg`)
 - การใส่ `.env` เฉย ๆ **ไม่มีผล** เพราะไม่มีอะไรโหลดเข้า `process.env` (ไม่มี `--env-file` และไม่มี `scripts` ที่รันเซิร์ฟเวอร์)
-- `line-app/vercel.json` เก็บเฉพาะ `git.deploymentEnabled`, `crons` (ไม่มีใน line-app), `rewrites` (`/` → `/liff/bill.html`) และ security headers
+- `line-app/vercel.json` เก็บ `git.deploymentEnabled`, **`crons` (`/api/cron`, `0 2 * * *`)**, `rewrites` (`/` → `/liff/bill.html`) และ security headers
+- `backend/vercel.json` เก็บเฉพาะ `git.deploymentEnabled` — ไม่มี `crons`
 - ค่าทั้งหมดมาจาก Vercel → Project → Settings → Environment Variables หรือจาก shell ตอน `vercel dev`
 
 ---
@@ -196,14 +229,14 @@ PROPERTY_ID=p_1
 
 **Backend (`line-backend`)** ต้องตั้ง:
 
-- `DATABASE_URL` (pooled + `sslmode=require`)
+- `DATABASE_URL` (pooled + `sslmode=require`, role `dormplus_app` ที่ไม่มี `BYPASSRLS`)
 - `SESSION_SECRET` (ค่าสุ่มยาว ไม่ใช่ `dev-only-change-me`)
 - `COOKIE_SECURE=true`
 - `DEV_AUTH=false`
 - `LINE_CHANNEL_ID` และ `LIFF_ID` (ถ้าเปิด LINE Login/LIFF)
-- `LINE_CHANNEL_ACCESS_TOKEN` (ถ้าต้องส่งข้อความทวง)
-- `CRON_SECRET` (ถ้าใช้ Vercel Cron)
-- `PROPERTY_ID` (ถ้าไม่ใช่ `p_1`)
+- `LINE_CHANNEL_ACCESS_TOKEN` (ถ้าจะให้ backend ส่งข้อความ — cron ฝั่งนี้ปิดอยู่)
+- `PROPERTY_ID` (ถ้าไม่ใช่ `p_1` — ค่านี้คุม RLS ไม่ใช่แค่ cron)
+- `CRON_SECRET` **เฉพาะเมื่อ** จะยิง `/v1/cron/daily` หรือ `POST /v1/dunning/run` ด้วย header เอง / เปิด cron กลับมา
 
 **line-app** ต้องตั้ง:
 
@@ -211,6 +244,7 @@ PROPERTY_ID=p_1
 - `LINE_CHANNEL_ACCESS_TOKEN`
 - `LIFF_ID`
 - `OWNER_USER_ID`
+- `CRON_SECRET` (≥ 16 ตัว — ถ้าไม่ตั้ง การทวงอัตโนมัติรายวันไม่ทำงานเลย)
 
 ไม่ตั้งใน production: `SEED_TOKEN`, `ALLOW_SEED_BYPASS`, `DEV_AUTH=true`
 
@@ -229,14 +263,17 @@ PROPERTY_ID=p_1
 | `SESSION_SECRET` | `dev-only-change-me` (ถูกปฏิเสธ) | `backend/app/config.py`, `backend/app/session.py` |
 | `COOKIE_SECURE` | `true` | `backend/app/config.py` |
 | `DEV_AUTH` | `false` | `backend/app/config.py` |
-| `PROPERTY_ID` | `p_1` | `backend/app/config.py` |
+| `PROPERTY_ID` | `p_1` (ถูกตั้งเป็น `app.property_id` ทุก connection) | `backend/app/config.py`, `backend/app/db.py` |
 | `LINE_CHANNEL_ID` / `LIFF_ID` / `LINE_CHANNEL_ACCESS_TOKEN` / `CRON_SECRET` | `""` | `backend/app/config.py` |
 | `PORT` | `8000` | `Dockerfile` |
+| `CRON_SECRET` (line-app) | `""` (ใช้ได้เมื่อ ≥ 16 ตัว) | `line-app/api/cron.js` |
+| ความยาวต่ำสุดของ cron secret (line-app) | `16` | `line-app/api/cron.js` |
+| อายุ lock ของ cron | 15 นาที (`cron-lock`) | `line-app/api/cron.js` |
 | `ROOMS` | `201`–`212` | `line-app/api/_rooms.js` |
 | `DEFAULT_RENT` | `3500` | `line-app/api/_rooms.js` |
 | `WATER_RATE` | `25` | `line-app/api/_rooms.js` |
 | `ELEC_RATE` | `7` | `line-app/api/_rooms.js` |
-| `PUBLIC_BASE_URL` | `https://<host ของ request>` | `line-app/api/run.js`, `dev.js`, `webhook.js` |
+| `PUBLIC_BASE_URL` | `https://<host ของ request>` | `line-app/api/run.js`, `dev.js`, `webhook.js`, `cron.js` |
 | `LIFF_ID` (line-app) | `null` (ตอบใน `/api/config`) | `line-app/api/config.js` |
 | `LOGIN_CHANNEL_ID` | prefix ของ `LIFF_ID` ก่อน `-` | `line-app/api/_auth.js` |
 | รอบบิล/ครบกำหนดของ seed | `2026-11` / `2026-11-16` | `line-app/api/dev.js` |
@@ -256,14 +293,15 @@ Vercel อ่าน env ตาม scope ที่เลือกตอนสร�
 | `/docs`, `/redoc`, `/openapi.json` (backend) | ปิด | เปิด | เปิด |
 | `SEED_TOKEN` / `ALLOW_SEED_BYPASS` (line-app) | ใช้ไม่ได้เด็ดขาด | ใช้ได้ถ้า `ALLOW_SEED_BYPASS=true` | ใช้ได้ |
 | `COOKIE_SECURE` (backend) | `true` | `true` | `false` ถ้าเป็น HTTP |
-| `DATABASE_URL` | pooled | ควรใช้ Neon branch แยก | local Postgres หรือ unpooled |
+| `DATABASE_URL` | pooled, role `dormplus_app` | ควรใช้ Neon branch แยก (role เดียวกัน) | local Postgres หรือ unpooled |
 | Blob store (line-app) | store จริง | **ใช้ store เดียวกับ production** ตาม README | ต้องมี OIDC/credential เอง |
+| cron ที่ส่งข้อความทวง | `line-app` `/api/cron` (backend ไม่มี cron) | ไม่รัน (Vercel cron ผูกกับ Production) | ยิงมือด้วย curl ถ้าตั้ง `CRON_SECRET` |
 
 ข้อควรระวัง:
 
 1. **Preview ของ line-app ใช้ env และ Blob ชุดเดียวกับ production** — อย่าเปิด `ALLOW_SEED_BYPASS` หรือรัน seed บน preview เพราะจะทับบิลจริง
 2. **Preview ของ backend ใช้ DB ชุดเดียวกับ production ถ้าไม่ได้แยก env** — ควรตั้ง `DATABASE_URL` ของ Preview เป็น Neon branch
-3. **แก้ env แล้วต้อง Redeploy** — line-app จับค่าใส่ `const` ตอน module load (`api/_line.js`, `api/_auth.js`, `api/_rooms.js`) และ instance ที่ warm อยู่จะใช้ค่าเดิมจนกว่าจะ deploy ใหม่
+3. **แก้ env แล้วต้อง Redeploy** — line-app จับค่าใส่ `const` ตอน module load (`api/_line.js`, `api/_auth.js`, `api/_rooms.js`) และ instance ที่ warm อยู่จะใช้ค่าเดิมจนกว่าจะ deploy ใหม่ · backend ก็อ่าน `Settings` ผ่าน `lru_cache` ต่อโปรเซส
 4. `PUBLIC_BASE_URL` บน Preview ถ้าตั้งเป็นโดเมน production ลิงก์ในการ์ดจะชี้ไป production
 
 <!-- VERIFY: env ของ Preview ถูกตั้งแยกจาก Production หรือใช้ร่วมในโปรเจกต์ Vercel ทั้งสอง — ไม่มีในเรพ -->
@@ -274,16 +312,18 @@ Vercel อ่าน env ตาม scope ที่เลือกตอนสร�
 
 **Backend**
 
-1. ตั้ง `DATABASE_URL` (pooled) + `SESSION_SECRET` + `COOKIE_SECURE=true` + `DEV_AUTH=false`
+1. ตั้ง `DATABASE_URL` (pooled, role `dormplus_app` ที่ไม่มี `BYPASSRLS`) + `SESSION_SECRET` + `COOKIE_SECURE=true` + `DEV_AUTH=false`
 2. ตั้ง `LINE_CHANNEL_ID` + `LIFF_ID` (+ `LINE_CHANNEL_ACCESS_TOKEN` ถ้าส่งข้อความ)
-3. ตั้ง `CRON_SECRET` (หรือ `DUNNING_TOKEN`) และ `PROPERTY_ID`
-4. รัน `python -m alembic upgrade head` (unpooled) และ `python -m app.queue` ครั้งเดียวต่อฐาน
-5. Redeploy
+3. ตั้ง `PROPERTY_ID` ให้ตรงหอ (ค่านี้คุม RLS ไม่ใช่แค่ cron)
+4. ตั้ง `CRON_SECRET` เฉพาะถ้าจะยิง `/v1/cron/daily` ด้วยมือ หรือเปิด cron ฝั่งนี้กลับมา
+5. รัน `python -m alembic upgrade head` ด้วย role ที่มี DDL (unpooled) และ `python -m app.queue` ครั้งเดียวต่อฐาน
+6. Redeploy
 
 **line-app**
 
 1. ตั้ง `LINE_CHANNEL_SECRET` + `LINE_CHANNEL_ACCESS_TOKEN` จาก LINE Developers Console
 2. ตั้ง `LIFF_ID` + `OWNER_USER_ID`
-3. ตั้ง `ROOMS` / `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` ให้ตรงหอ (ไม่ตั้ง = 201–212, 3500, 25, 7)
-4. ตั้ง `PUBLIC_BASE_URL` เป็นโดเมน production
-5. Redeploy แล้วยิง webhook Verify จาก LINE Developers Console
+3. ตั้ง `CRON_SECRET` (≥ 16 ตัว) เพื่อให้ `/api/cron` ทำงาน — Vercel จะแนบ header ให้เอง
+4. ตั้ง `ROOMS` / `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` ให้ตรงหอ (ไม่ตั้ง = 201–212, 3500, 25, 7)
+5. ตั้ง `PUBLIC_BASE_URL` เป็นโดเมน production
+6. Redeploy แล้วยิง webhook Verify จาก LINE Developers Console · ตรวจ cron ที่ Vercel → Project → Cron Jobs

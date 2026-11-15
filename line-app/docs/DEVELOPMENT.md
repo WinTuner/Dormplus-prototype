@@ -231,7 +231,7 @@ vercel storage connect domplus-bills --yes
 
 ## 9. Code style และ convention ที่โค้ดทำอยู่
 
-**ไม่มี** ESLint, Prettier, Biome, `.editorconfig` หรือ TypeScript ในเรพ แต่ **มี CI** (`.github/workflows/ci.yml`) ที่รัน syntax check + smoke ทั้งสามชุด สิ่งที่เหลือคือสไตล์ที่โค้ดทั้ง 11 handler ทำเหมือนกัน:
+**ไม่มี** ESLint, Prettier, Biome, `.editorconfig` หรือ TypeScript ในเรพ แต่ **มี CI** (`.github/workflows/ci.yml`) ที่รัน syntax check + smoke ทั้งห้าชุด สิ่งที่เหลือคือสไตล์ที่โค้ดทั้ง 12 handler ทำเหมือนกัน:
 
 - **CommonJS เท่านั้น** — `require()` / `module.exports` ไม่มี `import`/`export` เพราะ helper ถูก require ด้วย path ตรง ๆ
 - 2 spaces, double quotes, semicolons, `const` (ไม่มี `var`)
@@ -245,7 +245,7 @@ vercel storage connect domplus-bills --yes
 
 ## 10. Branch และ PR
 
-เรพนี้เป็น git repository (remote `WinTuner/Dormplus-prototype`) และมี convention ที่เขียนไว้แล้ว: `.github/PULL_REQUEST_TEMPLATE.md` (สรุปงาน/ทดสอบ/กระทบข้อมูล) และ `.github/workflows/ci.yml` ที่มี 2 job คือ `backend` (pytest + Postgres service) และ `line-app` (`npm ci` → `node --check` ทุก handler → smoke ทั้งสามชุด → ตรวจ script ในหน้า LIFF) · branch `master` มี protection บังคับให้ผ่าน check `backend` ก่อน merge
+เรพนี้เป็น git repository (remote `WinTuner/Dormplus-prototype`) และมี convention ที่เขียนไว้แล้ว: `.github/PULL_REQUEST_TEMPLATE.md` (สรุปงาน/ทดสอบ/กระทบข้อมูล) และ `.github/workflows/ci.yml` ที่มี 2 job คือ `backend` (pytest + Postgres service) และ `line-app` (`npm ci` → `node --check` ทุก handler → smoke ทั้งห้าชุด → ตรวจ script ในหน้า LIFF) · branch `master` มี protection บังคับให้ผ่าน check `backend` ก่อน merge
 
 `.gitignore` เก็บ `.vercel` ไว้ (มี project id/org id ของ Vercel อยู่ข้างใน) — อย่า commit โฟลเดอร์นั้น
 

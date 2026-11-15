@@ -4,7 +4,7 @@
 
 เอกสารนี้เขียนจากไฟล์จริงในเรพ: `vercel.json`, `package.json`, `.vercel/project.json`, `api/*.js`, `liff/bill.html` และข้อความ error ที่โค้ดส่งออกจริง ทุกอย่างที่ยืนยันจากเรพไม่ได้จะถูกกำกับด้วย `<!-- VERIFY: ... -->`
 
-**สรุปสั้น:** โปรเจกต์ `line-app` ผูกกับ GitHub repo `WinTuner/domplus-prototype` แล้ว — **push เข้า `master` = deploy production อัตโนมัติ** (Root Directory = `line-app`, Branch Tracking = `master`) · deploy ด้วย CLI (`vercel --prod`) ก็ยังใช้ได้เมื่อไม่ได้มาจาก git
+**สรุปสั้น:** โปรเจกต์ `line-app` ผูกกับ GitHub repo `WinTuner/Dormplus-prototype` แล้ว — **push เข้า `master` = deploy production อัตโนมัติ** (Root Directory = `line-app`, Branch Tracking = `master`) · deploy ด้วย CLI (`vercel --prod`) ก็ยังใช้ได้เมื่อไม่ได้มาจาก git
 
 ---
 
@@ -27,7 +27,7 @@
 - ไม่มี `.env`, `.env.example`, `.env.production`, `.env.preview` → env ทั้งหมดถูกตั้งใน Vercel เท่านั้น (ดู `docs/CONFIGURATION.md` ข้อ 4)
 - ไม่มีสคริปต์ build → Vercel ไม่รัน build ใด ๆ
 
-โฟลเดอร์นี้ **ไม่ใช่ git repo ของตัวเอง** — เป็นโฟลเดอร์ย่อยใน `domplus-prototype` · `.vercel/` ยังใช้ผูกกับโปรเจกต์เมื่อสั่ง CLI และถูก gitignore ไว้
+โฟลเดอร์นี้ **ไม่ใช่ git repo ของตัวเอง** — เป็นโฟลเดอร์ย่อยใน `Dormplus-prototype` · `.vercel/` ยังใช้ผูกกับโปรเจกต์เมื่อสั่ง CLI และถูก gitignore ไว้
 
 <!-- VERIFY: plan/region/โดเมนของโปรเจกต์บน Vercel ยืนยันจากเรพไม่ได้ -->
 

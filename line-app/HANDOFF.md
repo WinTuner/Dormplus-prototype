@@ -48,6 +48,8 @@
 | `smoke.js` | เทสต์ offline: signature + การ์ดบิล + การ์ดยืนยัน + QR (`node smoke.js`) |
 | `smoke-handlers.js` | เทสต์ handler ด้วย store ในหน่วยความจำ: dev gate, ผูก/ย้ายห้อง, rate limit, สลิป, ยืนยันชำระ, `/api/owner`, idToken cache |
 | `smoke-reads.js` | เทสต์การอ่านพร้อมกัน + ประวัติบิล + `/api/rooms` ไม่ส่ง userId |
+| `smoke-usecases.js` | 156 use case ตาม id ใน [`docs/TEST-CASES.md`](../docs/TEST-CASES.md) (`node smoke-usecases.js`) |
+| `smoke-cron.js` | เทสต์ cron ทวงรายวัน: auth, lock, หน้าต่างการเตือน, dedup, catch-up, retry (`node smoke-cron.js`) |
 
 ## 3. Environment variables
 
@@ -135,7 +137,7 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "$B/api/bill?room=203"
 
 - แตะ Blob ผ่าน `_store.js` เท่านั้น (อย่าเรียก `@vercel/blob` ตรง ๆ — รวมถึงไฟล์สลิปที่ใช้ `putFile`/`getFile`/`delFile`)
 - endpoint ที่อ่านข้อมูลผู้ใช้ ต้องเรียก `requireUser()` ก่อนเสมอ
-- ก่อน deploy: `node smoke.js`, `node smoke-handlers.js`, `node smoke-reads.js` ต้องผ่าน
+- ก่อน deploy: `node smoke.js`, `node smoke-handlers.js`, `node smoke-reads.js`, `node smoke-usecases.js`, `node smoke-cron.js` ต้องผ่าน (เท่ากับที่ CI รัน)
 - หลัง deploy: ทดสอบผ่าน LINE 1 ครั้ง (path ที่แตะ) — `x-seed-token` ใช้ได้เฉพาะ `vercel dev` หรือ preview ที่ตั้ง `ALLOW_SEED_BYPASS=true`
 - production ไม่มี bypass: endpoint ที่ต้อง auth ใช้ idToken จาก LIFF เท่านั้น
 - อย่าใส่ token/secret ลงใน URL ที่ส่งให้ผู้ใช้เห็น
