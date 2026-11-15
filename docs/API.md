@@ -344,6 +344,32 @@ curl -s "$BASE/v1/invoices?status=unpaid"
       "due_date": "2026-11-09", "days_overdue": 1 } ] }
 ```
 
+### `GET /v1/invoices/:id`
+
+```bash
+curl -s "$BASE/v1/invoices/inv_201_2026-11"        # เจ้าของ: บิลไหนของหอก็ได้
+```
+
+```json
+{ "id": "inv_201_2026-11", "period": "2026-11", "room_no": "201", "total": 3562,
+  "status": "unpaid", "due_date": "2026-11-09",
+  "items": [ { "label": "ค่าเช่า", "qty": 1, "unit_price": 3220, "amount": 3220 },
+             { "label": "ค่าน้ำ", "qty": 5, "unit_price": 25, "amount": 125 },
+             { "label": "ค่าไฟ", "qty": 31, "unit_price": 7, "amount": 217 } ],
+  "payment": null }
+```
+
+### `GET /v1/properties/:id`
+
+```bash
+curl -s "$BASE/v1/properties/p_1"
+```
+
+```json
+{ "id": "p_1", "name": "หอพักบ้านสวน", "billing_mode": "meter",
+  "water_rate": 25, "elec_rate": 7, "due_days": 5, "rooms": 42 }
+```
+
 ### `GET /v1/liff-config`
 
 public — ให้หน้า LIFF เอา `liff_id` ไป `liff.init()`
