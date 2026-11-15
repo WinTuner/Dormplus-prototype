@@ -14,7 +14,7 @@
 
 | ไฟล์ / โฟลเดอร์ | บทบาทตอน deploy |
 |---|---|
-| `vercel.json` | rewrite เดียว: `/` → `/liff/bill.html` (ไม่มี `builds`, `functions`, `headers`, `crons`) |
+| `vercel.json` | rewrite เดียว: `/` → `/liff/bill.html` และ `crons` หนึ่งงาน: `/api/cron` ทุกวัน 02:00 UTC (ดูข้อ 5A) |
 | `api/*.js` | Vercel เปิดเป็น serverless function ตามชื่อไฟล์ (เช่น `api/bill.js` → `/api/bill`) |
 | `api/_auth.js`, `api/_line.js`, `api/_rooms.js`, `api/_store.js` | helper ที่ขึ้นต้นด้วย `_` — ไม่ได้ถูกเรียกเป็น endpoint ตรง ๆ (endpoint จริงมี 10 ตัวตามตารางใน `README.md`) |
 | `liff/bill.html` | หน้า static ไฟล์เดียว เข้าที่ `/liff/bill.html` |
@@ -168,6 +168,25 @@ $T = "<SEED_TOKEN>"
 **ข้อ 7–8 เป็นการทดสอบที่ขาดไม่ได้** — ข้อ 1–6 พิสูจน์แค่ฝั่ง Vercel ส่วน LINE Console เป็นคนละส่วนที่ไม่มีทางยืนยันจากเรพได้
 
 > หมายเหตุ: ข้อ 4 (`seed`) **เขียนทับบิลทุกห้อง**ด้วยข้อมูลตัวอย่าง อย่ารันบน production ที่มีข้อมูลจริงของหอ
+
+---
+
+## 5A. เตือนบิลค้างทุกวัน (Cron)
+
+`vercel.json` มี `"crons": [{ "path": "/api/cron", "schedule": "0 2 * * *" }]` — Vercel เรียก `GET /api/cron` วันละครั้งตอน **02:00 UTC = 09:00 เวลาไทย** (แผน Hobby รันได้วันละครั้งเท่านั้น และเวลาจริงอาจคลาดได้ภายในชั่วโมงนั้น) Vercel แนบ `Authorization: Bearer <CRON_SECRET>` ให้เอง จึงต้องตั้ง `CRON_SECRET` (≥ 16 ตัว) บน Production ก่อน แล้ว Redeploy · cron รันเฉพาะ **Production** deployment เท่านั้น
+
+งานนี้เตือนผู้เช่าที่ผูกห้องแล้ว เฉพาะบิลสถานะ `unpaid` ที่มี `due`: ก่อนครบ 3 วัน, วันครบกำหนด, เลยกำหนด 1 / 5 / 10 วัน (แต่ละแบบส่งครั้งเดียวต่อบิล) และถ้ามีการทวงเลยกำหนด เจ้าของ (`OWNER_USER_ID`) ได้ข้อความสรุป 1 ข้อความ · พลาดวันหนึ่งก็ไม่เป็นไร วันถัดไปส่งให้ครบตามช่วงของมัน
+
+**สั่งรันเองด้วยมือ** (แทน `<domain>` และ `<CRON_SECRET>`):
+
+```bash
+curl -H "Authorization: Bearer <CRON_SECRET>" https://<domain>/api/cron
+# -> {"ok":true,"today":"2026-11-16","sent":[{"room":"203","period":"2026-11","kind":"due_0"}],"failed":0}
+```
+
+รันซ้ำวันเดียวกันได้ ไม่ส่งซ้ำ (บันทึกใน `reminded:<ห้อง>:<รอบ>:<แบบ>`) · push ที่ล้มเหลวไม่ถูกบันทึก จะลองใหม่ในรอบถัดไป และนับใน `failed`
+
+> ⚠️ **ทุกข้อความเตือนนับเป็น 1 ข้อความจากโควตาของ LINE OA** (push message) รวมข้อความสรุปถึงเจ้าของด้วย แผนฟรีมีโควตาต่อเดือนจำกัด — ห้อง 12 ห้องที่ค้างนานอาจใช้ราว 5 ข้อความต่อห้องต่อบิล
 
 ---
 
