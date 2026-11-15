@@ -20,7 +20,16 @@ PROBE = "rls_probe"
 def probe(engine):
     """A role that is neither the owner nor a superuser, so policies apply to it."""
     with engine.begin() as conn:
-        conn.execute(text(f"drop role if exists {PROBE}"))
+        # A role that already holds grants cannot be dropped ("privileges for schema public"), and
+        # this suite is re-run against the same database on a developer machine, not only on a
+        # throwaway CI service. Revoke before dropping so the second run starts clean.
+        conn.execute(text(f"""do $$ begin
+            if exists (select 1 from pg_roles where rolname = '{PROBE}') then
+                execute 'revoke all on schema public from {PROBE}';
+                execute 'revoke all on all tables in schema public from {PROBE}';
+                execute 'drop role {PROBE}';
+            end if;
+        end $$"""))
         conn.execute(text(f"create role {PROBE} nologin"))
         conn.execute(text(f"grant usage on schema public to {PROBE}"))
         conn.execute(text(f"grant select, insert, update, delete on all tables in schema public to {PROBE}"))
