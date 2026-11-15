@@ -22,7 +22,7 @@
 | `DELETE /tenants/:id/line` | ✅ |
 | `GET /properties/:id` | ✅ |
 | `GET /invoices/:id` (รายละเอียด + items) | ✅ |
-| `GET /v1/reports/summary` | ⬜ |
+| `GET /v1/reports/summary` | ✅ |
 | `POST /webhooks/line/:property_id` | ✅ (endpoint + signature; **ยังไม่ผูก OA**) |
 
 ## กติกากลาง
@@ -230,10 +230,12 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
 ## รายงาน
 
 ### `GET /reports/summary?period=2026-11`
+เฉพาะเจ้าของหอ · ไม่ส่ง `period` = เดือนปัจจุบัน (เวลาไทย)
 ```json
 { "billed": 167400, "paid": 120000, "pending": 3842, "unpaid": 43558,
   "rooms_total": 42, "rooms_paid": 30, "rooms_overdue": 5 }
 ```
+`billed = paid + pending + unpaid` (บิล `void` ไม่นับ — ไม่ใช่เงินที่ใครค้าง) · `rooms_total` = ทุกห้องของหอ รวมห้องว่าง · `rooms_overdue` = บิล `unpaid` ที่ `due_date` เลยวันนี้แล้ว
 
 ---
 
@@ -243,10 +245,10 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
 `api` ฝั่ง backend รับ event ของ Messaging API แล้ว — **endpoint ทำงานได้ แต่ช่องทางของ OA ยังชี้ที่ `line-app`** (สลับเมื่อไหร่บอทที่ใช้งานจริงจะดับ) จึงยังไม่มี handler ที่ตอบผู้ใช้: งานของ endpoint นี้คือพิสูจน์ signature และบันทึก event
 
 - **Auth:** `X-Line-Signature` = Base64(HMAC-SHA256 ของ **raw body** ด้วย `LINE_CHANNEL_SECRET`) เทียบแบบ constant-time · ไม่ใช้ session
-- **Error:** `503 NOT_CONFIGURED` (ไม่ได้ตั้ง `LINE_CHANNEL_SECRET`) → `404 NOT_FOUND` (`:property_id` ไม่ใช่หอของ deployment — signature ผูกกับ channel เดียว) → `401 UNAUTHORIZED` (signature ไม่ตรง) → `400 VALIDATION` (body ไม่ใช่ JSON)
-- **200:** `{ "ok": true }`
-- **Side effect:** เขียน `audit_log` 1 แถว action `webhook.line` payload `{ "count": <จำนวน event>, "types": ["follow", ...] }`
-- **ยังไม่มีคิวในเส้นทางนี้** — งานเดียวคือ insert 1 แถว; เมื่อมี handler ที่ต้องเรียก LINE กลับจริง่อยเพิ่มคิวตอนนั้น
+- **Error:** `503 LINE_NOT_CONFIGURED` (ไม่ได้ตั้ง `LINE_CHANNEL_SECRET`) → `404 NOT_FOUND` (`:property_id` ไม่ใช่หอของ deployment — signature ผูกกับ channel เดียว) → `401 UNAUTHORIZED` (signature ไม่ตรง) → `400 VALIDATION` (body ไม่ใช่ JSON)
+- **200:** `{ "ok": true }` — รวมกรณี event ซ้ำ: `webhookEventId` ถูกเก็บในตาราง `line_events` (migration `0005`) ถ้า LINE ส่ง event เดิมซ้ำจะไม่เขียน `audit_log` เพิ่ม
+- **Side effect:** เขียน `audit_log` 1 แถว action `webhook.line` payload `{ "count": <จำนวน event>, "types": ["follow", ...] }` — เฉพาะเมื่อมี event ใหม่
+- **ยังไม่มีคิวในเส้นทางนี้** — งานเดียวคือ insert ไม่กี่แถว; เมื่อมี handler ที่ต้องเรียก LINE กลับจริงค่อยเพิ่มคิวตอนนั้น
 
 ---
 
@@ -432,14 +434,13 @@ curl -s -X POST "$BASE/v1/invoices/inv_202_2026-11/reject" \
 
 ### `GET /v1/reports/summary`
 
-⬜ ยังไม่มี route นี้ใน `backend/` (`app/main.py` mount auth, properties, rooms, billing, me, dunning, cron, invites, webhooks — ไม่มี reports) — ตัวอย่างด้านล่างเป็นสัญญาที่วางไว้
-
 ```bash
-curl -s "$BASE/v1/reports/summary"
+curl -s "$BASE/v1/reports/summary?period=2026-11"
 ```
 
 ```json
-{ "billed": 43112, "paid": 3930, "pending": 0, "unpaid": 39182, "invoices": 12 }
+{ "billed": 43112, "paid": 3930, "pending": 0, "unpaid": 39182,
+  "rooms_total": 42, "rooms_paid": 1, "rooms_overdue": 0 }
 ```
 
 ## Cron และการทวง (ไม่ใช้ session — ใช้ shared secret)

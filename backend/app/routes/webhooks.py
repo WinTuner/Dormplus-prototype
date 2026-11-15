@@ -8,6 +8,7 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import Engine, text
@@ -17,10 +18,19 @@ from app.db import get_engine
 from app.errors import ApiError
 
 router = APIRouter(prefix="/v1", tags=["webhooks"])
+logger = logging.getLogger(__name__)
 
 AUDIT_SQL = text("""
     insert into audit_log (property_id, actor, action, payload)
     values (:pid, null, 'webhook.line', cast(:payload as jsonb))
+""")
+
+# `on conflict do nothing returning` tells us which ids are new: a redelivery returns no row.
+EVENT_SQL = text("""
+    insert into line_events (event_id, property_id)
+    values (:event_id, :pid)
+    on conflict (event_id) do nothing
+    returning event_id
 """)
 
 
@@ -47,7 +57,7 @@ async def line_webhook(
     """
     settings = get_settings()
     if not settings.line_channel_secret:
-        raise ApiError(503, "NOT_CONFIGURED", "ยังไม่ได้ตั้ง LINE_CHANNEL_SECRET")
+        raise ApiError(503, "LINE_NOT_CONFIGURED", "ยังไม่ได้ตั้ง LINE_CHANNEL_SECRET")
 
     # The signature is per channel: a valid one from another dorm's channel must not be accepted
     # here, so the path has to name this deployment's dorm.
@@ -62,10 +72,16 @@ async def line_webhook(
     try:
         events = json.loads(raw).get("events") or []
         types = [str(event.get("type", "unknown")) for event in events]
-    except (ValueError, AttributeError):
+        ids = [str(event["webhookEventId"]) for event in events if event.get("webhookEventId")]
+    except (ValueError, AttributeError, TypeError):
         raise ApiError(400, "VALIDATION", "body ไม่ใช่ JSON ของ LINE")
 
     with engine.begin() as conn:
-        conn.execute(AUDIT_SQL, {"pid": property_id,
-                                 "payload": json.dumps({"count": len(types), "types": types})})
+        fresh = conn.execute(EVENT_SQL, [{"event_id": i, "pid": property_id} for i in ids]).all() if ids else []
+        # A retry of an event we already recorded changes nothing, and is still a 200 so LINE stops.
+        if not ids or fresh:
+            conn.execute(AUDIT_SQL, {"pid": property_id,
+                                     "payload": json.dumps({"count": len(types), "types": types})})
+        else:
+            logger.info("line webhook redelivery ignored: %s", ", ".join(i for i in ids))
     return {"ok": True}

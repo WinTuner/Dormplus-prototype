@@ -22,10 +22,11 @@ LINE Login ผ่าน LIFF และ flow แนบสลิป → เจ้�
 | `POST /v1/billing/run` | เจ้าของหอ | ทั้งหอใน transaction เดียว · ออกเฉพาะห้องที่พร้อมและยังไม่มีบิล · ไม่มีห้องใหม่ → 409 · **ส่งข้อความบิลเข้า LINE แล้ว drain คิวในคำขอเดียวกัน** → `queued`/`drained` |
 | `GET /v1/invoices?period=&status=` | เจ้าของหอ | บิลของรอบ + `days_overdue` (เฉพาะ `unpaid`) + `summary` ยอดทั้งรอบ |
 | `GET /v1/invoices/:id` | เจ้าของหอ + ผู้เช่า (ห้องตัวเอง) | บิลใบเดียว + `items` + `payment` ล่าสุด · นอกนั้น → 404 |
+| `GET /v1/reports/summary?period=` | เจ้าของหอ | เงินของงวด (`billed = paid+pending+unpaid`) + `rooms_total`/`rooms_paid`/`rooms_overdue` |
 | `POST /v1/invoices/:id/slip` | ผู้เช่า (ห้องตัวเอง) | แจ้งชำระ → `pending` + แถวใน `payments` · สถานะอื่น → 409 |
 | `POST /v1/invoices/:id/confirm` | เจ้าของหอ | `pending` → `paid` + `receipt_no` (`REC-<period>-NNNN`) + `paid_at` |
 | `POST /v1/invoices/:id/reject` | เจ้าของหอ | `pending` → `unpaid` พร้อมเหตุผล (ลง `audit_log`) |
-| `POST /v1/webhooks/line/:property_id` | LINE (signature) | ตรวจ `X-Line-Signature` ด้วย `LINE_CHANNEL_SECRET` → `audit_log` 1 แถว · **ยังไม่ผูกกับ OA** (บอทจริงอยู่ที่ `line-app`) |
+| `POST /v1/webhooks/line/:property_id` | LINE (signature) | ตรวจ `X-Line-Signature` ด้วย `LINE_CHANNEL_SECRET` → `audit_log` 1 แถว (event ซ้ำถูกกันด้วย `webhookEventId` → `line_events`) · **ยังไม่ผูกกับ OA** (บอทจริงอยู่ที่ `line-app`) |
 
 หน้า LIFF ผู้เช่าอยู่ที่ `/liff` (เสิร์ฟจาก `backend/liff/`)
 

@@ -44,7 +44,9 @@ def audit_rows(engine):
 
 
 def test_valid_signature_is_200_and_writes_one_audit_row(seeded, client_for, line_secret):
-    body = json.dumps({"events": [{"type": "follow"}, {"type": "message"}]}).encode()
+    # Deliberately non-canonical JSON: the signature is over the exact bytes, so an implementation
+    # that parsed and re-serialised the body before hashing would fail here.
+    body = b'{"events": [ {"type":"follow"},{"type":"message"} ]}'
     r = post(client_for(seeded), body, sign(body))
     assert r.status_code == 200
     assert r.json() == {"ok": True}
@@ -89,3 +91,15 @@ def test_a_header_with_non_ascii_characters_does_not_match(seeded, client_for, l
     body = b'{"events":[]}'
     assert webhooks.signature_matches(SECRET, body, "ünïcode") is False
     assert webhooks.signature_matches(SECRET, body, sign(body)) is True
+
+def test_a_redelivered_event_is_ignored(seeded, client_for, line_secret):
+    """LINE retries a delivery it did not see answered; the same event must not be recorded twice."""
+    body = json.dumps({"events": [{"type": "message", "webhookEventId": "01HABCDEF"}]}).encode()
+    client = client_for(seeded)
+    assert post(client, body, sign(body)).status_code == 200
+    assert post(client, body, sign(body)).status_code == 200
+    assert len(audit_rows(seeded)) == 1, "the second delivery adds nothing"
+
+    other = json.dumps({"events": [{"type": "follow", "webhookEventId": "01HOTHER"}]}).encode()
+    assert post(client, other, sign(other)).status_code == 200
+    assert len(audit_rows(seeded)) == 2, "a different event is still recorded"

@@ -309,18 +309,27 @@ def test_run_notifies_the_rooms_that_have_a_tenant(client_for, seeded, monkeypat
 
 
 def test_run_without_tenants_sends_nothing_and_does_not_drain(client_for, seeded, monkeypatch):
+    seen = []
+
     async def no_drain():  # the seeded dorm has no LINE user, so there is nothing to send
         raise AssertionError("an empty queue must not be drained")
 
+    # The notify path must still run: the answer is 0 because nobody is linked, not because the
+    # block was skipped.
+    monkeypatch.setattr(billing, "notify_invoices", lambda rows: (seen.append(rows), (len(rows), None))[1])
     monkeypatch.setattr(billing, "drain_queue", no_drain)
     body = run(client_for(seeded, OWNER_P1, BILL_DAY)).json()
     assert (body["queued"], body["drained"]) == (0, False)
+    assert len(seen) == 1, "the notify path ran once"
+    assert seen[0] == [], "and found no room with a tenant to message"
 
 
 def test_queue_down_still_returns_the_bills(client_for, seeded, monkeypatch):
     link_line(seeded, "r_201")
+    called = []
 
     def boom(rows):
+        called.append(len(rows))
         raise RuntimeError("procrastinate tables are missing")
 
     async def no_drain():
@@ -332,6 +341,7 @@ def test_queue_down_still_returns_the_bills(client_for, seeded, monkeypatch):
     res = run(client_for(seeded, OWNER_P1, BILL_DAY))
     assert res.status_code == 202
     assert (res.json()["queued"], res.json()["drained"]) == (0, False)
+    assert called, "the notify path was attempted with the linked room"
     assert scalar(seeded, "select count(*) from invoices where period = '2026-11'") == 12
 
 # --- review follow-ups ---------------------------------------------------------------------------
