@@ -246,9 +246,9 @@ def list_widgets(
 
 ### 7.1 endpoint ใหม่
 
-ก่อนเขียน: **นับฟังก์ชันก่อน** — `api/*.js` ที่ไม่ขึ้นต้นด้วย `_` ถูกนับเป็น serverless function และ Vercel Hobby จำกัด **12 ต่อ deployment** · วันนี้นับได้ **11 ไฟล์** (`bill`, `config`, `dev`, `me`, `owner`, `qr`, `rooms`, `run`, `slip-image`, `slip`, `webhook`) จึงเหลือช่องเดียว
+ก่อนเขียน: **นับฟังก์ชันก่อน** — `api/*.js` ที่ไม่ขึ้นต้นด้วย `_` ถูกนับเป็น serverless function และ Vercel Hobby จำกัด **12 ต่อ deployment** · วันนี้ใช้ **ครบ 12** (`bill`, `config`, `cron`, `dev`, `me`, `owner`, `qr`, `rooms`, `run`, `slip-image`, `slip`, `webhook`) — ฟีเจอร์ใหม่ต้องรวมเข้าไฟล์เดิมหรือย้ายเป็น helper ที่ขึ้นต้นด้วย `_`
 
-<!-- VERIFY: เพดาน 12 serverless functions/deployment ของ Vercel Hobby มาจาก line-app/HANDOFF.md ข้อ 5 ไม่ได้ยืนยันกับบัญชี Vercel จริง; HANDOFF ยังเขียนว่า "ใช้ครบ 12" แต่ตอนนี้นับได้ 11 -->
+<!-- VERIFY: เพดาน 12 serverless functions/deployment ของ Vercel Hobby มาจาก line-app/HANDOFF.md ข้อ 5 ไม่ได้ยืนยันกับบัญชี Vercel จริง -->
 
 1. ถ้าเป็น "อีกมุมของข้อมูลเดิม" **ต่อ endpoint เดิมด้วย query param** ดีกว่าเพิ่มไฟล์ (`bill.js` รับ `?period=` และ `?history=1` แทนที่จะมี `/api/history`)
 2. สร้าง `api/<route>.js` — ถ้าเป็น helper ให้ขึ้นต้น `_`

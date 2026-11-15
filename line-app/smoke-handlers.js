@@ -708,6 +708,461 @@ const { saveBill } = require("./api/_bills");
     global.fetch = realFetch;
   }
 
+  // ---------------------------------------------------------------- receipts, void, one slip for several periods
+  // 208: receipts, void and re-issue. 206: several periods on one slip. Both are cleared first, so
+  // nothing the sections above left behind can leak in.
+  {
+    const billApi = require("./api/bill");
+    const { receiptNoOf } = require("./api/_bills");
+    const resetRoom = (room) => { for (const k of [...data.keys()]) if (k.endsWith(`:${room}`)) data.delete(k); };
+    const mk = (room, period, status, extra = {}) =>
+      ({ room, period, rent: 3500, water: 125, elec: 70, waterUnits: 5, elecUnits: 10, total: 3695, due: `${period}-16`, status, ...extra });
+    const replies = [];
+    const realFetch = global.fetch;
+    global.fetch = async (url, opts = {}) => {
+      if (String(url).includes("/message/reply")) replies.push(JSON.parse(opts.body));
+      return realFetch(url, opts);
+    };
+    const lastReply = () => replies[replies.length - 1].messages[0].text;
+    const to = (user, since) => pushed.slice(since).filter((p) => p.to === user);
+    const longAgo = new Date(Date.now() - 60000).toISOString();
+
+    // ---- receipts
+    assert.strictEqual(receiptNoOf({ period: "2026-11", room: "203" }), "R202611-203", "no rev: no suffix");
+    assert.strictEqual(receiptNoOf({ period: "2026-11", room: "203", rev: 1 }), "R202611-203", "rev 1: no suffix");
+    assert.strictEqual(receiptNoOf({ period: "2026-11", room: "203", rev: 2 }), "R202611-203-2", "rev 2 adds -2");
+
+    resetRoom("208");
+    data.set("room-user:208", "Ugina");
+    data.set("user-room:Ugina", "208");
+    await saveBill(mk("208", "2026-10", "unpaid", { issuedAt: "2026-10-01T00:00:00.000Z" }));
+    await saveBill(mk("208", "2026-11", "pending", { issuedAt: "2026-11-01T00:00:00.000Z", slipCount: 1 }));
+    let mark = pushed.length;
+    await tap("Uowner", "action=confirm&room=208&period=2026-11");
+    let paid208 = data.get("bill:2026-11:208");
+    assert.deepStrictEqual([paid208.status, paid208.receiptNo], ["paid", "R202611-208"], "confirming stores the receipt number");
+    assert.strictEqual(data.get("bill:208").receiptNo, "R202611-208", "the newest copy agrees");
+    const receiptPush = to("Ugina", mark);
+    assert.strictEqual(receiptPush.length, 1, "the tenant gets one push");
+    const rm = receiptPush[0].messages;
+    assert.deepStrictEqual([rm.length, rm[0].type], [1, "flex"], "and it is a receipt card, not a text");
+    const rj = JSON.stringify(rm[0]);
+    assert.ok(rj.includes("ใบเสร็จรับเงิน") && rj.includes("R202611-208") && rj.includes("208") && rj.includes("2026-11"), "the card names the receipt, room and period");
+    assert.ok(rj.includes("3,695") && rj.includes("3,500") && rj.includes("125") && rj.includes("70"), "rent, water, electricity and the total");
+    assert.ok(rj.includes("room=208") && rj.includes("#receipt/2026-11") && rj.includes("liff.line.me/2000000000-testliff"), "its button opens the LIFF receipt");
+
+    r = await call(billApi, { method: "GET", query: { history: "1" }, user: "Ugina" });
+    assert.deepStrictEqual(r.body.items.map((i) => [i.period, i.status, i.receiptNo]),
+      [["2026-11", "paid", "R202611-208"], ["2026-10", "unpaid", null]], "history shows receiptNo for paid bills only");
+    r = await call(billApi, { method: "GET", query: { period: "2026-11" }, user: "Ugina" });
+    assert.strictEqual(r.body.receiptNo, "R202611-208");
+    data.set("bill:2026-09:208", mk("208", "2026-09", "paid"));
+    data.set("bills:208", ["2026-11", "2026-10", "2026-09"]);
+    r = await call(billApi, { method: "GET", query: { history: "1" }, user: "Ugina" });
+    assert.strictEqual(r.body.items[2].receiptNo, "R202609-208", "a bill paid before receipts existed gets the same derived number");
+    data.delete("bill:2026-09:208");
+    data.set("bills:208", ["2026-11", "2026-10"]);
+
+    // ---- void: who, what, which bill
+    const voidIt = (user, body) => call(billApi, { method: "POST", user, body: { action: "void", room: "208", period: "2026-11", reason: "กรอกยอดผิด", ...body } });
+    r = await voidIt("Ugina", {});
+    assert.deepStrictEqual([r.status, r.body.error.code], [403, "FORBIDDEN"], "a tenant cannot void");
+    r = await voidIt("Uhelper", {});
+    assert.strictEqual(r.status, 403, "a read-only helper cannot void");
+    assert.strictEqual(data.get("bill:2026-11:208").status, "paid", "and nothing changed");
+    for (const reason of [undefined, "", "   ", 42, "x".repeat(201)]) {
+      r = await voidIt("Uowner", { reason });
+      assert.deepStrictEqual([r.status, r.body.error.code], [400, "VALIDATION"], `reason ${JSON.stringify(reason)} is refused`);
+    }
+    r = await voidIt("Uowner", { period: "2026-1" });
+    assert.strictEqual(r.status, 400, "period must be YYYY-MM");
+    r = await voidIt("Uowner", { action: "delete" });
+    assert.strictEqual(r.status, 400, "only the void action exists");
+    r = await voidIt("Uowner", { period: "2026-09" });
+    assert.deepStrictEqual([r.status, r.body.error.code], [404, "NOT_FOUND"], "no such bill");
+    assert.strictEqual(data.get("bill:2026-11:208").status, "paid", "refusals change nothing");
+
+    mark = pushed.length;
+    r = await voidIt("Uowner", { reason: "  กรอกยอดผิด  " });
+    assert.deepStrictEqual([r.status, r.body], [200, { ok: true, room: "208", period: "2026-11", status: "void" }]);
+    let v = data.get("bill:2026-11:208");
+    assert.deepStrictEqual([v.status, v.voidedBy, v.voidReason, v.statusBefore, v.receiptNo], ["void", "Uowner", "กรอกยอดผิด", "paid", "R202611-208"],
+      "void records who, why and what it was, and keeps the receipt number");
+    assert.ok(!Number.isNaN(Date.parse(v.voidedAt)));
+    assert.strictEqual(data.get("bill:208").status, "void", "the newest copy follows");
+    assert.strictEqual(to("Ugina", mark)[0].messages[0].text, "บิลห้อง 208 รอบ 2026-11 ถูกยกเลิก — กรอกยอดผิด", "the tenant is told");
+    r = await voidIt("Uowner", {});
+    assert.deepStrictEqual([r.status, r.body.error.code], [409, "INVALID_STATE"], "a void bill cannot be voided twice");
+
+    // An older bill: the newest copy must stay as it is, and a tenant who moved in later hears nothing.
+    data.set("tenancy:208", { since: "2999-01-01T00:00:00.000Z" });
+    mark = pushed.length;
+    r = await voidIt("Uowner", { period: "2026-10", reason: "ผู้เช่าเดิม" });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(data.get("bill:2026-10:208").status, "void");
+    assert.strictEqual(data.get("bill:208").period, "2026-11", "an older period does not replace the newest copy");
+    assert.strictEqual(to("Ugina", mark).length, 0, "the previous tenancy's bill is not announced to the current tenant");
+    data.delete("tenancy:208");
+
+    // ---- void: effects elsewhere
+    await tap("Uowner", "action=confirm&room=208&period=2026-11");
+    assert.strictEqual(lastReply(), "บิลนี้ถูกยกเลิกแล้ว", "confirming a void bill is refused");
+    assert.strictEqual(data.get("bill:2026-11:208").status, "void", "and changes nothing");
+    r = await call(billApi, { method: "GET", query: {}, user: "Ugina" });
+    assert.deepStrictEqual([r.body.status, r.body.voidReason], ["void", "กรอกยอดผิด"], "the tenant's page can show why");
+    await webhook(hook, [{ type: "message", replyToken: "r", source: { userId: "Ugina" }, message: { type: "text", text: "บิล" } }]);
+    assert.strictEqual(lastReply(), "บิลห้อง 208 รอบ 2026-11 ถูกยกเลิก — กรอกยอดผิด", "chat 'บิล' does not offer a void bill for payment");
+
+    r = await call(slip, { body: { image: png, note: "โอนก่อน" }, user: "Ugina" });
+    assert.deepStrictEqual([r.status, r.body.status], [200, "advance"], "a void latest bill is 'no open bill': the slip waits for the next one");
+    assert.strictEqual(data.get("bill:2026-11:208").status, "void", "the void bill gets no slip");
+    assert.ok(data.get("prepay:208").slipPath, "it is kept as an advance slip");
+
+    // Re-issue: the advance slip rides along, the revision grows, the receipt number follows.
+    mark = pushed.length;
+    r = await call(run, { user: "Uowner", body: { period: "2026-11", readings: [{ room: "208", water: 4, elec: 8 }] } });
+    assert.deepStrictEqual([r.status, r.body.rooms[0].reissued, r.body.rooms[0].prepaid, !!r.body.rooms[0].error], [200, true, true, false], "a void bill may be issued again");
+    const re = data.get("bill:2026-11:208");
+    assert.deepStrictEqual([re.rev, re.status, re.total], [2, "pending", 3500 + 100 + 56]);
+    assert.ok(!("voidedAt" in re) && !("receiptNo" in re), "the new bill starts clean");
+    assert.strictEqual(data.get("bill:208").rev, 2, "newest copy agrees");
+    assert.ok(to("Uowner", mark).some((p) => p.messages[0].type === "flex"), "the owner gets the confirm card");
+    await tap("Uowner", "action=confirm&room=208&period=2026-11");
+    paid208 = data.get("bill:2026-11:208");
+    assert.deepStrictEqual([paid208.status, paid208.receiptNo], ["paid", "R202611-208-2"], "the re-issued bill gets its own receipt number");
+    assert.ok(JSON.stringify(to("Ugina", mark).pop()).includes("R202611-208-2"));
+    r = await call(run, { user: "Uowner", body: { period: "2026-11", readings: [{ room: "208", water: 1, elec: 1 }] } });
+    assert.ok(r.body.rooms[0].error, "a paid bill still cannot be edited: void it first");
+
+    // An unpaid re-issue is the same bill: rev stays.
+    resetRoom("206");
+    data.set("room-user:206", "Uhank");
+    data.set("user-room:Uhank", "206");
+    await saveBill(mk("206", "2026-09", "unpaid"));
+    r = await call(run, { user: "Uowner", body: { period: "2026-09", readings: [{ room: "206", water: 2, elec: 5 }] } });
+    assert.strictEqual(r.body.rooms[0].reissued, true);
+    assert.strictEqual(data.get("bill:2026-09:206").rev, 1, "an unpaid re-issue keeps rev");
+
+    // ---- one slip for several periods (206: Sep unpaid, Oct pending with its own photo, Nov unpaid, Dec paid)
+    files.set("slips/206-old.png", Buffer.from("o"));
+    await saveBill(mk("206", "2026-10", "pending", { issuedAt: longAgo, slipPath: "slips/206-old.png", slipCount: 1, slipAt: longAgo }));
+    await saveBill(mk("206", "2026-11", "unpaid", { issuedAt: longAgo }));
+    await saveBill(mk("206", "2026-12", "paid", { issuedAt: longAgo }));
+    await saveBill(mk("206", "2026-07", "unpaid", { issuedAt: longAgo }));
+    await saveBill(mk("206", "2026-06", "unpaid", { issuedAt: longAgo }));
+    await saveBill(mk("206", "2026-05", "void", { issuedAt: longAgo }));
+    const sep = data.get("bill:2026-09:206");
+    const nov = data.get("bill:2026-11:206");
+    const sendPeriods = (periods, extra = {}, user = "Uhank") => call(slip, { user, body: { periods, ...extra } });
+    const snapshot = () => JSON.stringify([...data.entries()].filter(([k]) => k.endsWith(":206")));
+    const before = snapshot();
+
+    for (const bad of ["2026-11", [], ["2026-11", "2026-11"], ["2026-13"], [5], ["2026-9"],
+      Array.from({ length: 13 }, (_, i) => `2025-${String(i + 1).padStart(2, "0")}`)]) {
+      r = await sendPeriods(bad);
+      assert.deepStrictEqual([r.status, r.body.error.code], [400, "VALIDATION"], `periods ${JSON.stringify(bad).slice(0, 30)} is refused`);
+    }
+    r = await sendPeriods(["2026-08", "2026-11"]);
+    assert.deepStrictEqual([r.status, r.body.error.code], [409, "INVALID_STATE"], "a period without a bill");
+    assert.ok(r.body.error.message.includes("2026-08"), "names the period");
+    r = await sendPeriods(["2026-11", "2026-12"]);
+    assert.deepStrictEqual([r.status, r.body.error.code], [409, "INVALID_STATE"], "a paid period");
+    assert.ok(r.body.error.message.includes("2026-12"));
+    r = await sendPeriods(["2026-05"]);
+    assert.ok(r.status === 409 && r.body.error.message.includes("2026-05"), "a void period");
+    r = await sendPeriods(["2026-11"], { image: "data:text/plain;base64,eHg=" });
+    assert.strictEqual(r.status, 400, "the image checks still apply");
+    r = await sendPeriods(["2026-11"], { note: "x".repeat(501) });
+    assert.strictEqual(r.status, 400, "and so does the note limit");
+    r = await call(slip, { user: "Ucarol", body: { room: "206", periods: ["2026-11"] } });
+    assert.strictEqual(r.status, 403, "another room's tenant cannot send for this room");
+    assert.strictEqual(snapshot(), before, "no refusal wrote anything");
+
+    // One slip, two bills.
+    mark = pushed.length;
+    r = await sendPeriods(["2026-11", "2026-09"], { image: png, note: "สองงวด" });
+    const sum = sep.total + nov.total;
+    assert.deepStrictEqual([r.status, r.body], [200, { ok: true, status: "pending", periods: ["2026-09", "2026-11"], total: sum, hasSlip: true }]);
+    const s1 = data.get("bill:2026-09:206");
+    const n1 = data.get("bill:2026-11:206");
+    assert.deepStrictEqual([s1.status, n1.status], ["pending", "pending"]);
+    assert.ok(s1.slipPath && s1.slipPath === n1.slipPath && files.has(s1.slipPath), "both point to the same photo");
+    assert.deepStrictEqual([s1.slipNote, s1.slipCount, n1.slipCount, s1.slipAt === n1.slipAt], ["สองงวด", 1, 1, true]);
+    assert.deepStrictEqual(s1.slipGroup, { periods: ["2026-09", "2026-11"], total: sum });
+    assert.deepStrictEqual(n1.slipGroup, s1.slipGroup);
+    assert.strictEqual(data.get("bill:2026-12:206").status, "paid", "the newest copy is the paid December bill and stays so");
+    assert.strictEqual(data.get("bill:2026-10:206").slipPath, "slips/206-old.png", "other periods are untouched");
+    const ownerCards = to("Uowner", mark);
+    assert.strictEqual(ownerCards.length, 1, "the owner gets ONE card");
+    assert.strictEqual(ownerCards[0].messages[0].type, "flex");
+    const cardJson = JSON.stringify(ownerCards[0].messages[0]);
+    assert.ok(cardJson.includes(sum.toLocaleString("th-TH")) && cardJson.includes("2026-09") && cardJson.includes("2026-11"), "showing the periods and the summed total");
+    const cardData = new URLSearchParams(/"data":"(action=confirm[^"]*)"/.exec(cardJson)[1]);
+    assert.deepStrictEqual([cardData.get("room"), cardData.get("periods"), cardData.has("period")], ["206", "2026-09,2026-11", false]);
+    r = await sendPeriods(["2026-09", "2026-11"]);
+    assert.deepStrictEqual([r.status, r.body.error.code], [429, "SLIP_TOO_SOON"], "limits are counted on the newest bill");
+
+    // A second slip overlapping the first: the old photo of Oct goes, the one Sep still shows stays.
+    const photoX = s1.slipPath;
+    for (const p of ["2026-09", "2026-11"]) data.set(`bill:${p}:206`, { ...data.get(`bill:${p}:206`), slipAt: longAgo });
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    r = await sendPeriods(["2026-10", "2026-11"], { image: png });
+    assert.strictEqual(r.status, 200);
+    const o2 = data.get("bill:2026-10:206");
+    const n2 = data.get("bill:2026-11:206");
+    assert.ok(o2.slipPath === n2.slipPath && o2.slipPath !== photoX, "a new photo for the new group");
+    assert.deepStrictEqual([o2.slipCount, n2.slipCount], [2, 2], "each bill counts its own slips");
+    assert.ok(!files.has("slips/206-old.png"), "a photo no bill shows any more is deleted");
+    assert.ok(files.has(photoX), "a photo another bill still shows is kept");
+    assert.strictEqual(data.get("bill:2026-09:206").slipPath, photoX);
+
+    // The first card now only fits September: November moved on to the second slip.
+    mark = pushed.length;
+    await tap("Uowner", "action=confirm&room=206&periods=2026-09,2026-11");
+    assert.strictEqual(data.get("bill:2026-09:206").status, "paid");
+    assert.strictEqual(data.get("bill:2026-09:206").receiptNo, "R202609-206");
+    assert.strictEqual(data.get("bill:2026-11:206").status, "pending", "a bill with a newer slip is left for that slip's card");
+    assert.ok(lastReply().includes("2026-09") && lastReply().includes("ข้าม 2026-11"), "and the answer says so");
+    assert.strictEqual(to("Uhank", mark).length, 1);
+
+    await tap("Uhank", "action=confirm&room=206&periods=2026-10,2026-11");
+    assert.strictEqual(data.get("bill:2026-10:206").status, "pending", "a tenant cannot confirm a group");
+    mark = pushed.length;
+    await tap("Uowner", "action=confirm&room=206&periods=2026-11,2026-10");
+    const [o3, n3] = [data.get("bill:2026-10:206"), data.get("bill:2026-11:206")];
+    assert.deepStrictEqual([o3.status, n3.status, o3.receiptNo, n3.receiptNo], ["paid", "paid", "R202610-206", "R202611-206"], "each bill gets its own receipt number");
+    assert.ok(o3.paidAt && n3.paidAt && o3.confirmedBy === "Uowner");
+    const tenantPush = to("Uhank", mark);
+    assert.deepStrictEqual([tenantPush.length, tenantPush[0].messages.map((m) => m.type)], [1, ["flex", "flex"]], "the tenant gets one push with both receipts");
+    assert.ok(JSON.stringify(tenantPush[0]).includes("R202610-206") && JSON.stringify(tenantPush[0]).includes("R202611-206"));
+    await tap("Uowner", "action=confirm&room=206&periods=2026-10,2026-11");
+    assert.ok(lastReply().includes("ไม่มีบิลที่รอยืนยัน"), "the same card again finds nothing waiting");
+    await tap("Uowner", "action=confirm&room=206&periods=2026-13");
+    assert.ok(lastReply().includes("ไม่ถูกต้อง"), "a malformed periods list is refused");
+
+    // A single period sent through `periods` gives the ordinary single card, and it still works.
+    mark = pushed.length;
+    r = await sendPeriods(["2026-07"], { note: "งวดเดียว" });
+    assert.deepStrictEqual([r.status, r.body.periods, r.body.total], [200, ["2026-07"], 3695]);
+    const single = new URLSearchParams(/"data":"(action=confirm[^"]*)"/.exec(JSON.stringify(to("Uowner", mark)[0]))[1]);
+    assert.deepStrictEqual([single.get("period"), single.has("periods")], ["2026-07", false], "one period: the plain card");
+    await tap("Uowner", "action=confirm&room=206&period=2026-07");
+    assert.deepStrictEqual([data.get("bill:2026-07:206").status, data.get("bill:2026-07:206").receiptNo], ["paid", "R202607-206"]);
+
+    // Visibility: a tenant cannot pay a bill from before their tenancy; the owner can.
+    data.set("tenancy:206", { since: "2999-01-01T00:00:00.000Z" });
+    r = await sendPeriods(["2026-06"]);
+    assert.ok(r.status === 409 && r.body.error.message.includes("2026-06"), "the previous tenant's bill is not payable by the new one");
+    r = await call(slip, { user: "Uowner", body: { room: "206", periods: ["2026-06"] } });
+    assert.deepStrictEqual([r.status, data.get("bill:2026-06:206").status], [200, "pending"], "the owner skips that check");
+    data.delete("tenancy:206");
+
+    global.fetch = realFetch;
+  }
+
+  // ---------------------------------------------------------------- optimization + bug-fix pass
+  // 209: void -> re-issue archive, receipts. 207: a bill without a due date. 201..: missing units.
+  {
+    const billApi = require("./api/bill");
+    const { billBubble, receiptBubble } = require("./api/_line");
+    const resetRoom = (room) => { for (const k of [...data.keys()]) if (k.endsWith(`:${room}`) || k.endsWith(`:${room}:1`) || k.endsWith(`:${room}:2`)) data.delete(k); };
+    const mk = (room, period, status, extra = {}) =>
+      ({ room, period, rent: 3500, water: 125, elec: 70, waterUnits: 5, elecUnits: 10, total: 3695, due: `${period}-16`, status, ...extra });
+    const replies = [];
+    const realFetch = global.fetch;
+    global.fetch = async (url, opts = {}) => {
+      if (String(url).includes("/message/reply")) replies.push(JSON.parse(opts.body));
+      return realFetch(url, opts);
+    };
+    const lastReply = () => replies[replies.length - 1].messages[0].text;
+    const longAgo = new Date(Date.now() - 60000).toISOString();
+
+    // ---- 1. a void bill is archived before it is re-issued
+    for (const k of [...data.keys()]) if (/^bills?(-voids?)?:(\d{4}-\d{2}:)?209(:\d+)?$/.test(k)) data.delete(k);
+    data.set("room-user:209", "Ufern");
+    data.set("user-room:Ufern", "209");
+    data.set("owner:Uviewer", { role: "viewer", addedBy: "Uowner" });
+    await saveBill(mk("209", "2026-11", "pending", { issuedAt: longAgo, slipCount: 1, slipPath: "slips/209-a.png", slipAt: longAgo }));
+    await tap("Uowner", "action=confirm&room=209&period=2026-11");
+    const voidIt = (reason) => call(billApi, { method: "POST", user: "Uowner", body: { action: "void", room: "209", period: "2026-11", reason } });
+    const reissue = () => call(run, { user: "Uowner", body: { period: "2026-11", due: "2026-11-16", readings: [{ room: "209", water: 4, elec: 8 }] } });
+    const voided = (user, query = {}) => call(billApi, { method: "GET", user, query: { room: "209", voided: "1", ...query } });
+
+    r = await voidIt("กรอกยอดผิด");
+    assert.strictEqual(r.status, 200);
+    const voidedOnce = JSON.parse(JSON.stringify(data.get("bill:2026-11:209")));
+    assert.deepStrictEqual([voidedOnce.status, voidedOnce.receiptNo], ["void", "R202611-209"]);
+    // Archived the moment it is voided, so a bill cancelled and never re-issued is still readable.
+    assert.deepStrictEqual(data.get("bill-voids:209"), ["2026-11:1"], "the void is archived at once");
+    r = await reissue();
+    assert.deepStrictEqual([r.status, r.body.rooms[0].reissued, !!r.body.rooms[0].error], [200, true, false]);
+    assert.deepStrictEqual(data.get("bill-void:2026-11:209:1"), voidedOnce, "the void bill is kept exactly as it was");
+    assert.deepStrictEqual(data.get("bill-voids:209"), ["2026-11:1"], "and listed in the room's index");
+    assert.strictEqual(data.get("bill:2026-11:209").rev, 2, "the live bill moved on to rev 2");
+
+    r = await voided("Uowner");
+    assert.deepStrictEqual([r.status, r.body.items.length, r.body.items[0].voidReason, r.body.items[0].receiptNo], [200, 1, "กรอกยอดผิด", "R202611-209"], "the owner reads it back");
+    r = await voided("Uviewer");
+    assert.deepStrictEqual([r.status, r.body.items.length], [200, 1], "a read-only helper may too");
+    r = await voided("Ufern");
+    assert.deepStrictEqual([r.status, r.body.error.code], [403, "FORBIDDEN"], "the room's own tenant may not");
+    r = await voided("Uother", { room: "211" });
+    assert.strictEqual(r.status, 403, "nor may a tenant of another room");
+    r = await call(billApi, { method: "GET", user: "Ufern", query: { voided: "1" } });
+    assert.strictEqual(r.status, 403, "not even without naming the room (it defaults to theirs)");
+    r = await voided("Uowner", { period: "2026-10" });
+    assert.deepStrictEqual([r.status, r.body.items], [200, []], "period narrows the list");
+    r = await voided("Uowner", { period: "2026-1" });
+    assert.strictEqual(r.status, 400, "a malformed period is refused");
+
+    // Void and re-issue again: rev 2 is archived next to rev 1, newest first.
+    r = await voidIt("ซ้ำ");
+    assert.strictEqual(r.status, 200);
+    r = await reissue();
+    assert.strictEqual(r.body.rooms[0].error, undefined);
+    assert.deepStrictEqual(data.get("bill-voids:209"), ["2026-11:1", "2026-11:2"]);
+    r = await voided("Uowner");
+    assert.deepStrictEqual(r.body.items.map((b) => [b.rev || 1, b.voidReason]), [[2, "ซ้ำ"], [1, "กรอกยอดผิด"]], "newest revision first");
+    assert.strictEqual(data.get("bill:2026-11:209").rev, 3);
+    r = await reissue();
+    assert.strictEqual(data.get("bill:2026-11:209").rev, 3, "an unpaid re-issue is the same bill");
+    assert.strictEqual(data.get("bill-voids:209").length, 2, "and archives nothing new");
+
+    // A tenant's own bill never carries the staff userIds.
+    r = await call(billApi, { method: "GET", user: "Ufern", query: { period: "2026-11" } });
+    assert.ok(!("confirmedBy" in r.body) && !("voidedBy" in r.body), "tenants do not get the owner's LINE userId");
+    r = await call(billApi, { method: "GET", user: "Uowner", query: { room: "209", period: "2026-11" } });
+    assert.ok(r.body.status === "unpaid" || r.body.status === "pending");
+    // void: only real rooms
+    r = await call(billApi, { method: "POST", user: "Uowner", body: { action: "void", room: "999", period: "2026-11", reason: "x" } });
+    assert.strictEqual(r.status, 404, "an unknown room is not looked up");
+
+    // ---- 2. no due date -> no due line, and no "null"/"undefined" anywhere
+    const noDue = { room: "207", period: "2026-11", rent: 3500, water: 100, elec: 50, total: 3650, due: null, status: "unpaid" };
+    const cardJson = JSON.stringify(billBubble(noDue, "https://x"));
+    assert.ok(!cardJson.includes("ครบกำหนด") && !/null|undefined|NaN/.test(cardJson), "the card has no due line");
+    assert.ok(JSON.stringify(billBubble({ ...noDue, due: "2026-11-16" }, "https://x")).includes("ครบกำหนด 2026-11-16"), "and still has one with a due date");
+    const rj = JSON.stringify(receiptBubble({ ...noDue, status: "paid" }, "https://x"));
+    assert.ok(!/null|undefined|NaN/.test(rj), "a receipt with no number or paidAt prints neither null nor undefined");
+    data.set("room-user:207", "Uivy");
+    data.set("user-room:Uivy", "207");
+    const mark = pushed.length;
+    r = await call(run, { user: "Uowner", body: { period: "2026-12", readings: [{ room: "207", water: 1, elec: 1 }] } });
+    assert.strictEqual(r.body.due, null);
+    const sentCard = JSON.stringify(pushed.slice(mark).find((p) => p.to === "Uivy"));
+    assert.ok(sentCard && !sentCard.includes("ครบกำหนด") && !/null|undefined/.test(sentCard), "a bill issued without a due date goes out without a due line");
+
+    // ---- 3. missing meter units are refused, an explicit 0 is not
+    const meters = (rooms) => JSON.stringify(rooms.map((x) => data.get(`meter:${x}`) ?? null));
+    const refused = ["201", "202", "203", "204", "205", "206", "208", "210"];
+    const meterBefore = meters(refused);
+    r = await call(run, { user: "Uowner", body: { period: "2027-03", readings: [
+      { room: "201" },
+      { room: "202", water: 5 },
+      { room: "203", elec: 5 },
+      { room: "204", water: "", elec: 5 },
+      { room: "205", water: 5, elec: "  " },
+      { room: "206", water: null, elec: null },
+      { room: "208", water: true, elec: 1 },
+      { room: "210", water: [5], elec: 1 },
+      { room: "212", water: 0, elec: "0" },
+    ] } });
+    assert.strictEqual(r.status, 200);
+    const errs = Object.fromEntries(r.body.rooms.map((x) => [x.room, x.error]));
+    for (const room of ["201", "202", "203", "204", "205", "206"]) assert.strictEqual(errs[room], "ต้องกรอกหน่วยน้ำและไฟ", `room ${room} with a missing reading`);
+    assert.ok(errs["208"] && errs["208"] !== "ต้องกรอกหน่วยน้ำและไฟ", "true is not a reading");
+    assert.ok(errs["210"], "an array is not a reading");
+    assert.strictEqual(errs["212"], undefined, "an explicit 0 is a valid reading");
+    assert.deepStrictEqual([data.get("bill:2027-03:212").waterUnits, data.get("bill:2027-03:212").elecUnits], [0, 0]);
+    for (const room of refused) assert.ok(!data.has(`bill:2027-03:${room}`), `no bill for ${room}`);
+    assert.strictEqual(meters(refused), meterBefore, "and no meter record was touched");
+    r = await call(run, { user: "Uowner", body: { period: "2027-03", readings: [{ room: "999" }] } });
+    assert.strictEqual(r.body.rooms[0].error, "ไม่มีห้องนี้ในหอ", "an unknown room is named before its readings");
+
+    // ---- 4. a redundant invite code is spent as well
+    data.set("owner:Uhelper2", { role: "viewer", addedBy: "Uowner" });
+    r = await call(owner, { body: { role: "viewer" }, user: "Uowner" });
+    const viewerCode = r.body.code;
+    r = await call(owner, { body: { code: viewerCode }, user: "Uhelper2" });
+    assert.deepStrictEqual([r.status, r.body.already], [200, true], "someone who already has the role redeems it: nothing to grant");
+    assert.ok(data.get(`owner-invite:${viewerCode}`).usedAt, "but the code is spent");
+    assert.strictEqual(data.get(`owner-invite:${viewerCode}`).usedBy, "Uhelper2");
+    r = await call(owner, { body: { code: viewerCode }, user: "Ustranger" });
+    assert.deepStrictEqual([r.status, r.body.error.code], [410, "INVITE_EXPIRED"], "so it cannot be passed on");
+    assert.strictEqual(data.get("owner:Ustranger") ?? null, null);
+    r = await call(owner, { body: { role: "owner" }, user: "Uowner" });
+    const ownerCode = r.body.code;
+    r = await call(owner, { body: { code: ownerCode }, user: "Uowner" });
+    assert.strictEqual(r.body.already, true, "the first owner redeeming an owner code");
+    assert.ok(data.get(`owner-invite:${ownerCode}`).usedAt, "spends it too");
+    // A helper redeeming an owner code is still an upgrade, and spends it.
+    r = await call(owner, { body: { role: "owner" }, user: "Uowner" });
+    const upCode = r.body.code;
+    r = await call(owner, { body: { code: upCode }, user: "Uhelper2" });
+    assert.deepStrictEqual([r.status, r.body.role, r.body.already], [200, "owner", undefined], "a helper redeeming an owner code is upgraded");
+    assert.ok(data.get(`owner-invite:${upCode}`).usedAt);
+    data.set("owner:Uhelper2", null);
+
+    // ---- 5. owner slip for a room that does not exist
+    r = await call(slip, { user: "Uowner", body: { room: "999", note: "x" } });
+    assert.deepStrictEqual([r.status, r.body.error.code], [404, "NOT_FOUND"], "no prepay record for a made-up room");
+    assert.ok(!data.has("prepay:999"));
+
+    // ---- 6. confirm: bad period, and a failing lookup after the bill is saved
+    await tap("Uowner", "action=confirm&room=209&period=2026-1x");
+    assert.ok(lastReply().includes("ไม่ระบุรอบบิล"), "a malformed period on a card is refused like a missing one");
+    resetRoom("207");
+    data.set("room-user:207", "Uivy");
+    await saveBill(mk("207", "2026-11", "pending", { issuedAt: longAgo, slipCount: 1 }));
+    const realGet = store.get;
+    store.get = async (k) => { if (k === "tenancy:207") throw new Error("blob down"); return realGet(k); };
+    const errors = []; const realErr = console.error; console.error = (...a) => errors.push(a.join(" "));
+    try {
+      await tap("Uowner", "action=confirm&room=207&period=2026-11");
+    } finally { store.get = realGet; console.error = realErr; }
+    assert.strictEqual(data.get("bill:2026-11:207").status, "paid", "the bill is paid");
+    assert.strictEqual(lastReply(), "ยืนยันห้อง 207 แล้ว ✅", "and the owner still gets his answer when the receipt lookup fails");
+    assert.ok(errors.some((e) => e.includes("receipt send failed")), "the failure is logged");
+
+    // ---- 7. a group slip never replaces a newer latest bill; a plain replaced photo costs no extra reads
+    resetRoom("210");
+    data.set("room-user:210", "Ujo"); data.set("user-room:Ujo", "210"); data.delete("tenancy:210");
+    await saveBill(mk("210", "2026-09", "unpaid", { issuedAt: longAgo }));
+    await saveBill(mk("210", "2026-10", "unpaid", { issuedAt: longAgo }));
+    await saveBill(mk("210", "2026-12", "unpaid", { issuedAt: longAgo }));
+    r = await call(slip, { user: "Ujo", body: { periods: ["2026-09", "2026-10"], image: png } });
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(data.get("bill:210").period, "2026-12", "the newest bill stays the newest");
+    assert.deepStrictEqual(data.get("bills:210"), ["2026-12", "2026-10", "2026-09"]);
+    assert.ok(data.get("bill:2026-09:210").slipGroup.periods.length === 2);
+    const slow = () => new Promise((ok) => setTimeout(ok, 5)); // photo names carry Date.now(): never reuse one
+    const reopen = (...periods) => { for (const p of periods) { const b = data.get(`bill:${p}:210`); b.slipAt = longAgo; b.slipCount = 1; } data.set("bill:210", data.get("bill:2026-12:210")); };
+    // A second group (Oct + Dec) replaces Oct's photo, but Sep still shows the first one: it stays.
+    const first = data.get("bill:2026-09:210").slipPath;
+    await slow(); reopen("2026-09", "2026-10");
+    r = await call(slip, { user: "Ujo", body: { periods: ["2026-10", "2026-12"], image: png } });
+    assert.strictEqual(r.status, 200);
+    assert.ok(files.has(first), "the first group's photo stays while Sep still shows it");
+    // Dec alone now: Oct still shares the second group's photo, so that stays as well.
+    const second = data.get("bill:2026-12:210").slipPath;
+    await slow(); reopen("2026-10", "2026-12");
+    r = await call(slip, { user: "Ujo", body: { image: png } });
+    assert.strictEqual(r.status, 200);
+    assert.ok(files.has(second), "a photo another period still shows is kept");
+    assert.ok(!("slipGroup" in data.get("bill:2026-12:210")), "Dec left the group");
+    // A plain bill: the photo it replaces is deleted, and the clean-up reads nothing from the store.
+    const own = data.get("bill:2026-12:210").slipPath;
+    data.get("bill:2026-12:210").slipAt = longAgo; data.set("bill:210", data.get("bill:2026-12:210"));
+    await slow();
+    let reads = 0; const g2 = store.get; store.get = async (k) => { reads++; return g2(k); };
+    try { r = await call(slip, { user: "Ujo", body: { image: png } }); } finally { store.get = g2; }
+    assert.strictEqual(r.status, 200);
+    assert.ok(!files.has(own), "the replaced photo is deleted");
+    assert.ok(reads <= 5, `a replaced photo needs no scan of the room's bills (${reads} reads)`);
+
+    global.fetch = realFetch;
+  }
+
   // ---------------------------------------------------------------- the seed token itself
   process.env.VERCEL_ENV = "development";
   delete require.cache[require.resolve("./api/_auth")];
@@ -720,7 +1175,7 @@ const { saveBill } = require("./api/_bills");
   assert.strictEqual(devAuth.seedTokenOk(reqWith({ "x-seed-token": "short" })), false, "a short SEED_TOKEN does not count as set");
   delete process.env.VERCEL_ENV;
 
-  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, seed token");
+  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token");
 })().catch((err) => {
   console.error(err);
   process.exit(1);

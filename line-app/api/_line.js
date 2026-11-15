@@ -60,7 +60,7 @@ async function displayName(userId) {
 
 // The bill as a Flex card: amount, due date, and a button that opens the LIFF page.
 function billBubble(bill, baseUrl) {
-  const money = (n) => n.toLocaleString("th-TH");
+  const money = (n) => Number(n || 0).toLocaleString("th-TH");
   const liff = LIFF_ID
     ? `https://liff.line.me/${LIFF_ID}?room=${bill.room}`
     : `${baseUrl}/liff/bill.html?room=${bill.room}`;
@@ -89,7 +89,8 @@ function billBubble(bill, baseUrl) {
               { type: "text", text: `ค่าไฟ ${money(bill.elec)}`, size: "sm", color: "#555555" },
             ],
           },
-          { type: "text", text: `ครบกำหนด ${bill.due}`, size: "xs", color: "#F59E0B" },
+          // A bill issued without a due date has no due line (it used to print "ครบกำหนด null").
+          ...(bill.due ? [{ type: "text", text: `ครบกำหนด ${bill.due}`, size: "xs", color: "#F59E0B" }] : []),
         ],
       },
       footer: {
@@ -109,11 +110,19 @@ function billBubble(bill, baseUrl) {
 }
 
 // Owner's card: asks to confirm the slip the tenant attached.
+// A bill that carries a multi-period `slipGroup` (one slip paying several months) gets one card for
+// the whole group: the periods and the summed total, and a postback that names all of them.
 function confirmBubble(bill) {
-  const money = (n) => n.toLocaleString("th-TH");
+  const money = (n) => Number(n || 0).toLocaleString("th-TH");
+  const group = bill.slipGroup?.periods?.length > 1 ? bill.slipGroup : null;
+  const total = group ? group.total : bill.total;
+  const postback = group
+    ? { action: "confirm", room: bill.room, periods: group.periods.join(",") }
+    // The period pins the card to this bill: an old card cannot close a newer one.
+    : { action: "confirm", room: bill.room, period: bill.period };
   return {
     type: "flex",
-    altText: `แจ้งชำระ ห้อง ${bill.room} · ${money(bill.total)} บาท`,
+    altText: `แจ้งชำระ ห้อง ${bill.room} · ${money(total)} บาท${group ? ` (${group.periods.length} งวด)` : ""}`,
     contents: {
       type: "bubble",
       size: "kilo",
@@ -122,9 +131,9 @@ function confirmBubble(bill) {
         layout: "vertical",
         spacing: "md",
         contents: [
-          { type: "text", text: `ห้อง ${bill.room} แจ้งชำระ`, weight: "bold", size: "md" },
-          { type: "text", text: `${money(bill.total)} บาท`, weight: "bold", size: "xxl", color: "#4FD8D2" },
-          { type: "text", text: `รอบ ${bill.period}`, size: "xs", color: "#8B9AAB" },
+          { type: "text", text: `ห้อง ${bill.room} แจ้งชำระ${group ? ` ${group.periods.length} งวด` : ""}`, weight: "bold", size: "md" },
+          { type: "text", text: `${money(total)} บาท`, weight: "bold", size: "xxl", color: "#4FD8D2" },
+          { type: "text", text: group ? `รอบ ${group.periods.join(", ")}` : `รอบ ${bill.period}`, size: "xs", color: "#8B9AAB", wrap: true },
         ],
       },
       footer: {
@@ -139,8 +148,7 @@ function confirmBubble(bill) {
             action: {
               type: "postback",
               label: "ยืนยันการชำระ",
-              // The period pins the card to this bill: an old card cannot close a newer one.
-              data: new URLSearchParams({ action: "confirm", room: bill.room, period: bill.period }).toString(),
+              data: new URLSearchParams(postback).toString(),
               displayText: "ยืนยันการชำระ",
             },
           },
@@ -159,4 +167,63 @@ function confirmBubble(bill) {
   };
 }
 
-module.exports = { verify, reply, push, linkRichMenu, unlinkRichMenu, displayName, billBubble, confirmBubble, LIFF_ID };
+// The receipt the tenant gets when the owner confirms a payment. Its button opens the LIFF receipt
+// screen: the page routes by hash, but LIFF can drop a fragment on login, so the period also rides
+// in the query (`receipt=`) and the page rebuilds the route from it.
+function receiptBubble(bill, baseUrl) {
+  const money = (n) => Number(n || 0).toLocaleString("th-TH");
+  const tail = `room=${bill.room}&receipt=${bill.period}#receipt/${bill.period}`;
+  const uri = LIFF_ID ? `https://liff.line.me/${LIFF_ID}?${tail}` : `${baseUrl}/liff/bill.html?${tail}`;
+  const paidOn = bill.paidAt
+    ? new Date(bill.paidAt).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok", day: "numeric", month: "short", year: "numeric" })
+    : "-";
+  const line = (label, value, bold) => ({
+    type: "box",
+    layout: "horizontal",
+    contents: [
+      { type: "text", text: label, size: "sm", color: bold ? "#111111" : "#555555", weight: bold ? "bold" : "regular", flex: 3 },
+      { type: "text", text: value, size: "sm", align: "end", weight: bold ? "bold" : "regular", flex: 2 },
+    ],
+  });
+
+  return {
+    type: "flex",
+    altText: `ใบเสร็จรับเงิน ห้อง ${bill.room} · ${money(bill.total)} บาท`,
+    contents: {
+      type: "bubble",
+      size: "kilo",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          { type: "text", text: "ใบเสร็จรับเงิน", weight: "bold", size: "md" },
+          ...(bill.receiptNo ? [{ type: "text", text: `เลขที่ ${bill.receiptNo}`, size: "xs", color: "#8B9AAB" }] : []),
+          { type: "text", text: `ห้อง ${bill.room} · รอบ ${bill.period}`, size: "sm" },
+          { type: "separator" },
+          {
+            type: "box",
+            layout: "vertical",
+            spacing: "sm",
+            contents: [
+              line("ค่าเช่า", money(bill.rent)),
+              line("ค่าน้ำ", money(bill.water)),
+              line("ค่าไฟ", money(bill.elec)),
+              line("รวม (บาท)", money(bill.total), true),
+            ],
+          },
+          { type: "text", text: `ชำระเมื่อ ${paidOn}`, size: "xs", color: "#8B9AAB" },
+        ],
+      },
+      footer: {
+        type: "box",
+        layout: "vertical",
+        contents: [
+          { type: "button", style: "primary", color: "#4FD8D2", action: { type: "uri", label: "ดูใบเสร็จ", uri } },
+        ],
+      },
+    },
+  };
+}
+
+module.exports = { verify, reply, push, linkRichMenu, unlinkRichMenu, displayName, billBubble, confirmBubble, receiptBubble, LIFF_ID };

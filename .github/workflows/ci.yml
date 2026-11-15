@@ -41,6 +41,10 @@ jobs:
         working-directory: line-app
         run: node smoke-usecases.js
 
+      - name: Reminder cron tests
+        working-directory: line-app
+        run: node smoke-cron.js
+
       # The LIFF page carries ~600 lines of inline JS that nothing else checks: a syntax error
       # there ships straight to production and only shows up as a blank screen in LINE.
       - name: Check the LIFF page script parses

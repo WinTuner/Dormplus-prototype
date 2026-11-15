@@ -14,6 +14,7 @@
 | `LINE_CHANNEL_ACCESS_TOKEN` | ✅ | — | `api/_line.js` | ตอบ/ส่งการ์ดไม่ได้เลย LINE ตอบ 401 — `webhook`/`run`/`slip` ดัก error ไว้จึงยังคืน 200 แต่ `api/dev.js` ไม่มี try/catch จึงคืน **500** |
 | `LIFF_ID` | ✅ | `null` | `api/config.js`, `api/_line.js`, `api/_auth.js` | `/api/config` คืน `liffId: null` → หน้าเว็บขึ้น "เปิดหน้านี้จากปุ่มในแชท LINE เท่านั้น"; ปุ่มในการ์ดเปิดเป็น URL ตรงแทน `liff.line.me`; และถ้าไม่มี `LOGIN_CHANNEL_ID` ด้วย ทุก endpoint ที่ต้องล็อกอินจะตอบ 401 |
 | `OWNER_USER_ID` | ✅ | — | `api/_auth.js`, `api/slip.js` | ไม่มีใครเป็น owner → `/api/rooms`, `/api/run` ตอบ 403 และไม่มีการส่งการ์ด "ยืนยันการชำระ" ให้ใคร |
+| `CRON_SECRET` | ✅ สำหรับแจ้งเตือนบิลค้าง | — | `api/cron.js` | `/api/cron` ตอบ `503 NOT_CONFIGURED` (ว่างหรือสั้นกว่า 16 ตัว) → ไม่มีการเตือนใด ๆ ส่วนระบบอื่นทำงานปกติ |
 | `SEED_TOKEN` | ✅ | — | `api/dev.js`, `api/dev.js`, `api/_auth.js` | `/api/dev` และ bypass `x-seed-token` ใช้ไม่ได้ (ต้องยาว ≥ 16 ตัว) · บน production ทั้งสองอย่างปิดอยู่แล้วไม่ว่าตั้งค่าอะไร |
 | `RICHMENU_OWNER_ID` | ไม่บังคับ | — | `api/owner-accept.js` | ไม่มีผล — เจ้าของที่รับสิทธิ์จะไม่ถูกสลับ rich menu |
 | `RICHMENU_TENANT_ID` | ไม่บังคับ | — | `api/webhook.js` | ไม่มีผล — ผู้เช่าที่ผูกห้องจะไม่ถูกสลับ rich menu |
@@ -76,6 +77,10 @@
 ### 2.3 กลุ่ม URL
 
 **`PUBLIC_BASE_URL`** — โดเมนเต็มของแอป (`https://<โดเมน>`) ใช้สร้างลิงก์ในการ์ดเมื่อไม่มี `LIFF_ID` เท่านั้น fallback คือ `` `https://${req.headers.host}` `` ซึ่งบน Vercel ให้โดเมนที่ถูกต้องอยู่แล้ว จึงเป็นตัว "แนะนำ" ไม่ใช่ "จำเป็น"
+
+### 2.4 กลุ่มแจ้งเตือนบิลค้าง
+
+**`CRON_SECRET`** — รหัสลับของ `GET /api/cron` (งานเตือนบิลค้างรายวัน) ต้องยาว **อย่างน้อย 16 ตัวอักษร** สุ่มเอา เช่น `openssl rand -hex 24` เมื่อโปรเจกต์มีตัวแปรนี้ Vercel Cron จะแนบ `Authorization: Bearer <CRON_SECRET>` ให้ทุก request เอง ไม่ต้องตั้ง header ที่ไหน · ไม่ตั้งหรือสั้นไป = `503 NOT_CONFIGURED`, header ผิด/ไม่มี = `401` · งานนี้ยังใช้ `LINE_CHANNEL_ACCESS_TOKEN`, `OWNER_USER_ID` (รับสรุปทวง), `LIFF_ID` (ลิงก์ในข้อความ) และ `ROOMS` ที่มีอยู่แล้ว · ตั้งแล้วต้อง Redeploy
 
 ## 3. Required vs optional — สรุปสั้น
 

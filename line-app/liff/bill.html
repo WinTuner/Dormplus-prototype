@@ -94,6 +94,14 @@
   .sheet .card{width:100%;max-width:398px;max-height:90vh;overflow:auto}
   .sheet img{width:100%;border-radius:10px;margin-top:10px;display:block}
 
+  .receipt{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px 16px}
+  .receipt .brand{font-size:12px;font-weight:700;letter-spacing:.5px;color:var(--accent)}
+  .receipt h2{font-size:20px;font-weight:700;margin:2px 0 4px}
+  .receipt .rows{margin-top:12px}
+  .opt{display:flex;align-items:center;gap:10px;font-size:13px;padding:8px 0;cursor:pointer}
+  .opt input{width:18px;height:18px;accent-color:var(--primary);flex:none}
+  .opt .grow{flex:1}
+
   .toast{position:fixed;left:50%;top:84px;transform:translateX(-50%);max-width:calc(100% - 32px);background:var(--card);border:1px solid var(--accent);color:var(--text);font-size:13px;padding:10px 14px;border-radius:10px;z-index:30;opacity:0;pointer-events:none;transition:opacity .2s}
   .toast.show{opacity:1}
   .toast.err{border-color:var(--bad)}
@@ -191,7 +199,13 @@ async function boot() {
     const params = new URLSearchParams(location.search);
     const tab = params.get("tab") || "";
     const room = me.room || params.get("room");
-    const home = () => (staff ? startOwner("home") : room ? startTenant(room) : fail("ยังไม่ได้ผูกห้อง — สแกน QR หน้าห้องที่เจ้าของหอให้มา"));
+    // A receipt link carries ?receipt=<period> (LIFF may drop the #fragment on login); rebuild the route from it.
+    const rcpt = /^\d{4}-\d{2}$/.test(params.get("receipt") || "") ? params.get("receipt") : "";
+    const tenantHome = () => {
+      if (rcpt && !route().startsWith("receipt/")) history.replaceState(null, "", location.pathname + location.search + "#receipt/" + rcpt);
+      return startTenant(room);
+    };
+    const home = () => (staff ? startOwner(rcpt && room ? `receipt/${rcpt}/${encodeURIComponent(room)}` : "home") : room ? tenantHome() : fail("ยังไม่ได้ผูกห้อง — สแกน QR หน้าห้องที่เจ้าของหอให้มา"));
 
     // Opened from an owner invite QR: redeem the code, then continue as an owner.
     const ownerCode = params.get("owner");
@@ -308,6 +322,7 @@ function renderTenant() {
   if (!T) return;
   // The slip form also serves the advance case: no bill yet, or the latest bill already paid.
   if (route() === "slip") return tenantSlip();
+  if (route().startsWith("receipt/")) return receiptScreen(T.room, route().slice(8), "invoice");
   if (!T.bill) return tenantNoBill();
   return tenantInvoice();
 }
@@ -327,6 +342,7 @@ function tenantNoBill() {
 }
 
 function statusPill(status) {
+  if (status === "void") return `<span class="pill">ยกเลิกแล้ว</span>`;
   if (status === "paid") return `<span class="pill ok">ชำระแล้ว</span>`;
   if (status === "pending") return `<span class="pill warn">รอตรวจสอบ</span>`;
   return `<span class="pill bad">ยังไม่ชำระ</span>`;
@@ -337,6 +353,7 @@ function tenantInvoice() {
   header(`ห้อง ${b.room} · รอบบิล ${periodTh(b.period)}`, `ใบแจ้งหนี้ ${monthTh(b.period)}`);
 
   const note = b.status === "paid" ? "ชำระแล้ว · ใบเสร็จออกแล้ว"
+    : b.status === "void" ? `บิลนี้ถูกยกเลิก${b.voidReason ? " — " + b.voidReason : ""}`
     : b.status === "pending" ? `แนบสลิปแล้ว${b.slipAt ? " " + timeTh(b.slipAt) : ""} — รอเจ้าของหอยืนยัน`
     : "";
 
@@ -351,17 +368,21 @@ function tenantInvoice() {
         <div class="row"><span class="m">ค่าไฟ ${fmt(b.elecUnits)} หน่วย</span><span>${fmt(b.elec)}</span></div>
       </div>
       ${note ? `<div class="hint" style="margin-top:12px">${esc(note)}</div>` : ""}
+      ${b.status === "paid" && b.receiptNo ? `<div class="m" style="margin-top:8px">ใบเสร็จเลขที่ ${esc(b.receiptNo)}</div>
+        <button class="btn" id="rcptBtn" style="margin-top:10px">ดูใบเสร็จ</button>` : ""}
     </div>
-    <div class="card">
+    ${b.status === "void" ? "" : `<div class="card">
       <div class="qr-ph">QR พร้อมเพย์</div>
       <div class="hint" style="text-align:center;margin-top:10px">เจ้าของหอยังไม่ได้ใส่ QR · โอนตามช่องทางที่หอแจ้ง แล้วแนบสลิป</div>
-    </div>
+    </div>`}
     <div class="card">
       <div class="m">ประวัติการชำระ</div>
       <button class="btn" id="histBtn" style="margin-top:10px">ดูใบเสร็จย้อนหลัง</button>
       <div id="hist"></div>
     </div>
     ${b.status === "paid" ? advanceCard(T.advance) : ""}`;
+
+  if ($("rcptBtn")) $("rcptBtn").onclick = () => go(`receipt/${b.period}`);
 
   $("histBtn").onclick = async () => {
     const btn = $("histBtn");
@@ -371,10 +392,13 @@ function tenantInvoice() {
       const h = await api(`/api/bill?room=${encodeURIComponent(b.room)}&history=1`);
       $("hist").innerHTML = h.items.length
         ? `<div class="rows" style="margin-top:10px">${h.items
-            .map((i) => `<div class="row"><span class="m">${periodTh(i.period)}</span><span>${fmt(i.total)} บาท ${statusPill(i.status)}</span></div>`)
+            .map((i) => i.status === "paid"
+              ? `<div class="row" data-rc="${esc(i.period)}" style="cursor:pointer"><span class="m">${periodTh(i.period)}</span><span>${fmt(i.total)} บาท ${statusPill(i.status)} <span class="m">ใบเสร็จ ›</span></span></div>`
+              : `<div class="row"><span class="m">${periodTh(i.period)}</span><span>${fmt(i.total)} บาท ${statusPill(i.status)}</span></div>`)
             .join("")}</div>`
         : `<div class="hint" style="margin-top:10px">ยังไม่มีประวัติ — ระบบเริ่มเก็บประวัติตั้งแต่รอบนี้</div>`;
       btn.remove();
+      $("hist").querySelectorAll("[data-rc]").forEach((el) => (el.onclick = () => go(`receipt/${el.dataset.rc}`)));
     } catch (e) {
       btn.disabled = false;
       btn.textContent = "ดูใบเสร็จย้อนหลัง";
@@ -382,7 +406,7 @@ function tenantInvoice() {
     }
   };
 
-  if (b.status === "paid") {
+  if (b.status === "paid" || b.status === "void") {
     bottom(`<button class="btn" id="toSlip">${T.advance ? "ส่งสลิปใหม่แทน" : "โอนรอบถัดไปก่อน"}</button>`);
     $("toSlip").onclick = () => go("slip");
     return;
@@ -394,7 +418,7 @@ function tenantInvoice() {
 
 function tenantSlip() {
   const b = T.bill;
-  const adv = !b || b.status === "paid"; // no amount to pay now: the slip waits for the next bill
+  const adv = !b || b.status === "paid" || b.status === "void"; // no amount to pay now: the slip waits for the next bill
   header(adv ? `ห้อง ${T.room} · โอนก่อนบิลออก` : `ห้อง ${b.room} · ${fmt(b.total)} บาท`, "แนบสลิป", "invoice");
 
   view.innerHTML = `
@@ -404,31 +428,67 @@ function tenantSlip() {
     </label>
     <input type="file" id="file" accept="image/*">
     ${adv
-      ? `<div class="card"><div class="m">ยังไม่มีบิลที่ต้องชำระ — สลิปนี้จะถูกผูกกับบิลรอบถัดไปแทนยอดบิล</div></div>
+      ? `<div class="card"><div class="m" id="advNote">ยังไม่มีบิลที่ต้องชำระ — สลิปนี้จะถูกผูกกับบิลรอบถัดไปแทนยอดบิล</div>
+      <div id="multi"></div></div>
     <div class="hint">เมื่อเจ้าของหอออกบิล สถานะจะเป็น “รอตรวจสอบ” จนกว่าเจ้าของหอจะยืนยัน</div>`
-      : `<div class="card"><div class="row"><span class="m">ยอดในบิล</span><b>${fmt(b.total)} บาท</b></div></div>
+      : `<div class="card"><div class="row"><span class="m">ยอดในบิล</span><b id="amount">${fmt(b.total)} บาท</b></div>
+      <div id="multi"></div></div>
     <div class="hint">สถานะจะเป็น “รอตรวจสอบ” จนกว่าเจ้าของหอจะยืนยัน</div>`}`;
 
   bottom(`<button class="btn primary" id="send" disabled>ส่งสลิป</button>`);
+
+  // One slip can pay several unpaid months: offer a checkbox per period. In advance mode (no bill,
+  // or the newest is paid/void) this list is what lets a tenant still pay an older overdue month.
+  // `periods` stays null (the newest bill) unless the choice differs from that.
+  let periods = null;
+  let hasFile = false;
+  const refresh = () => ($("send").disabled = !hasFile || (periods !== null && !periods.size));
+  api(`/api/bill?room=${encodeURIComponent(T.room)}&history=1`).then((h) => {
+    const open = h.items.filter((i) => i.status === "unpaid" || i.status === "pending");
+    if (!open.length || !$("multi")) return;
+    if (!adv && open.length < 2) return; // one open bill: the default form already pays it
+    if (adv) {
+      header(`ห้อง ${T.room} · ค้างชำระ ${open.length} งวด`, "แนบสลิป", "invoice");
+      const note = $("advNote");
+      if (note) note.textContent = "มีบิลค้างชำระ — เลือกงวดที่สลิปนี้จ่าย";
+    }
+    const newest = open[0].period; // history is newest first
+    periods = new Set([newest]);
+    $("multi").innerHTML = `<div class="m" style="margin-top:10px">จ่ายหลายงวดในสลิปเดียว</div>` + open
+      .map((i) => `<label class="opt"><input type="checkbox" value="${esc(i.period)}" ${i.period === newest ? "checked" : ""}>
+          <span class="grow">${periodTh(i.period)} ${statusPill(i.status)}</span><span>${fmt(i.total)} บาท</span></label>`)
+      .join("");
+    $("multi").onchange = () => {
+      periods = new Set([...$("multi").querySelectorAll("input:checked")].map((x) => x.value));
+      const sum = open.filter((i) => periods.has(i.period)).reduce((n, i) => n + Number(i.total || 0), 0);
+      const amount = $("amount");
+      if (amount) amount.textContent = `${fmt(sum)} บาท`;
+      refresh();
+    };
+  }).catch(() => {}); // the plain single-bill form still works without the list
 
   $("file").onchange = () => {
     const file = $("file").files[0];
     if (!file) return;
     const url = URL.createObjectURL(file);
     $("pick").innerHTML = `<img src="${url}" alt="สลิป">`;
-    $("send").disabled = false;
+    hasFile = true;
+    refresh();
   };
 
   $("send").onclick = async () => {
     const btn = $("send");
     const file = $("file").files[0];
     if (!file) return;
+    // More than one ticked, or a single one that is not the newest bill (which is what no `periods` means).
+    const chosen = periods && (periods.size > 1 || !periods.has(T.bill?.period)) ? [...periods].sort() : undefined;
     btn.disabled = true;
     btn.textContent = "กำลังส่ง…";
     try {
       const image = await shrink(file);
-      const out = await api("/api/slip", { method: "POST", body: JSON.stringify({ room: T.room, image }) });
-      toast(out.status === "advance" ? "ส่งสลิปแล้ว — จะผูกกับบิลรอบถัดไปเมื่อเจ้าของออกบิล" : "แจ้งชำระแล้ว — รอเจ้าของหอยืนยัน");
+      const out = await api("/api/slip", { method: "POST", body: JSON.stringify({ room: T.room, image, ...(chosen && { periods: chosen }) }) });
+      toast(out.status === "advance" ? "ส่งสลิปแล้ว — จะผูกกับบิลรอบถัดไปเมื่อเจ้าของออกบิล"
+        : out.periods?.length > 1 ? `แจ้งชำระ ${out.periods.length} งวดแล้ว — รอเจ้าของหอยืนยัน` : "แจ้งชำระแล้ว — รอเจ้าของหอยืนยัน");
       history.replaceState(null, "", location.pathname + location.search);
       await loadTenant();
     } catch (e) {
@@ -437,6 +497,45 @@ function tenantSlip() {
       btn.textContent = "ส่งสลิป";
     }
   };
+}
+
+// ---------- receipt (tenant and owner) ----------
+// Loads the bill and draws the receipt card. `back` is the route the top-bar chevron returns to.
+async function receiptScreen(room, period, back) {
+  header(`ห้อง ${room}`, "ใบเสร็จรับเงิน", back);
+  bottom("");
+  view.innerHTML = `<div class="card"><div class="m">กำลังโหลด…</div></div>`;
+  let b;
+  try {
+    b = await api(`/api/bill?room=${encodeURIComponent(room)}&period=${encodeURIComponent(period)}`);
+  } catch (e) {
+    view.innerHTML = `<div class="card"><div class="err">${esc(e.message)}</div></div>`;
+    return;
+  }
+  // The route may have changed while this was loading (the user went back): do not paint over it.
+  if (!route().startsWith("receipt/")) return;
+  if (!b.receiptNo || (b.status !== "paid" && b.status !== "void")) {
+    view.innerHTML = `<div class="card"><div class="m">บิลรอบ ${esc(periodTh(period))} ยังไม่มีใบเสร็จ — ออกให้เมื่อเจ้าของหอยืนยันการชำระ</div></div>`;
+    return;
+  }
+  const d = b.paidAt ? new Date(b.paidAt) : null;
+  const paidOn = d && !isNaN(d) ? `${dateTh(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`)} ${timeTh(b.paidAt).slice(-5)}` : "—";
+  view.innerHTML = `
+    <div class="receipt">
+      <div class="row"><span class="brand">DormPlus</span>${b.status === "void" ? `<span class="pill">ยกเลิกแล้ว</span>` : `<span class="pill ok">ชำระแล้ว</span>`}</div>
+      <h2>ใบเสร็จรับเงิน</h2>
+      <div class="m">เลขที่ ${esc(b.receiptNo)}</div>
+      <div class="rows">
+        <div class="row"><span class="m">ห้อง</span><span>${esc(b.room)}</span></div>
+        <div class="row"><span class="m">รอบบิล</span><span>${periodTh(b.period)}</span></div>
+        <div class="row"><span class="m">ค่าเช่า</span><span>${fmt(b.rent)}</span></div>
+        <div class="row"><span class="m">ค่าน้ำ${b.waterUnits != null ? ` ${fmt(b.waterUnits)} หน่วย` : ""}</span><span>${fmt(b.water)}</span></div>
+        <div class="row"><span class="m">ค่าไฟ${b.elecUnits != null ? ` ${fmt(b.elecUnits)} หน่วย` : ""}</span><span>${fmt(b.elec)}</span></div>
+        <div class="row total"><span>รวมทั้งสิ้น</span><span>${fmt(b.total)} บาท</span></div>
+        <div class="row"><span class="m">ชำระเมื่อ</span><span>${esc(paidOn)}</span></div>
+      </div>
+      ${b.status === "void" ? `<div class="hint warnText" style="margin-top:12px">ใบเสร็จนี้ถูกยกเลิก${b.voidReason ? " — " + esc(b.voidReason) : ""}</div>` : ""}
+    </div>`;
 }
 
 // ---------- owner ----------
@@ -468,7 +567,8 @@ function saveDraft() {
   try { localStorage.setItem(draftKey(), JSON.stringify(O.draft)); } catch {}
 }
 
-const billedNow = (r) => r.bill && r.bill.period === O.period;
+// A void bill does not count as billed: the room can be metered and issued again (rev + 1).
+const billedNow = (r) => r.bill && r.bill.period === O.period && r.bill.status !== "void";
 const isRead = (r) => billedNow(r) || !!O.draft[r.room];
 const lastUnits = (r) => ({
   water: r.bill?.waterUnits ?? r.meter?.water ?? null,
@@ -526,6 +626,10 @@ function renderOwner() {
   if (r === "rooms") return ownerRooms();
   if (r.startsWith("entry/")) return ownerEntry(decodeURIComponent(r.slice(6)));
   if (r.startsWith("qr/")) return ownerQr(decodeURIComponent(r.slice(3)));
+  if (r.startsWith("receipt/")) {
+    const [, period, room = ""] = r.split("/");
+    return receiptScreen(decodeURIComponent(room), period, `entry/${room}`);
+  }
   if (r === "bill") return ownerBill();
   if (r === "report") return ownerReport();
   if (r === "owners") return ownerInvite();
@@ -573,7 +677,7 @@ function ownerHome() {
 function ownerReport() {
   header("รายงานรายรับ", "สรุปยอด", "home");
   bottom("");
-  const bills = O.rooms.filter((r) => r.bill).map((r) => r.bill);
+  const bills = O.rooms.filter((r) => r.bill && r.bill.status !== "void").map((r) => r.bill); // void is not money owed
   if (!bills.length) {
     view.innerHTML = `<div class="card empty m">ยังไม่มีบิลในระบบ — จดมิเตอร์แล้วออกบิลก่อน</div>`;
     return;
@@ -829,6 +933,7 @@ function ownerRooms() {
     if (billedNow(r)) pill = r.bill.status === "paid" ? `<span class="pill ok">ชำระแล้ว</span>` : `<span class="pill">ออกบิลแล้ว</span>`;
     else if (O.draft[r.room]) pill = `<span class="pill ok">จดแล้ว</span>`;
     else pill = `<span class="pill todo">ยังไม่จด</span>`;
+    if (r.bill?.period === O.period && r.bill.status === "void") pill = `<span class="pill">ยกเลิกแล้ว</span> ${pill}`;
     if (r.advance) pill = `<span class="pill warn">โอนล่วงหน้า</span> ${pill}`;
     const isNext = next && next.room === r.room;
     const sub = isNext ? "ห้องถัดไป" : (r.linked ?? r.tenant) ? "" : "ยังไม่ผูก LINE";
@@ -893,12 +998,24 @@ function ownerEntry(roomNo) {
     <div class="card rows" id="calc"></div>
     <div class="hint warnText" id="hint"></div>
     ${locked ? `<div class="hint">ห้องนี้ออกบิลรอบ ${periodTh(O.period)} แล้ว — แก้ไขไม่ได้</div>` : ""}
+    ${r.bill ? `<div class="card">
+      <div class="row"><span class="m">บิลล่าสุด ${periodTh(r.bill.period)}</span>${statusPill(r.bill.status)}</div>
+      <div class="big" style="margin-top:4px">${fmt(r.bill.total)} <span class="unit">บาท</span></div>
+      ${r.bill.status === "void" && r.bill.voidReason ? `<div class="hint" style="margin-top:6px">ยกเลิก — ${esc(r.bill.voidReason)}</div>` : ""}
+      ${r.bill.receiptNo ? `<div class="m" style="margin-top:6px">ใบเสร็จเลขที่ ${esc(r.bill.receiptNo)}</div>` : ""}
+      <div class="stack" style="margin-top:10px">
+        ${r.bill.receiptNo || r.bill.status === "paid" ? `<button class="btn" id="rcptBtn">ดูใบเสร็จ</button>` : ""}
+        ${MYROLE !== "viewer" && r.bill.status !== "void" ? `<button class="btn" id="voidBtn">ยกเลิกบิล</button>` : ""}
+      </div>
+    </div>` : ""}
     <div class="card">
       <div class="m">ให้ผู้เช่าผูกห้องนี้ด้วย QR</div>
       <button class="btn" id="qrBtn" style="margin-top:10px">QR ผู้เช่า (ปริ้นแปะหน้าห้อง)</button>
     </div>`;
 
   $("qrBtn").onclick = () => go(`qr/${encodeURIComponent(r.room)}`);
+  if ($("rcptBtn")) $("rcptBtn").onclick = () => go(`receipt/${r.bill.period}/${encodeURIComponent(r.room)}`);
+  if ($("voidBtn")) $("voidBtn").onclick = () => voidBill(r.room, r.bill);
   if ($("advSlip")) $("advSlip").onclick = () => showSlip(r.room, true);
 
   const units = () => ({ water: Number($("inW").value || 0), elec: Number($("inE").value || 0) });
@@ -1086,6 +1203,26 @@ function ownerReview(tab) {
     el.onclick = () => showSlip(room);
     try { el.innerHTML = `<img src="${await slipUrl(room)}" alt="สลิป">`; } catch { el.textContent = "โหลดไม่ได้"; }
   });
+}
+
+// Owner: cancel a bill. Asks for the reason, then confirms, because the tenant is told and a paid
+// bill loses its receipt; the only way back is to issue the bill again.
+async function voidBill(room, bill) {
+  const reason = (prompt(`เหตุผลที่ยกเลิกบิลห้อง ${room} รอบ ${periodTh(bill.period)} (ผู้เช่าจะเห็นข้อความนี้)`) || "").trim();
+  if (!reason) return toast("ต้องใส่เหตุผลก่อนยกเลิกบิล", true);
+  if (reason.length > 200) return toast("เหตุผลยาวได้ไม่เกิน 200 ตัวอักษร", true);
+  const paidNote = bill.status === "paid" ? " บิลนี้ชำระแล้ว — ใบเสร็จจะถูกยกเลิกด้วย" : "";
+  if (!confirm(`ยกเลิกบิลห้อง ${room} รอบ ${periodTh(bill.period)}?${paidNote}\nเหตุผล: ${reason}\nผู้เช่าจะได้รับแจ้ง และออกบิลใหม่ได้ภายหลัง`)) return;
+  const btn = $("voidBtn");
+  if (btn) btn.disabled = true;
+  try {
+    await api("/api/bill", { method: "POST", body: JSON.stringify({ action: "void", room, period: bill.period, reason }) });
+    toast(`ยกเลิกบิลห้อง ${room} แล้ว`);
+    await loadOwner();
+  } catch (e) {
+    toast(e.message, true);
+    if (btn) btn.disabled = false;
+  }
 }
 
 async function showSlip(room, advance) {
