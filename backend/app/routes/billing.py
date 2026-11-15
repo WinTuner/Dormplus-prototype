@@ -1,5 +1,6 @@
 """Billing and invoices: POST /v1/billing/run and GET /v1/invoices (docs/API.md)."""
 import json
+import logging
 from datetime import date, datetime, timedelta
 from typing import Literal
 
@@ -12,8 +13,11 @@ from app.clock import PERIOD_PATTERN, period_of, today
 from app.db import get_engine
 from app.errors import ApiError
 from app.ids import invoice_id, payment_id
+from app.notify import notify_invoices
+from app.routes.cron import drain_queue
 
 router = APIRouter(prefix="/v1", tags=["billing"])
+logger = logging.getLogger(__name__)
 
 Status = Literal["unpaid", "pending", "paid", "void"]
 
@@ -23,11 +27,13 @@ class BillingRunIn(BaseModel):
 
 
 class BillingRunOut(BaseModel):
-    job_id: str | None  # LINE sending is not queued yet, so this stays null for now
+    job_id: str | None  # the first queued LINE job, when at least one message went to the queue
     period: str
     rooms_to_bill: int
     skipped_no_reading: int
     skipped_no_previous_reading: int
+    queued: int = 0     # messages handed to the queue: rooms with a tenant linked to LINE
+    drained: bool = False  # whether this request also sent them
 
 
 class InvoiceRow(BaseModel):
@@ -128,8 +134,28 @@ ROOMS_TO_BILL_SQL = text("""
 """)
 
 
+# One row per new invoice, carrying the single tenant to message: the newest one still in the room,
+# the same rule dunning uses, so a room with roommates does not get two of every message.
+NOTIFY_ROWS_SQL = text("""
+    select i.id, i.period, i.total, i.due_date, r.room_no, t.line_user_id
+    from invoices i
+    join rooms r on r.id = i.room_id
+    join lateral (
+        select line_user_id
+        from tenants
+        where room_id = r.id
+          and line_user_id is not null
+          and (moved_out is null or moved_out > :today)
+        order by moved_in desc nulls last
+        limit 1
+    ) t on true
+    where r.property_id = :property_id and i.id = any(cast(:ids as text[]))
+    order by r.room_no
+""")
+
+
 @router.post("/billing/run", status_code=202, response_model=BillingRunOut)
-def run_billing(
+async def run_billing(
     body: BillingRunIn,
     session: Session = Depends(owner_session),
     engine: Engine = Depends(get_engine),
@@ -189,9 +215,27 @@ def run_billing(
                  "payload": json.dumps({"period": body.period, "invoice_ids": created})},
             )
 
-    return BillingRunOut(job_id=None, period=body.period, rooms_to_bill=len(created),
-                         skipped_no_reading=no_reading, skipped_no_previous_reading=no_previous)
+    # The bills are committed. Everything below is the message about them, and a queue that is not
+    # set up must not turn a saved billing run into an error for the owner.
+    queued, first, drained = 0, None, False
+    if created:
+        try:
+            with engine.connect() as conn:
+                rows = conn.execute(
+                    NOTIFY_ROWS_SQL,
+                    {"property_id": session.property_id, "today": day, "ids": created},
+                ).mappings().all()
+            queued, first = notify_invoices([dict(row) for row in rows])
+            if queued:  # draining an empty queue would only open a connection
+                await drain_queue()
+                drained = True
+        except Exception:  # noqa: BLE001 - logged, and the answer still explains the run
+            logger.exception("invoice notify failed for %s bills of %s", len(created), body.period)
+            queued, first, drained = 0, None, False
 
+    return BillingRunOut(job_id=str(first) if first else None, period=body.period,
+                         rooms_to_bill=len(created), skipped_no_reading=no_reading,
+                         skipped_no_previous_reading=no_previous, queued=queued, drained=drained)
 
 def create_invoice(conn: Connection, room_id: str, period: str, rent: int,
                    items: list[tuple[str, int, int]], due: date) -> str | None:

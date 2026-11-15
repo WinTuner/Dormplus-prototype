@@ -46,7 +46,8 @@ def test_bills_the_rooms_that_have_this_months_reading(client_for, seeded):
     res = run(client_for(seeded, OWNER_P1, BILL_DAY))
     assert res.status_code == 202
     assert res.json() == {"job_id": None, "period": "2026-11", "rooms_to_bill": 12,
-                          "skipped_no_reading": 30, "skipped_no_previous_reading": 0}
+                          "skipped_no_reading": 30, "skipped_no_previous_reading": 0,
+                          "queued": 0, "drained": False}
 
     with seeded.connect() as conn:
         inv = conn.execute(text(
@@ -272,3 +273,63 @@ def test_invoice_of_another_dorm_is_404(client_for, seeded):
 
 def test_unknown_invoice_is_404(client_for, seeded):
     assert client_for(seeded, OWNER_P1, BILL_DAY).get("/v1/invoices/inv_nope").status_code == 404
+
+
+# --- the bill message goes out with the run -------------------------------------------------------
+
+def link_line(engine, *room_ids: str) -> None:
+    with engine.begin() as conn:
+        conn.execute(text("update tenants set line_user_id = 'U_' || room_id "
+                          "where room_id = any(:ids)"), {"ids": list(room_ids)})
+
+
+def test_run_notifies_the_rooms_that_have_a_tenant(client_for, seeded, monkeypatch):
+    link_line(seeded, "r_201", "r_202", "r_203")
+    seen = {}
+    drained = []
+
+    def fake_notify(rows):
+        seen["rows"] = rows
+        return len(rows), "7"
+
+    async def fake_drain():
+        drained.append(True)
+
+    monkeypatch.setattr(billing, "notify_invoices", fake_notify)
+    monkeypatch.setattr(billing, "drain_queue", fake_drain)
+
+    res = run(client_for(seeded, OWNER_P1, BILL_DAY))
+    assert res.status_code == 202
+    body = res.json()
+    assert (body["queued"], body["drained"], body["job_id"]) == (3, True, "7")
+    assert body["rooms_to_bill"] == 12, "every ready room is billed, not only the messaged ones"
+    assert {r["room_no"] for r in seen["rows"]} == {"201", "202", "203"}
+    assert all(r["line_user_id"].startswith("U_") for r in seen["rows"])
+    assert drained == [True]
+
+
+def test_run_without_tenants_sends_nothing_and_does_not_drain(client_for, seeded, monkeypatch):
+    async def no_drain():  # the seeded dorm has no LINE user, so there is nothing to send
+        raise AssertionError("an empty queue must not be drained")
+
+    monkeypatch.setattr(billing, "drain_queue", no_drain)
+    body = run(client_for(seeded, OWNER_P1, BILL_DAY)).json()
+    assert (body["queued"], body["drained"]) == (0, False)
+
+
+def test_queue_down_still_returns_the_bills(client_for, seeded, monkeypatch):
+    link_line(seeded, "r_201")
+
+    def boom(rows):
+        raise RuntimeError("procrastinate tables are missing")
+
+    async def no_drain():
+        raise AssertionError("drain must not run when the enqueue failed")
+
+    monkeypatch.setattr(billing, "notify_invoices", boom)
+    monkeypatch.setattr(billing, "drain_queue", no_drain)
+
+    res = run(client_for(seeded, OWNER_P1, BILL_DAY))
+    assert res.status_code == 202
+    assert (res.json()["queued"], res.json()["drained"]) == (0, False)
+    assert scalar(seeded, "select count(*) from invoices where period = '2026-11'") == 12
