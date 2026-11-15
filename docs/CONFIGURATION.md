@@ -53,6 +53,8 @@
 <!-- VERIFY: `DATABASE_URL` บน Vercel ของโปรเจกต์ `line-backend` ชี้ Neon ตัวเดียวกับที่ `backend/.env` ใช้หรือคนละตัว — เทียบจาก dashboard เท่านั้น -->
 <!-- VERIFY: role ที่ผูกกับ `DATABASE_URL` บน production คือ `dormplus_app` จริง (ไม่ใช่ `neondb_owner`) — ตรวจได้จาก dashboard/psql เท่านั้น -->
 
+> **ตรวจแล้ว 2026-11-16 (read-only):** ฐานข้อมูลที่ `backend/.env` ใช้อยู่ head = `0004` และมี role `dormplus_app` ที่ `rolbypassrls = false` — **แต่ connection ของ `.env` ในเครื่องนี้ล็อกอินเป็น `neondb_owner` ซึ่ง `rolbypassrls = true`** แปลว่า RLS ถูกข้ามเมื่อรัน backend จากเครื่องนี้ ถ้าจะทดสอบเรื่องข้ามหอในเครื่อง ต้องเปลี่ยน `.env` ไปใช้ `dormplus_app` (หรือเชื่อ `tests/test_rls.py` ที่ `set local role` เอง) — production ยังต้องยืนยันจาก Vercel env ว่าใช้ `dormplus_app`
+
 ### 1.2 `SESSION_SECRET`
 
 ใช้เซ็น cookie `dp_session` (HMAC-SHA256, stdlib, อายุ 7 วัน, `HttpOnly`, `SameSite=Lax`) ที่ `backend/app/session.py`
@@ -89,9 +91,8 @@
 
 ฝั่ง line-app (`line-app/api/cron.js`) — ดู §2.4
 
-<!-- VERIFY: บน Vercel dashboard ตั้ง `CRON_SECRET` ไว้บนทั้งสองโปรเจกต์หรือยัง และ cron `/api/cron` (line-app) ถูก register จริงบน plan Hobby — `vercel.json` เป็นเพียงคำประกาศ -->
-<!-- VERIFY: Hobby plan อนุญาต cron วันละครั้งและคลาดได้ถึง ±59 นาทีตามที่ README กล่าว — ตรวจที่ Vercel → Project → Cron Jobs (ทั้งสองโปรเจกต์) -->
-<!-- VERIFY: cron ของ `line-backend` ถูกถอดออกจาก dashboard ด้วยหรือแค่ถอดจาก `vercel.json` — ถ้า dashboard ยังมีอยู่ จะยังถูกยิงและได้ 401 -->
+- **ตรวจแล้ว 2026-11-16:** `vercel crons list` โปรเจกต์ `line-app` คืน `/api/cron  0 2 * * *` (ลงทะเบียนจริง) · `GET /api/cron` ไม่มี header → `401` (แปลว่า `CRON_SECRET` ถูกตั้งแล้ว) · โปรเจกต์ `line-backend` ไม่มี cron job เลย
+<!-- VERIFY: Hobby plan อนุญาต cron วันละครั้งและคลาดได้ถึง ±59 นาทีตามที่ README กล่าว — เป็นข้อจำกัดของ plan ไม่ได้ประกาศในเรพ -->
 
 ### 1.5 กลุ่ม LINE ฝั่ง backend
 

@@ -50,7 +50,7 @@ repo นี้มี **สอง stack ที่เป็นอิสระจ�
 และไม่มี single source of truth ของ "บิลห้อง 203 รอบ 2026-11" — มีสองชุดแยกกันอยู่
 
 <!-- VERIFY: ทั้งสองโปรเจกต์ Vercel (line-app-iota.vercel.app และ line-backend-ten.vercel.app) deploy จาก repo เดียวกันด้วย Root Directory คนละโฟลเดอร์ — ข้อความนี้มาจาก README/docs/HANDOFF ไม่ใช่จากไฟล์ config ในเรพ (vercel.json ไม่มีฟิลด์ root directory) -->
-<!-- VERIFY: cron `GET /api/cron` ถูกเปิดใช้งานจริงบนโปรเจกต์ Vercel ของ line-app และ CRON_SECRET (≥ 16 ตัว) ถูกตั้งบนโปรเจกต์แล้วหรือยัง — line-app/vercel.json แค่ประกาศ schedule ไม่ได้ยืนยันสถานะ deployment · ถ้าไม่ได้ตั้ง cron จะตอบ 503 NOT_CONFIGURED -->
+<!-- ตรวจแล้ว 2026-11-16: `vercel crons list` บนโปรเจกต์ line-app คืน `/api/cron  0 2 * * *` (ลงทะเบียนจริง) · `GET /api/cron` ไม่มี header → 401 แปลว่าตั้ง `CRON_SECRET` แล้ว -->
 
 ## 2. แผนผังองค์ประกอบ
 

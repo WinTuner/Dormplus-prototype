@@ -24,7 +24,7 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 | `POST` เท่านั้น | `/api/webhook` | `x-line-signature` (HMAC) | `api/webhook.js` |
 | `GET` เท่านั้น | `/api/cron` | `Authorization: Bearer <CRON_SECRET>` (Vercel Cron แนบให้เอง) | `api/cron.js` |
 
-`api/_auth.js`, `api/_line.js`, `api/_rooms.js`, `api/_store.js` (และ `_bills.js`, `_remind.js`, `_async.js`, `_limit.js`, `_qr.js`) เป็น shared module ไม่ใช่ endpoint (ขึ้นต้นด้วย `_`) <!-- VERIFY: Vercel ไม่สร้าง public route ให้ไฟล์ที่ขึ้นต้นด้วย `_` ใน api/ — เป็นพฤติกรรมแพลตฟอร์ม ไม่มีอะไรในเรพยืนยัน --> — ไฟล์ที่ชื่ออื่นใน `api/` กลายเป็น route ตามชื่อไฟล์โดยไม่ต้องประกาศใน `vercel.json` (ซึ่งมีแค่ rewrite `/` → `/liff/bill.html`)
+`api/_auth.js`, `api/_line.js`, `api/_rooms.js`, `api/_store.js` (และ `_bills.js`, `_remind.js`, `_async.js`, `_limit.js`, `_qr.js`) เป็น shared module ไม่ใช่ endpoint (ขึ้นต้นด้วย `_`) <!-- VERIFY: Vercel ไม่สร้าง public route ให้ไฟล์ที่ขึ้นต้นด้วย `_` ใน api/ — เป็นพฤติกรรมแพลตฟอร์ม ไม่มีอะไรในเรพยืนยัน --> — ไฟล์ที่ชื่ออื่นใน `api/` กลายเป็น route ตามชื่อไฟล์โดยไม่ต้องประกาศใน `vercel.json` (ซึ่งมี `rewrites` (`/` → `/liff/bill.html`), `crons` (`/api/cron`), `headers` และ `git.deploymentEnabled`)
 
 ## 2. ข้อตกลงร่วม (อ่านครั้งเดียว ใช้ทุก endpoint)
 
@@ -83,7 +83,7 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 |---|---|
 | `config`, `me`, `bill`, `rooms`, `owner` | `Cache-Control: no-store` |
 | `slip-image` | `Content-Type: image/*` + `Cache-Control: private, no-store` |
-| `slip`, `run`, `seed`, `sendbill`, `webhook` | **ไม่ตั้ง `Cache-Control` เลย** |
+| `slip`, `run`, `webhook` | **ไม่ตั้ง `Cache-Control` เลย** (ส่วน `config`, `dev`, `me`, `owner`, `qr`, `rooms`, `bill` ตั้ง `no-store` เอง) |
 
 ทุก response เป็น JSON ผ่าน `res.json()` ยกเว้น `slip-image` ที่ stream byte ดิบ (`res.end(...)`) ไม่มี CORS header และไม่มี `OPTIONS` handler · rate limit มีเฉพาะการเดารหัส (`_limit.js`) และการส่งสลิป (§6)
 
@@ -128,7 +128,7 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 - **ผู้เช่าใหม่ไม่เห็นบิลของคนเก่า:** เมื่อผู้เช่าออกจากห้อง — กด "เปลี่ยนผู้เช่า" (เขียนเสมอ แม้ไม่มีใครผูกอยู่) หรือผู้เช่าย้ายไปห้องอื่นด้วย `confirmMove` (เขียนให้ห้องที่ออก) — ระบบเขียน `tenancy:<room>` = `{ since: <ISO now> }` · การผูกเองไม่เขียน · ห้องที่ยังไม่มี `tenancy` แสดงทุกบิลเหมือนเดิม (ผู้เช่าปัจจุบันไม่เสียประวัติ ช่องโหว่เปิดเฉพาะหลังเปลี่ยนผู้เช่า ซึ่งจากนี้ทุกครั้งจะเขียน record)
 - **สลิปโอนล่วงหน้าของคนเดิม:** ตอนเขียน `tenancy` ถ้ามี `prepay:<room>` จะคัดลอกไป `prepay-old:<room>:<slipAt>` (ไฟล์รูปเก็บไว้) ตั้ง `prepay:<room>` เป็น `null` และ push ข้อความหา `OWNER_USER_ID` `ห้อง <room>: ผู้เช่าเดิมมีสลิปโอนล่วงหน้าค้างอยู่ — ไม่ถูกผูกกับผู้เช่าใหม่ ตรวจสอบ/คืนเงินเอง` (push พังแค่ log)
 - รหัสผิด/ถูกหมุนแล้ว → `404 NOT_FOUND`
-- ห้องที่ไม่มีทั้งบิลและผู้เช่า → `404 NOT_FOUND` (กันพิมพ์เลขห้องผิด)
+- ห้องที่ไม่อยู่ใน `ROOMS` → `404 NOT_FOUND` (กันพิมพ์เลขห้องผิด — endpoint นี้ไม่ตรวจว่าห้องมีผู้เช่าหรือบิลหรือไม่)
 - **QR ผูกได้เฉพาะห้องที่ยังว่าง** — ห้องที่มีผู้เช่าผูกอยู่แล้วตอบ `409 ROOM_TAKEN` คนที่ถ่ายรูป QR ไปจึงแย่งห้องไม่ได้ · ผูกสำเร็จแล้วเจ้าของได้ข้อความแจ้ง · ย้ายห้องแล้วห้องเก่าเลิกส่งบิลให้ · ผิดเกิน 10 ครั้ง/ชม. → `429 TOO_MANY_ATTEMPTS`
 - **ย้ายห้องต้องยืนยัน** — ผู้เช่าที่ผูกห้องอื่นอยู่แล้วได้ `409 MOVE_CONFIRM_REQUIRED` (`error.current` = ห้องเดิม, `error.room` = ห้องใหม่) จนกว่าจะส่ง `confirmMove: true` · ลิงก์ `?bind=` ที่คนอื่นส่งมาจึงย้ายห้องใครเงียบ ๆ ไม่ได้ · หน้า LIFF ถาม "ย้ายไปห้อง X?" แล้วส่งซ้ำพร้อม flag ให้เอง
 
@@ -425,7 +425,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 |---|---|---|---|
 | `follow` | มี `source.userId` | `user:<userId>` = `{ followedAt: <epoch ms> }` | `reply` ข้อความต้อนรับ (บอกให้พิมพ์ "บิล") |
 | `message` (text) | ข้อความ = `บิล` หรือ `bill` (case-insensitive เฉพาะ `bill`) | ไม่เขียน | ไม่มี `user-room:<userId>` → `reply` "ยังไม่ได้ผูกห้อง"; ไม่มี `bill:<room>` หรือบิลนั้นไม่ใช่ของสัญญาเช่าปัจจุบัน (`tenancy`) → `reply` "ยังไม่มีบิลรอบนี้"; บิลล่าสุด `void` → `reply` ข้อความ `บิลห้อง <room> รอบ <period> ถูกยกเลิก — <เหตุผล>`; ไม่งั้น `reply` การ์ด `billBubble` |
-| `message` (text) | ตรง `/^ผูก\s*(\d{2,4})$/` | ไม่มี `bill:<room>` → ไม่เขียนอะไร; ไม่งั้นเขียน `user-room:<userId>` = `"<room>"` และ `room-user:<room>` = `userId` | `reply` "ผูกกับห้อง X แล้ว" หรือ "ไม่พบห้อง X" |
+| `message` (text) | ข้อความอื่นที่ไม่ใช่ "บิล"/"bill" | ไม่เขียน | ข้ามเงียบ ๆ — **การผูกห้องทำทาง QR เท่านั้น** (`POST /api/qr` ด้วยรหัสจากหน้าเจ้าของ ไม่มีคำสั่งพิมพ์ในแชทแล้ว) |
 | `postback` | `postback.data` มี `action=confirm&room=&period=` | `bill:<period>:<room>` (+ `bill:<room>` ถ้าเป็นรอบล่าสุด) = บิลเดิม + `status:"paid"`, `paidAt` (ISO), `confirmedBy`, `receiptNo`; `paid` อยู่แล้วไม่เขียน; `void` → reply "บิลนี้ถูกยกเลิกแล้ว" ไม่เขียน | `reply` ยืนยันกลับ; `push` ใบเสร็จ (`receiptBubble` — Flex "ใบเสร็จรับเงิน" ปุ่ม "ดูใบเสร็จ" เปิด LIFF `?room=<room>&receipt=<period>#receipt/<period>`) ให้ผู้เช่าจาก `room-user:<room>` (เฉพาะเมื่อมี ไม่ใช่คนเดียวกัน และบิลนั้นเป็นของสัญญาเช่าปัจจุบัน; push พังแค่ log) |
 | `postback` | `action=confirm&room=&periods=p1,p2` (สลิปเดียวหลายงวด) | ยืนยันเฉพาะบิลในรายการที่ยัง `pending` และมี `slipGroup.periods` ตรงกับการ์ดนี้ — แต่ละใบได้ `receiptNo` ของตัวเอง; บิลที่ paid/void แล้วหรือผู้เช่าส่งสลิปใหม่ไปแล้วถูกข้ามและระบุใน reply | `reply` สรุปงวดที่ยืนยัน/ที่ข้าม; ผู้เช่าได้ใบเสร็จใบละบิล (push ละไม่เกิน 5 ข้อความตามขีดจำกัดของ LINE — เกินแบ่งหลาย push) · `periods` ผิดรูป/เกิน 12 → reply ปฏิเสธ · ไม่มีบิลที่รอยืนยันเลย → reply แจ้งและไม่เขียน |
 | อื่น ๆ | — | — | ไม่มี (เมิน ยังตอบ 200) |
@@ -434,7 +434,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 
 - **postback `action=confirm` ตรวจเจ้าของแล้ว** — `webhook.js` เทียบ `event.source.userId` กับ `OWNER_USER_ID` ก่อนปิดบิล; ผู้ที่ไม่ใช่เจ้าของได้ข้อความ "เฉพาะเจ้าของหอกดยืนยันได้ครับ" และสถานะบิลไม่เปลี่ยน
 - **ไม่มีคำสั่งแชท `ผูก <room>` แล้ว** — ผูกห้องได้ทาง QR (`/api/qr`) อย่างเดียว · postback ยืนยันระบุ `period` และยืนยันได้เฉพาะบิล `pending`
-- **`OWNER_USER_ID` ไม่ถูกใช้ใน webhook เลย** — webhook ไม่รู้จัก role; สิทธิ์ทั้งหมดมาจาก `bill:<room>` ที่มีอยู่
+- **postback ตรวจสิทธิ์ด้วย `isOwner()`** — `OWNER_USER_ID` หรือเจ้าของที่ถูกเชิญ (`owner:<userId>`) เท่านั้นที่ปิดบิลได้ · ผู้ที่ไม่ใช่เจ้าของถูกปฏิเสธและสถานะไม่เปลี่ยน
 - ถ้า `LINE_CHANNEL_ACCESS_TOKEN` ผิด/หมดอายุ `reply`/`push` throw แต่ `handleEvent` ถูกครอบด้วย `try/catch` ต่อ event → webhook ยังตอบ 200 ผู้ใช้แค่ไม่ได้รับข้อความ
 
 ## 14. สรุปการตรวจสิทธิ์ (จุดที่ไม่มี check ในโค้ด)

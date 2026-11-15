@@ -2,21 +2,21 @@
 
 # การทดสอบ (TESTING)
 
-เอกสารนี้พูดตรง ๆ ว่าโปรเจกต์นี้ **มีเทสต์อัตโนมัติอยู่ชุดเดียวคือ `smoke.js`** และที่เหลือทั้งหมดเป็นการทดสอบมือที่คนต้องทำเอง ไม่มี test runner, ไม่มี framework, ไม่มี CI และไม่มี coverage ในเรพนี้เลย
+เอกสารนี้เล่าละเอียดของ **`smoke.js`** (ชุดแรก) — ภาพรวมของทั้งห้าชุดและตารางเคสอยู่ใน [`docs/TESTING.md`](../../docs/TESTING.md) กับ [`docs/TEST-CASES.md`](../../docs/TEST-CASES.md) ส่วนเอกสารนี้ยังไม่ได้ไล่บรรยายชุดที่เพิ่มมาทีหลัง (`smoke-handlers.js`, `smoke-reads.js`, `smoke-usecases.js`, `smoke-cron.js`)
 
 ## 1. สถานะการทดสอบตอนนี้
 
 | ชนิด | มีไหม | หลักฐานจากเรพ |
 |---|---|---|
-| Unit/offline test อัตโนมัติ | ✅ มีชุดเดียว: `smoke.js` | `smoke.js` (34 บรรทัด) |
-| Test runner (`jest`/`vitest`/`mocha`/`node --test`) | ❌ ไม่มี | `package.json` ไม่มี `scripts` และ dependency มีตัวเดียวคือ `@vercel/blob` |
-| คำสั่ง `npm test` | ❌ ไม่มี | `package.json` ไม่มี `"scripts"` เลย |
-| CI (GitHub Actions ฯลฯ) | ❌ ไม่มี | ไม่มี `.github/` ในเรพ |
+| Unit/offline test อัตโนมัติ | ✅ **ห้าชุด**: `smoke.js`, `smoke-handlers.js`, `smoke-reads.js`, `smoke-cron.js`, `smoke-usecases.js` | ไฟล์ทั้งห้าอยู่ที่ root ของ `line-app/` |
+| Test runner (`jest`/`vitest`/`mocha`/`node --test`) | ❌ ไม่มี | ใช้ `node <file>` ตรง ๆ และ `assert` ของ Node |
+| คำสั่ง `npm test` | ✅ มี แต่รันแค่ **สามชุดแรก** | `package.json` → `scripts.test`; ชุด use case กับ cron ต้องสั่งเองหรือพึ่ง CI |
+| CI (GitHub Actions ฯลฯ) | ✅ มี | `.github/workflows/ci.yml` — job `line-app` รัน syntax check ทุก handler + smoke ทั้งห้าชุด + ตรวจ inline script ของ `liff/bill.html` |
 | Coverage threshold | ❌ ไม่มี | ไม่มี config ของ coverage ใด ๆ |
-| เทสต์ที่ยิง HTTP endpoint | ❌ ไม่มี | `smoke.js` ไม่ได้โหลด `req`/`res` และไม่เรียก `fetch` |
+| เทสต์ที่ยิง HTTP endpoint | ✅ มี (`smoke-handlers.js`) | เรียก handler ด้วย `req`/`res` ปลอม + store ในหน่วยความจำ |
 | E2E ผ่าน LINE จริง | ❌ ไม่มีอัตโนมัติ | ต้องทำมือตามข้อ 7 |
 
-ผลที่ตามมา: **`node smoke.js` ผ่านไม่ได้แปลว่าระบบทำงาน** — มันตรวจแค่ 3 กลุ่ม: สูตร HMAC, โครงการ์ดบิล และ postback ของการ์ดเจ้าของ (ดูข้อ 3–4) endpoint ทั้ง 10 ตัว, Blob, LINE API และหน้า LIFF ไม่ถูกแตะเลย
+ผลที่ตามมา: **`node smoke.js` ผ่านไม่ได้แปลว่าระบบทำงาน** — มันตรวจแค่ 3 กลุ่ม: สูตร HMAC, โครงการ์ดบิล และ postback ของการ์ดเจ้าของ (ดูข้อ 3–4) ต้องรันอีกสี่ชุดจึงจะครอบ endpoint ทั้ง 12 ตัว, Blob, LINE API (stub) และหน้า LIFF (เฉพาะ parse)
 
 ## 2. `node smoke.js` — รันอะไร ได้อะไร
 
@@ -32,11 +32,13 @@ node smoke.js
 > node -v
 v26.13.0
 > node smoke.js; "exit=$LASTEXITCODE"
-smoke OK — signature + flex card + confirm card
+smoke OK — signature + flex card + confirm card + auth guards
 exit=0
 ```
 
-ข้อความ `smoke OK — ...` มาจาก `console.log` บรรทัดสุดท้ายของไฟล์ (`smoke.js` บรรทัด 34) ส่วน **exit code 0** มาจากการที่ `assert` ทุกตัวไม่ throw — ถ้าตัวใดตัวหนึ่ง fail โปรเซสจะจบด้วย exit code ที่ไม่ใช่ 0 และไม่มีบรรทัด `smoke OK` พิมพ์ออกมา จำสองอย่างนี้ไว้เพราะมันคือทั้งหมดที่ใช้ gate ก่อน deploy
+ข้อความ `smoke OK — ...` มาจาก `console.log` บรรทัดสุดท้ายของไฟล์ (`smoke.js` บรรทัด 85) ส่วน **exit code 0** มาจากการที่ `assert` ทุกตัวไม่ throw — ถ้าตัวใดตัวหนึ่ง fail โปรเซสจะจบด้วย exit code ที่ไม่ใช่ 0 และไม่มีบรรทัด `smoke OK` พิมพ์ออกมา จำสองอย่างนี้ไว้เพราะมันคือทั้งหมดที่ใช้ gate ก่อน deploy
+
+> เอกสารนี้เล่าละเอียดของ `smoke.js` เท่านั้น — ชุดที่เหลือ (`smoke-handlers.js`, `smoke-reads.js`, `smoke-usecases.js` 156 เคส, `smoke-cron.js`) สรุปได้ที่ [`docs/TESTING.md`](../../docs/TESTING.md) และ [`docs/TEST-CASES.md`](../../docs/TEST-CASES.md)
 
 นอกจาก `smoke.js` ยังมี `node smoke-usecases.js` ที่จัดเทสต์ตาม use case (offline เหมือนกัน) รายการเคสทั้งหมดอยู่ที่ `../../docs/TEST-CASES.md`
 
@@ -65,7 +67,7 @@ const LIFF_ID = process.env.LIFF_ID;
 const { verify, billBubble, confirmBubble } = require("./api/_line");
 ```
 
-ไม่มีการ `require` `_store`, `_auth`, `_rooms`, `webhook` หรือไฟล์ endpoint ใด ๆ → `@vercel/blob` ไม่ถูกโหลด → ไม่มีการต่อ network → ไม่ต้องมี credential ใด ๆ จึงรันได้บนเครื่องที่ไม่มี env ครบ
+`smoke.js` โหลด `_line` และ `_auth`/`_qr` (ส่วน `_store` ถูก stub ในไฟล์) — ไม่ได้ `require` ไฟล์ endpoint ใด ๆ → `@vercel/blob` ไม่ถูกโหลด → ไม่มีการต่อ network → ไม่ต้องมี credential ใด ๆ จึงรันได้บนเครื่องที่ไม่มี env ครบ
 
 ## 3. `smoke.js` ยืนยันอะไรบ้าง (ไล่ทีละ assert)
 
@@ -88,7 +90,7 @@ assert.strictEqual(verify(raw, undefined), false, "missing signature should fail
 สิ่งที่เคสนี้ **ไม่ได้** พิสูจน์:
 - **ไม่มี `LINE_CHANNEL_SECRET`** → `verify()` คืน `false` ทันที (บรรทัด 9) เคสนี้เทสต์ในโปรเซสเดียวกันไม่ได้เพราะ `SECRET` ถูกจับตอน load — ต้องรันโปรเซสใหม่ที่ไม่มี env (ดูตัวอย่างในข้อ 5.3)
 - **ใช้ signature ของ body A กับ body B** → ควรได้ `false` แต่ไม่มี assert นี้ (จริงตามสูตร แต่ไม่มีเทสต์กันคนแก้ `verify()` ให้ใช้ค่าคงที่)
-- `verify()` ใช้ `===` เทียบ base64 ไม่ใช่ `crypto.timingSafeEqual` — ไม่ใช่เรื่องที่เทสต์จับได้ แต่เป็นที่รู้ไว้ (timing attack บน signature ของ LINE แทบไม่ realistic แต่โค้ดไม่ได้กัน)
+- `verify()` (ใน `api/_line.js`) ใช้ `crypto.timingSafeEqual` เทียบ base64 แล้ว (เทียบความยาวก่อน) — ไม่ใช่ช่องโหว่ที่ต้องแก้
 
 ### 3.2 การ์ดบิล `billBubble` (บรรทัด 17–25)
 
@@ -264,9 +266,9 @@ curl.exe -s -X POST $B/api/slip -H "x-seed-token: $S" -H "Content-Type: applicat
 | ไม่แนบรูป | `200` `{"ok":true,"status":"pending","total":<ยอด>,"hasSlip":false}` | `status` เปลี่ยนเป็น `pending`; ไม่มีการเขียนไฟล์สลิป |
 | แนบรูป data URL (JPEG/PNG/WEBP) | `200` `hasSlip:true` | ไฟล์ถูกเขียนที่ `slips/203-<ts>.<ext>` — นามสกุลตาม mime (`jpeg` → `jpg`, png/webp คงเดิม); เจ้าของต้องได้รับการ์ด "ยืนยันการชำระ" |
 | mime อื่น (เช่น `image/gif`) | `400` `VALIDATION` "รูปต้องเป็น JPEG/PNG/WEBP" | regex ที่บรรทัด 31 ปฏิเสธก่อน decode |
-| บิล `paid` แล้ว | `409` `INVALID_STATE` "บิลนี้ชำระแล้ว" | ต้องทำให้บิลเป็น `paid` ก่อนด้วย postback (ข้อ 7) — ไม่มี API อื่นที่ตั้ง `paid` ได้ |
+| บิล `paid`/`void` แล้ว | `200` — สลิปถูกเก็บเป็น `prepay:<room>` (รอผูกกับบิลรอบถัดไป) | `api/slip.js` ไม่คืน 409 ในเคสนี้; `/api/run` จะหยิบไปผูกและขึ้น `pending` |
 | ใหญ่กว่า 3 MiB | `413` `TOO_LARGE` | ทำได้ยากผ่าน curl เพราะหน้า LIFF ย่อรูปเหลือ ≤1280px/quality 0.8 ก่อนส่ง |
-| เรียกด้วย GET | `405` `{"error":"POST only"}` | error เป็น string ไม่ใช่ envelope — หน้า LIFF จะโชว์ `HTTP 405` |
+| เรียกด้วย GET | `405` `{"error":{"code":"METHOD_NOT_ALLOWED",...}}` | envelope เป็น object ไม่ใช่ string |
 | ห้องที่ไม่ได้ผูก (non-owner) | `403` `FORBIDDEN` | ต้องทดสอบด้วยตัวตน `"dev"` |
 
 หลังยิงสำเร็จ ตรวจฝั่งข้อมูลด้วย `GET /api/bill?room=203` → `status` ต้องเป็น `pending` และ `slipPath` มีค่า (ถ้าแนบรูป)
@@ -288,7 +290,7 @@ curl.exe -s -X POST $B/api/slip -H "x-seed-token: $S" -H "Content-Type: applicat
 | owner | `curl.exe -s -H "x-seed-token: $S" $B/api/rooms` | `200` `{period, rooms:[12 ห้อง]}` | แต่ละห้องมี `config{rent,waterRate,elecRate}`, `meter`, `bill`, `tenant` (เป็น `null` ได้) |
 | non-owner | ตัวตน `"dev"` | `403` `FORBIDDEN` "เฉพาะเจ้าของหอ" | ต้องถอด `OWNER_USER_ID` ก่อน |
 | จำนวนห้อง | ดูความยาว array | เท่ากับ `ROOMS` (default 12) | ถ้าเปลี่ยน env `ROOMS` ต้อง redeploy |
-| ช้าแค่ไหน | จับเวลา | ~4 read ต่อห้อง (default 48 reads) | ช้าเพราะอ่าน Blob ทีละ key — ถ้าเพิ่มห้องเยอะจะชัด |
+| ช้าแค่ไหน | จับเวลา | ~5 read ต่อห้อง (default 60 reads) | ช้าเพราะอ่าน Blob ทีละ key — ถ้าเพิ่มห้องเยอะจะชัด |
 
 ### 6.7 `POST /api/run`
 
@@ -302,7 +304,7 @@ curl.exe -s -X POST $B/api/run -H "x-seed-token: $S" -H "Content-Type: applicati
 | ห้องที่ไม่มีผู้เช่า | `200` + `pushed:false` | ไม่มี `room-user:<room>` → ไม่ push |
 | `readings` หาย/ไม่ใช่ array/ว่าง | `400` `VALIDATION` "ต้องส่ง readings" | |
 | ไม่มี `period` และไม่ได้ตั้ง `BILL_PERIOD` | `400` `VALIDATION` "ต้องระบุ period" | เช็กก่อนถึง loop |
-| ค่ามิเตอร์เสีย (`"water":"abc"`) | `200` + `{room, error:"ค่ามิเตอร์ไม่ถูกต้อง"}` | **ทั้ง request ยัง 200** — ต้องอ่าน `rooms[]` ทีละตัว ไม่ใช่ดูแค่ status |
+| ค่ามิเตอร์เสีย (`"water":"abc"`) | `200` + `{room, error:"หน่วยมิเตอร์ต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป"}` | **ทั้ง request ยัง 200** — ต้องอ่าน `rooms[]` ทีละตัว ไม่ใช่ดูแค่ status |
 | เรียกด้วย GET | `405` | |
 | บิลเดิมถูกทับไหม | รันซ้ำด้วย period เดิม | บิล `unpaid` ถูกเขียนทับได้ (แก้เลขผิด) · `pending`/`paid` ถูกปฏิเสธและคืน `error` ใน `rooms[]` |
 
@@ -345,10 +347,10 @@ node -e "const c=require('crypto');const b=JSON.stringify({events:[]});const s=c
 | เคส | คาดหวัง | ดูอะไร |
 |---|---|---|
 | signature ถูก + `{"events":[]}` | `200` `{"ok":true}` | ปลอดภัยที่สุดในการทดสอบ เพราะไม่มี event ให้ทำงาน |
-| signature ผิด | `401` `{"error":"bad signature"}` | **ตรวจ signature ก่อน parse JSON** → body จะเสียก็ได้ผล 401 เหมือนกัน |
+| signature ผิด | `401` `{"error":{"code":"UNAUTHORIZED","message":...}}` | **ตรวจ signature ก่อน parse JSON** → body จะเสียก็ได้ผล 401 เหมือนกัน |
 | ไม่ส่ง signature | `401` | |
-| signature ถูก แต่ body ไม่ใช่ JSON | `400` `{"error":"invalid json"}` | |
-| เรียกด้วย GET | `405` `{"error":"POST only"}` | |
+| signature ถูก แต่ body ไม่ใช่ JSON | `400` `{"error":{"code":"VALIDATION","message":"invalid json"}}` | |
+| เรียกด้วย GET | `405` `{"error":{"code":"METHOD_NOT_ALLOWED",...}}` | |
 | ปุ่ม Verify ใน LINE Developers Console | ต้องขึ้น success | ถ้าไม่ผ่าน ดูว่า URL ลงท้าย `/api/webhook` และ `LINE_CHANNEL_SECRET` ตรงกับ channel |
 
 <!-- VERIFY: พฤติกรรมของปุ่ม Verify ใน LINE Developers Console (ส่ง request ว่างและต้องได้ 200) เป็นพฤติกรรมของ LINE ไม่ได้ระบุในเรพ -->

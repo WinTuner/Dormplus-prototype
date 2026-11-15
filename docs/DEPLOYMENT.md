@@ -321,7 +321,7 @@ curl -i -H "Authorization: Bearer $CRON_SECRET" https://line-backend-ten.vercel.
 | `503 QUEUE_UNAVAILABLE` | ยังไม่สร้างตาราง procrastinate (ข้อ 5) หรือต่อ DB ไม่ได้ |
 | `500` | ดู log ของ function ก่อน — มักเป็น schema ไม่ตรง (ข้อ 4) |
 
-<!-- VERIFY: สถานะการลงทะเบียน cron (`/api/cron` `0 2 * * *` บนโปรเจกต์ line-app) และประวัติการยิงจริง — เห็นได้ที่ Vercel → Project (line-app) → Cron Jobs เท่านั้น · Hobby รันได้วันละ 1 ครั้ง คลาดได้ถึง ±59 นาที -->
+<!-- ตรวจแล้ว 2026-11-16: `vercel crons list` บนโปรเจกต์ line-app คืน `/api/cron  0 2 * * *` และโปรเจกต์ line-backend ไม่มี cron job เลย · ประวัติการยิงจริงยังดูได้แค่ที่ Vercel → Project (line-app) → Cron Jobs · Hobby รันได้วันละ 1 ครั้ง คลาดได้ถึง ±59 นาที -->
 <!-- VERIFY: plan ของทีมบน Vercel (Hobby vs Pro) เป็นตัวกำหนดเพดาน cron/function timeout — ยืนยันจากเรพไม่ได้ -->
 
 `scripts/prod-smoke.mjs` ตรวจแค่ว่า `/v1/cron/daily` ของ backend มีอยู่และ **ต้องมี secret** (`GET` ไม่มี header → 401)

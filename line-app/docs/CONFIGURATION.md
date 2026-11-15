@@ -2,7 +2,7 @@
 
 # การตั้งค่า (CONFIGURATION)
 
-เอกสารนี้อธิบายทุกค่าที่ระบบอ่านจาก `process.env` โดยไล่จากโค้ดจริงใน `api/*.js` ไม่มีการเดา รายการนี้คือ **ทั้งหมด** ของตัวแปรที่โค้ดอ่าน (16 ตัว) บวกกับตัวแปรที่ Vercel/`@vercel/blob` อ่านเองอีก 2 ตัว
+เอกสารนี้อธิบายทุกค่าที่ระบบอ่านจาก `process.env` โดยไล่จากโค้ดจริงใน `api/*.js` ไม่มีการเดา รายการนี้คือ **ทั้งหมด** ของตัวแปรที่โค้ดอ่าน (18 ตัว รวม `VERCEL_ENV` ที่ Vercel ฉีดให้) บวกกับตัวแปรที่ `@vercel/blob` อ่านเอง
 
 > หมายเหตุ: `liff/bill.html` **ไม่อ่าน `process.env` เลย** หน้าเว็บได้ LIFF ID มาจาก `GET /api/config` ตอน runtime (`liff/bill.html` บรรทัด 56) ดังนั้นค่าที่หน้าเว็บเห็นคือค่าที่ฝั่ง server ส่งไปเท่านั้น
 
@@ -16,8 +16,8 @@
 | `OWNER_USER_ID` | ✅ | — | `api/_auth.js`, `api/slip.js` | ไม่มีใครเป็น owner → `/api/rooms`, `/api/run` ตอบ 403 และไม่มีการส่งการ์ด "ยืนยันการชำระ" ให้ใคร |
 | `CRON_SECRET` | ✅ สำหรับแจ้งเตือนบิลค้าง | — | `api/cron.js` | `/api/cron` ตอบ `503 NOT_CONFIGURED` (ว่างหรือสั้นกว่า 16 ตัว) → ไม่มีการเตือนใด ๆ ส่วนระบบอื่นทำงานปกติ |
 | `SEED_TOKEN` | ✅ | — | `api/dev.js`, `api/dev.js`, `api/_auth.js` | `/api/dev` และ bypass `x-seed-token` ใช้ไม่ได้ (ต้องยาว ≥ 16 ตัว) · บน production ทั้งสองอย่างปิดอยู่แล้วไม่ว่าตั้งค่าอะไร |
-| `RICHMENU_OWNER_ID` | ไม่บังคับ | — | `api/owner-accept.js` | ไม่มีผล — เจ้าของที่รับสิทธิ์จะไม่ถูกสลับ rich menu |
-| `RICHMENU_TENANT_ID` | ไม่บังคับ | — | `api/webhook.js` | ไม่มีผล — ผู้เช่าที่ผูกห้องจะไม่ถูกสลับ rich menu |
+| `RICHMENU_OWNER_ID` | ไม่บังคับ | — | `api/me.js`, `api/owner.js` | ไม่ตั้ง = เจ้าของไม่ถูกสลับ rich menu (ระบบยังทำงานปกติ) |
+| `RICHMENU_TENANT_ID` | ไม่บังคับ | — | `api/qr.js` | ไม่ตั้ง = ผู้เช่าไม่ถูกสลับ rich menu ตอนผูกห้อง |
 | `ALLOW_SEED_BYPASS` | ไม่บังคับ | — (ปิด) | `api/_auth.js` | ไม่มีผลบน production เว้นแต่ตั้งเป็น `true` — ใช้เปิด bypass บนเครื่องที่ไม่ได้รันบน Vercel |
 | `PUBLIC_BASE_URL` | ไม่บังคับ | `` `https://${req.headers.host}` `` | `api/run.js`, `api/dev.js`, `api/webhook.js` | ใช้ host ของ request แทน (บน Vercel ปกติใช้ได้) |
 | `ROOMS` | ไม่บังคับ | `201,202,203,204,205,206,207,208,209,210,211,212` | `api/_rooms.js` | ใช้ห้อง 201–212 |
@@ -55,7 +55,7 @@
 
 **`LOGIN_CHANNEL_ID`** — ทางหนีเมื่อ channel id ของ LINE Login ไม่ตรงกับ prefix ของ LIFF ID (เช่น LIFF อยู่คนละ provider) ถ้าตั้ง จะถูกใช้แทนค่า derive ทั้งหมด
 
-**`OWNER_USER_ID`** — LINE userId ของเจ้าของหอ เป็นตัวตัดสินสิทธิ์ทั้งหมด (`isOwner()` เทียบตรงตัว) และเป็นปลายทางของการ์ด "ยืนยันการชำระ" ใน `api/slip.js` **1 deploy = 1 เจ้าของ** ยังไม่รองรับหลายคน
+**`OWNER_USER_ID`** — LINE userId ของเจ้าของหอคนแรก เป็นปลายทางของการ์ด "ยืนยันการชำระ" ใน `api/slip.js` และเป็นคนเดียวที่เชิญ/ถอนเจ้าของคนอื่นได้ · **รองรับหลายเจ้าของแล้ว**: `isOwner()` อ่าน `owner:<userId>` เพิ่มจาก `OWNER_USER_ID` (คนที่ถูกเชิญจึงยืนยันการชำระได้ด้วย)
 
 **`SEED_TOKEN`** — รหัสลับสำหรับงาน dev/ทดสอบ มีผลสามที่:
 - `POST /api/dev?do=seed` + header `x-seed-token` — สร้างบิลตัวอย่างทุกห้อง
@@ -72,7 +72,7 @@
 
 **`BILL_PERIOD`** — ค่าเริ่มต้นของรอบบิล (`2026-11`) ใช้ใน `api/run.js` (ถ้า body ไม่ส่ง `period` มา), `api/dev.js`, และแสดงใน `GET /api/rooms` ถ้าไม่ตั้งและไม่ส่งมา `/api/run` จะตอบ `400 VALIDATION` — คือ **เป็นตัวเดียวในกลุ่มนี้ที่ทำให้ endpoint หลักใช้ไม่ได้ถ้าไม่ตั้ง**
 
-**`BILL_DUE`** — วันครบกำหนด ใช้ใน `api/run.js` และ `api/dev.js` ไม่บังคับ: ถ้าไม่มี บิลเก็บ `due: null` และการ์ด LINE จะแสดงคำว่า `null`
+**`BILL_DUE`** — วันครบกำหนด ใช้ใน `api/run.js` และ `api/dev.js` ไม่บังคับ: ถ้าไม่มี บิลเก็บ `due: null` และการ์ด LINE จะ **ไม่แสดงบรรทัดครบกำหนด** (ไม่พิมพ์คำว่า `null`)
 
 ### 2.3 กลุ่ม URL
 
@@ -92,9 +92,9 @@
 
 ## 4. ไม่มีไฟล์ config และไม่มี `.env`
 
-โปรเจกต์นี้ **ไม่มี** `config.json`, `config.yaml`, `.env`, `.env.example` หรือ `.env.*` ใด ๆ และ **ไม่มี dotenv** ใน dependency — dependency ตัวเดียวคือ `@vercel/blob` (`package.json`) `.gitignore` มีบรรทัดเดียวคือ `.vercel`
+โปรเจกต์นี้ **ไม่มี** `config.json`, `config.yaml`, `.env`, `.env.example` หรือ `.env.*` ใด ๆ และ **ไม่มี dotenv** ใน dependency — dependency มีสองตัวคือ `@vercel/blob` กับ `qrcode-svg` (`package.json`)
 
-ผลที่ตามมา: **โค้ดจะไม่อ่านไฟล์ `.env`** การใส่ค่าในไฟล์ `.env` เฉย ๆ ไม่มีผลอะไร เพราะไม่มีอะไรโหลดไฟล์นั้นเข้า `process.env` (Node อ่าน `.env` เองได้เฉพาะเมื่อสั่ง `--env-file` ซึ่งไม่มีในโปรเจกต์นี้เพราะ `package.json` ไม่มี `scripts` เลย)
+ผลที่ตามมา: **โค้ดจะไม่อ่านไฟล์ `.env`** การใส่ค่าในไฟล์ `.env` เฉย ๆ ไม่มีผลอะไร เพราะไม่มีอะไรโหลดไฟล์นั้นเข้า `process.env` (Node อ่าน `.env` เองได้เฉพาะเมื่อสั่ง `--env-file` ซึ่งไม่มีในสคริปต์ของโปรเจกต์นี้ — `scripts` มีแค่ `test`)
 
 ## 5. ค่า default ทั้งหมดที่อยู่ในโค้ด
 
@@ -114,16 +114,17 @@
 ## 6. Runtime และการ deploy
 
 - **Node.js `>=20`** ตาม `engine` ใน `package.json` (ระบุว่า `"node": ">=20"`) — ไม่มี `.nvmrc` หรือ `.node-version` ในเรพ
-- **dependency เดียว**: `@vercel/blob` `^2.9.0`
-- **ไม่มีขั้นตอน build** — ไม่มี `scripts` ใน `package.json` ทั้งหมด Vercel จึง deploy แบบ static + serverless function ตรง ๆ
+- **dependency สองตัว**: `@vercel/blob` `^2.9.0` และ `qrcode-svg` `^1.1.0`
+- **ไม่มีขั้นตอน build** — `scripts` มีแค่ `test` (รัน smoke สามชุดแรก) ไม่มี `build` จึง deploy แบบ static + serverless function ตรง ๆ
 
-`vercel.json` มีแค่ rewrite เดียว:
+`vercel.json` มี `rewrites` (เปิด `/` → หน้า LIFF), `crons` (`/api/cron`), `headers` และ `git.deploymentEnabled`:
 
 ```json
 {
   "rewrites": [
     { "source": "/", "destination": "/liff/bill.html" }
-  ]
+  ],
+  "crons": [{ "path": "/api/cron", "schedule": "0 2 * * *" }]
 }
 ```
 
@@ -134,7 +135,7 @@
 
 ## 7. รันในเครื่อง (ไม่มี dependency และไม่มี `.env`)
 
-**สรุป: ไม่มีโหมดรันเซิร์ฟเวอร์ในเครื่องจากเรพนี้** ไม่มี `npm start`, `npm run dev`, `vercel dev` script หรือ dev server ใด ๆ เพราะ `package.json` ไม่มี `scripts` และไม่มี `.env` ให้โหลด
+**สรุป: ไม่มีโหมดรันเซิร์ฟเวอร์ในเครื่องจากเรพนี้** ไม่มี `npm start`, `npm run dev`, `vercel dev` script หรือ dev server ใด ๆ — `scripts` มีแค่ `test` และไม่มี `.env` ให้โหลด
 
 สิ่งเดียวที่รันได้จริงจากเรพคือ smoke test แบบ offline:
 

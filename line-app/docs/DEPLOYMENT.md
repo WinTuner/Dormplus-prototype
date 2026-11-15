@@ -16,14 +16,14 @@
 |---|---|
 | `vercel.json` | rewrite เดียว: `/` → `/liff/bill.html` และ `crons` หนึ่งงาน: `/api/cron` ทุกวัน 02:00 UTC (ดูข้อ 5A) |
 | `api/*.js` | Vercel เปิดเป็น serverless function ตามชื่อไฟล์ (เช่น `api/bill.js` → `/api/bill`) |
-| `api/_auth.js`, `api/_line.js`, `api/_rooms.js`, `api/_store.js` | helper ที่ขึ้นต้นด้วย `_` — ไม่ได้ถูกเรียกเป็น endpoint ตรง ๆ (endpoint จริงมี 10 ตัวตามตารางใน `README.md`) |
+| `api/_auth.js`, `api/_line.js`, `api/_rooms.js`, `api/_store.js` | helper ที่ขึ้นต้นด้วย `_` — ไม่ได้ถูกเรียกเป็น endpoint ตรง ๆ (endpoint จริงมี **12** ตัวตามตารางใน `README.md`) |
 | `liff/bill.html` | หน้า static ไฟล์เดียว เข้าที่ `/liff/bill.html` |
-| `.vercel/project.json` | ผูกโฟลเดอร์นี้กับโปรเจกต์ Vercel ที่มีอยู่แล้ว (`projectName: line-app`) — ไม่ได้อยู่ใน git (`.gitignore` มีบรรทัดเดียวคือ `.vercel`) |
-| `package.json` | `"engines": { "node": ">=20" }`, dependency ตัวเดียว `@vercel/blob ^2.9.0`, **ไม่มี `scripts` เลย** |
+| `.vercel/project.json` | ผูกโฟลเดอร์นี้กับโปรเจกต์ Vercel ที่มีอยู่แล้ว (`projectName: line-app`) — ไม่ได้อยู่ใน git (`.vercel/` ถูก ignore) |
+| `package.json` | `"engines": { "node": ">=20" }`, dependency สองตัว (`@vercel/blob`, `qrcode-svg`), `scripts` มีแค่ `test` (smoke สามชุดแรก) |
 
 **ไม่มีในเรพ (ตั้งใจไม่เดา):**
 - ไม่มี `Dockerfile`, `docker-compose.yml`, `fly.toml`, `netlify.toml`, `serverless.yml`
-- ไม่มี `.github/workflows/` ในโฟลเดอร์นี้ — CI อยู่ที่ root ของ repo (`.github/workflows/ci.yml`, job `backend`) และไม่ครอบ `line-app/` · การ deploy มาจาก Git integration ของ Vercel หรือ CLI
+- ไม่มี `.github/workflows/` ในโฟลเดอร์นี้ — CI อยู่ที่ root ของ repo (`.github/workflows/ci.yml`) มีสอง job: `backend` และ `line-app` (job หลังรัน syntax check + smoke ทั้งห้าชุด + ตรวจ inline script) · การ deploy มาจาก Git integration ของ Vercel หรือ CLI
 - ไม่มี `.env`, `.env.example`, `.env.production`, `.env.preview` → env ทั้งหมดถูกตั้งใน Vercel เท่านั้น (ดู `docs/CONFIGURATION.md` ข้อ 4)
 - ไม่มีสคริปต์ build → Vercel ไม่รัน build ใด ๆ
 
@@ -43,7 +43,7 @@
 | Vercel Blob store (private) | ต้องสร้าง + connect (ข้อ 4) | ทุก endpoint ที่อ่าน state ตอบ 500 |
 | ค่า LINE 4 ตัว | LINE Developers Console (ข้อ 6) | ระบบรันได้แต่ไม่มีอะไรทำงาน |
 
-> **ไม่มีขั้นตอน `npm run build` และไม่มี `npm test`** — `package.json` ไม่มี `scripts` เลย คำสั่งเดียวที่รันในเครื่องได้คือ `node smoke.js` (offline ไม่ต่อเน็ต)
+> **ไม่มีขั้นตอน `npm run build`** — `package.json` มีแค่ `scripts.test` (smoke สามชุดแรก) ไม่มี `build` · ชุดที่เหลือ (`smoke-usecases.js`, `smoke-cron.js`) ต้องสั่งเองหรือพึ่ง CI
 
 ---
 
@@ -85,7 +85,7 @@ node smoke.js
 ต้องได้บรรทัดนี้ ถ้าไม่ผ่าน **อย่า deploy**:
 
 ```
-smoke OK — signature + flex card + confirm card
+smoke OK — signature + flex card + confirm card + auth guards
 ```
 
 ---
@@ -285,9 +285,9 @@ vercel rollback
 
 | Error ที่เห็น | มาจาก | สาเหตุที่เป็นไปได้ | ตรวจอะไร |
 |---|---|---|---|
-| `401 {"error":"bad signature"}` | `api/webhook.js` | `LINE_CHANNEL_SECRET` ผิด/มีช่องว่าง/ขึ้นบรรทัดใหม่ หรือยังไม่ Redeploy | เทียบค่ากับ Basic settings, ดูว่าไม่มี trailing space |
-| `405 {"error":"POST only"}` | ทุก endpoint ที่รับ POST | เรียกด้วย GET (เบราว์เซอร์) | ใช้ `-X POST` |
-| `400 {"error":"invalid json"}` | `api/webhook.js` | body เสีย (ปกติ LINE ไม่ส่งแบบนี้) | อย่าเทสต์ webhook ด้วย body ที่ไม่ใช่ JSON |
+| `401 {"error":{"code":"UNAUTHORIZED","message":"..."}}` | `api/webhook.js` | `LINE_CHANNEL_SECRET` ผิด/มีช่องว่าง/ขึ้นบรรทัดใหม่ หรือยังไม่ Redeploy | เทียบค่ากับ Basic settings, ดูว่าไม่มี trailing space |
+| `405 {"error":{"code":"METHOD_NOT_ALLOWED",...}}` | ทุก endpoint ที่รับ POST | เรียกด้วย GET (เบราว์เซอร์) | ใช้ `-X POST` |
+| `400 {"error":{"code":"VALIDATION","message":"invalid json"}}` | `api/webhook.js` | body เสีย (ปกติ LINE ไม่ส่งแบบนี้) | อย่าเทสต์ webhook ด้วย body ที่ไม่ใช่ JSON |
 | `401 UNAUTHORIZED "ต้องเปิดหน้านี้ผ่าน LINE"` | `api/_auth.js` | ไม่มี `Authorization: Bearer` หรือ derive `CHANNEL_ID` ไม่ได้ (`LIFF_ID` ว่าง) | ตั้ง `LIFF_ID` หรือ `LOGIN_CHANNEL_ID` |
 | `403 FORBIDDEN "idToken ไม่ถูกต้องหรือหมดอายุ"` | `api/_auth.js` | idToken หมดอายุ / `client_id` ไม่ตรงกับ LIFF | ปกติเกิดตอน LIFF อยู่คนละ provider — ตั้ง `LOGIN_CHANNEL_ID` |
 | `404` / `403 FORBIDDEN "ต้องส่ง x-seed-token"` | `api/dev.js` | production (ตอบ 404 เสมอ) · header `x-seed-token` ไม่ตรง หรือ `SEED_TOKEN` สั้นกว่า 16 ตัว | ใช้บน `vercel dev` แล้วส่ง `-H "x-seed-token: $T"` |
@@ -295,7 +295,7 @@ vercel rollback
 | `403 FORBIDDEN "บัญชีนี้ยังไม่ได้ผูกกับห้อง 203"` | `api/bill.js`, `api/slip.js` | ผู้ใช้ยังไม่ได้ผูกห้อง | สแกน QR หน้าห้อง (เจ้าของสร้างได้จากหน้าห้อง → "QR ผู้เช่า") |
 | `404 NOT_FOUND "ไม่พบบิลของห้อง 203"` | `api/bill.js` | ยังไม่ seed / ยังไม่ออกรอบบิล | รัน `/api/dev?do=seed` (ทดสอบ) หรือ `/api/run` (จริง) |
 | `404 NOT_FOUND "ยังไม่มีสลิป"` / `"ไม่พบไฟล์สลิป"` | `api/slip-image.js` | บิลยังไม่ถูกแนบสลิป หรือไฟล์ใน Blob หาย | ดู `bill.slipPath` ใน `/api/bill` |
-| `409 INVALID_STATE "บิลนี้ชำระแล้ว"` | `api/slip.js` | บิล `status:"paid"` แล้ว | ออกรอบใหม่ด้วย `/api/run` |
+| ไม่มี error — บิล `paid` แล้วการแนบสลิปจะถูกเก็บเป็น `prepay:<room>` | `api/slip.js` | บิล `status:"paid"` | สลิปจะรอไปผูกกับบิลรอบถัดไป (`/api/run` ทำให้) ไม่ใช่ 409 |
 | `413 TOO_LARGE "รูปใหญ่เกิน 3MB"` | `api/slip.js` | รูปใหญ่เกิน 3MB (หน้าเว็บย่อให้เหลือ 1280px ก่อนส่ง แต่บางรูปยังเกิน) | ให้ผู้เช่าถ่ายใหม่/ลดขนาด |
 | `400 VALIDATION "รูปต้องเป็น JPEG/PNG/WEBP"` | `api/slip.js` | แนบไฟล์ชนิดอื่น (เช่น HEIC) | แปลงเป็น JPEG ก่อน |
 | `400 VALIDATION "ต้องระบุ period (เช่น 2026-11)"` | `api/run.js` | ไม่ส่ง `period` และไม่ได้ตั้ง `BILL_PERIOD` | ส่ง `{"period":"2026-12","readings":[…]}` |
