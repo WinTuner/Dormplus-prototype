@@ -4,11 +4,17 @@
 // Money rules:
 // - a room whose bill for this period already has a slip (pending) or is paid is skipped, never
 //   reset to unpaid; an unpaid bill may be re-issued to correct a typo
+// - a paid bill is never edited: the only way to change it is to void it (POST /api/bill) and
+//   re-issue here. A void bill is re-issued like an unpaid one but with `rev + 1`, so the new
+//   receipt gets a number of its own (R202611-203-2) and the old one stays on record
 // - a slip the tenant sent before the bill existed (`prepay:<room>`) is attached to the new bill,
 //   which then starts as `pending`, and the owner is pushed a confirm card right away
-// - units must be whole numbers ≥ 0 and the room must be one of ROOMS
+// - re-issuing over a void bill first archives it (`bill-void:<period>:<room>:<rev>`, listed in
+//   `bill-voids:<room>`), so the cancelled bill and its reason stay readable
+// - units must be whole numbers ≥ 0 and the room must be one of ROOMS; a missing water or elec
+//   reading is refused (an explicit 0 is fine), never billed as 0 units
 const store = require("./_store");
-const { saveBill, PERIOD } = require("./_bills");
+const { saveBill, archiveVoid, PERIOD } = require("./_bills");
 const { push, billBubble, confirmBubble } = require("./_line");
 const { requireUser, isOwner } = require("./_auth");
 const { ROOMS, configFor } = require("./_rooms");
@@ -18,9 +24,13 @@ const DATE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 const MAX_UNITS = 100000;
 const ROOM_CONCURRENCY = 6;
 
+// A reading that was left out (or blank) is not "0 units": billing it as 0 would hide a forgotten meter.
+const isMissing = (value) => value === undefined || value === null || (typeof value === "string" && value.trim() === "");
+
 // Returns the units as numbers, or null when the reading is not usable.
 function parseUnits(value) {
-  const n = Number(value ?? 0);
+  if (typeof value !== "number" && typeof value !== "string") return null; // true, [5], {} are not readings
+  const n = Number(value);
   return Number.isInteger(n) && n >= 0 && n <= MAX_UNITS ? n : null;
 }
 
@@ -69,9 +79,10 @@ module.exports = async (req, res) => {
 
 // One room: validate, refuse to touch a bill that has a slip or is paid, write, push the card.
 async function issueBill(r, room, billPeriod, billDue, baseUrl) {
+  if (!ROOMS.includes(room)) return { room, error: "ไม่มีห้องนี้ในหอ" };
+  if (isMissing(r.water) || isMissing(r.elec)) return { room, error: "ต้องกรอกหน่วยน้ำและไฟ" };
   const waterUnits = parseUnits(r.water);
   const elecUnits = parseUnits(r.elec);
-  if (!ROOMS.includes(room)) return { room, error: "ไม่มีห้องนี้ในหอ" };
   if (waterUnits === null || elecUnits === null) {
     return { room, error: "หน่วยมิเตอร์ต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป" };
   }
@@ -87,7 +98,7 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl) {
   // A bill written before the per-period key existed lives only as `bill:<room>`. When that copy
   // is this period it is the same bill, so a paid one must still block the re-issue.
   const existing = periodBill || (latest && latest.period === billPeriod ? latest : null);
-  if (existing && existing.status !== "unpaid") {
+  if (existing && existing.status !== "unpaid" && existing.status !== "void") {
     return { room, error: `บิลรอบนี้${existing.status === "paid" ? "ชำระแล้ว" : "แจ้งชำระแล้ว"} แก้ไม่ได้` };
   }
 
@@ -96,6 +107,9 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl) {
   // tenant change failed to archive).
   const isNextBill = !latest || billPeriod >= latest.period;
   const usable = prepay && isNextBill && (!prepay.by || prepay.by === tenant) ? prepay : null;
+
+  // The cancelled bill goes to the archive before anything overwrites its key.
+  if (existing && existing.status === "void") await archiveVoid(existing);
 
   const water = Math.round(waterUnits * cfg.waterRate);
   const elec = Math.round(elecUnits * cfg.elecRate);
@@ -109,6 +123,8 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl) {
     elecUnits,
     total: cfg.rent + water + elec,
     due: billDue || null,
+    // An unpaid re-issue is the same bill (same rev); only a void one starts a new revision.
+    rev: existing ? (existing.status === "void" ? (existing.rev || 1) + 1 : existing.rev || 1) : 1,
     issuedAt: new Date().toISOString(), // lets a new tenant be told apart from the previous tenant's bills
     status: usable ? "pending" : "unpaid",
     ...(usable && {
@@ -122,7 +138,7 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl) {
 
   await Promise.all([
     store.set(`meter:${room}`, { water: waterUnits, elec: elecUnits, at: new Date().toISOString() }),
-    saveBill(bill),
+    saveBill(bill, { latest }), // `latest` was read above: no second read inside
   ]);
   // Clear only the record this bill consumed. A slip that arrived while the bill was being written
   // has a different slipAt and must survive for the next bill (Blob has no compare-and-set).
@@ -132,23 +148,20 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl) {
   }
 
   // The card goes out only after the bill is stored, so its button never opens a missing bill.
-  let pushed = false;
-  if (tenant) {
-    try {
-      await push(tenant, [billBubble(bill, baseUrl)]);
-      pushed = true;
-    } catch (err) {
-      console.error("bill push failed", room, err.message);
-    }
-  }
-  // The slip is already on the bill, so the owner can confirm without waiting for the tenant.
+  // The slip is already on the bill, so the owner can confirm without waiting for the tenant: the
+  // two pushes go to different people and run together.
   const ownerId = process.env.OWNER_USER_ID;
-  if (usable && ownerId) {
-    try {
-      await push(ownerId, [confirmBubble(bill)]);
-    } catch (err) {
-      console.error("owner push failed", room, err.message);
-    }
-  }
+  let pushed = false;
+  await Promise.all([
+    tenant
+      ? push(tenant, [billBubble(bill, baseUrl)]).then(
+          () => { pushed = true; },
+          (err) => console.error("bill push failed", room, err.message)
+        )
+      : null,
+    usable && ownerId
+      ? push(ownerId, [confirmBubble(bill)]).catch((err) => console.error("owner push failed", room, err.message))
+      : null,
+  ]);
   return { room, total: bill.total, pushed, reissued: !!existing, ...(usable && { prepaid: true }) };
 }

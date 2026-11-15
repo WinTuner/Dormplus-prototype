@@ -1,18 +1,40 @@
 // GET /api/bill?room=203[&period=2026-10][&history=1]
 // A tenant sees only their own room; the owner sees all. Without `period` the newest bill is used,
 // with `history=1` the caller gets the list of periods that still have a stored bill.
+// `voided=1` (owner and helper only) lists the cancelled bills that were later re-issued
+// (`bill-void:` archive, see api/run.js): { items: [...] }, newest first; add `period=` to narrow.
+//
+// POST /api/bill { action: "void", room, period, reason } — the owner cancels a bill (ยกเลิกบิล).
+// A paid bill is never edited in place: void it, then re-issue it from /api/run (which bumps `rev`).
 const store = require("./_store");
-const { requireUser, canView } = require("./_auth");
+const { requireUser, canView, isOwner } = require("./_auth");
+const { ROOMS } = require("./_rooms");
 const { mapLimit } = require("./_async");
-const { tenancyOf, visibleToTenant } = require("./_bills");
+const { push } = require("./_line");
+const { saveBill, tenancyOf, visibleToTenant, receiptNoOf, PERIOD: STRICT_PERIOD } = require("./_bills");
 
 const PERIOD = /^\d{4}-\d{2}$/;
 const HISTORY_READ_CONCURRENCY = 6;
+const MAX_REASON_LENGTH = 200;
+
+const fail = (res, status, code, message) => res.status(status).json({ error: { code, message } });
+
+// Bills paid before receipts existed have no stored number; it is derived from the bill, so show
+// the same one the owner's confirm would have written.
+const withReceipt = (bill) => ({ ...bill, receiptNo: bill.receiptNo || (bill.status === "paid" ? receiptNoOf(bill) : null) });
+
+// A tenant gets the bill without the LINE userIds of the staff who confirmed or voided it.
+const forCaller = (bill, staff) => {
+  if (staff) return bill;
+  const { confirmedBy, voidedBy, ...rest } = bill;
+  return rest;
+};
 
 module.exports = async (req, res) => {
   res.setHeader("Cache-Control", "no-store"); // bill status changes after a slip is attached
   const userId = await requireUser(req, res);
   if (!userId) return;
+  if (req.method === "POST") return voidBill(req, res, userId);
 
   const [bound, staff] = await Promise.all([store.get(`user-room:${userId}`), canView(userId)]);
   const room = String(req.query.room || bound || "").trim();
@@ -22,41 +44,97 @@ module.exports = async (req, res) => {
     return res.status(403).json({ error: { code: "FORBIDDEN", message: `บัญชีนี้ยังไม่ได้ผูกกับห้อง ${room}` } });
   }
 
-  // A tenant sees only bills issued during their own tenancy; the owner and viewers see all.
-  const tenancy = staff ? null : await tenancyOf(room);
-  const visible = (b) => staff || visibleToTenant(b, tenancy);
-
-  if (req.query.history) return history(res, room, visible);
-
   const period = String(req.query.period || "").trim();
   if (period && !PERIOD.test(period)) {
     return res.status(400).json({ error: { code: "VALIDATION", message: "period ต้องเป็น YYYY-MM" } });
   }
 
+  if (req.query.voided) {
+    if (!staff) return fail(res, 403, "FORBIDDEN", "เฉพาะเจ้าของหอ");
+    return voided(res, room, period);
+  }
+
+  // A tenant sees only bills issued during their own tenancy; the owner and viewers see all. The
+  // tenancy record is fetched together with the bill (it used to be a read of its own first).
+  const tenancyP = staff ? null : tenancyOf(room);
+  const visibleIn = (tenancy) => (b) => staff || visibleToTenant(b, tenancy);
+
+  if (req.query.history) return history(res, room, staff, tenancyP);
+
   if (period) {
-    const bill = await store.get(`bill:${period}:${room}`);
-    if (!bill || !visible(bill)) return res.status(404).json({ error: { code: "NOT_FOUND", message: `ไม่พบบิลของห้อง ${room}` } });
-    return res.status(200).json({ ...bill, hasSlip: !!bill.slipPath });
+    const [bill, tenancy] = await Promise.all([store.get(`bill:${period}:${room}`), tenancyP]);
+    if (!bill || !visibleIn(tenancy)(bill)) return res.status(404).json({ error: { code: "NOT_FOUND", message: `ไม่พบบิลของห้อง ${room}` } });
+    return res.status(200).json({ ...forCaller(withReceipt(bill), staff), hasSlip: !!bill.slipPath });
   }
 
   // The latest bill also reports a slip sent before it existed, so the tenant sees "รอบิลออก".
-  const [latest, prepay] = await Promise.all([store.get(`bill:${room}`), store.get(`prepay:${room}`)]);
-  const bill = visible(latest) ? latest : null; // the previous tenant's bill answers like "no bill"
+  const [latest, prepay, tenancy] = await Promise.all([store.get(`bill:${room}`), store.get(`prepay:${room}`), tenancyP]);
+  const bill = visibleIn(tenancy)(latest) ? latest : null; // the previous tenant's bill answers like "no bill"
   const advance = prepay ? { slipAt: prepay.slipAt, hasSlip: !!prepay.slipPath, note: prepay.slipNote || null } : null;
   if (!bill) {
     return res.status(404).json({ error: { code: "NOT_FOUND", message: `ไม่พบบิลของห้อง ${room}`, advance } });
   }
 
-  return res.status(200).json({ ...bill, hasSlip: !!bill.slipPath, advance });
+  return res.status(200).json({ ...forCaller(withReceipt(bill), staff), hasSlip: !!bill.slipPath, advance });
 };
+
+async function voidBill(req, res, userId) {
+  if (!await isOwner(userId)) return fail(res, 403, "FORBIDDEN", "เฉพาะเจ้าของหอ");
+
+  const { action, room: askedRoom, period: askedPeriod, reason: askedReason } = req.body || {};
+  if (action !== "void") return fail(res, 400, "VALIDATION", "action ต้องเป็น void");
+  const room = String(askedRoom || "").trim();
+  const period = String(askedPeriod || "").trim();
+  const reason = typeof askedReason === "string" ? askedReason.trim() : "";
+  if (!room) return fail(res, 400, "VALIDATION", "ต้องระบุ room");
+  if (!ROOMS.includes(room)) return fail(res, 404, "NOT_FOUND", `ไม่พบห้อง ${room}`);
+  if (!STRICT_PERIOD.test(period)) return fail(res, 400, "VALIDATION", "period ต้องเป็น YYYY-MM");
+  if (!reason || reason.length > MAX_REASON_LENGTH) {
+    return fail(res, 400, "VALIDATION", `ต้องระบุเหตุผลที่ยกเลิก (1-${MAX_REASON_LENGTH} ตัวอักษร)`);
+  }
+
+  // A bill written before the per-period key existed lives only as `bill:<room>`.
+  const [stored, latest] = await Promise.all([store.get(`bill:${period}:${room}`), store.get(`bill:${room}`)]);
+  const bill = stored || (latest && latest.period === period ? latest : null);
+  if (!bill) return fail(res, 404, "NOT_FOUND", `ไม่พบบิลห้อง ${room} รอบ ${period}`);
+  if (bill.status === "void") return fail(res, 409, "INVALID_STATE", `บิลห้อง ${room} รอบ ${period} ถูกยกเลิกไปแล้ว`);
+
+  // The receipt number and the slip stay on the record: a void bill is evidence, not a deletion.
+  // `latest` was read above, so saveBill does not read it again; the tenant lookup runs alongside.
+  const [, tenant, tenancy] = await Promise.all([
+    saveBill({
+      ...bill,
+      status: "void",
+      voidedAt: new Date().toISOString(),
+      voidedBy: userId,
+      voidReason: reason,
+      statusBefore: bill.status,
+    }, { latest }),
+    store.get(`room-user:${room}`),
+    tenancyOf(room),
+  ]);
+
+  // Tell the tenant, unless the bill belongs to someone who has since moved out.
+  if (tenant && visibleToTenant(bill, tenancy)) {
+    try {
+      await push(tenant, [{ type: "text", text: `บิลห้อง ${room} รอบ ${period} ถูกยกเลิก — ${reason}` }]);
+    } catch (err) {
+      console.error("void notice failed", room, err.message);
+    }
+  }
+
+  return res.status(200).json({ ok: true, room, period, status: "void" });
+}
 
 // Bills written before this change only have `bill:<room>` (the latest). Include it so history is
 // never empty on an old deployment.
-async function history(res, room, visible) {
-  const [latest, rawIndex] = await Promise.all([
+async function history(res, room, staff, tenancyP) {
+  const [latest, rawIndex, tenancy] = await Promise.all([
     store.get(`bill:${room}`),
     store.get(`bills:${room}`),
+    tenancyP,
   ]);
+  const visible = (b) => staff || visibleToTenant(b, tenancy);
   // `bills:<room>` is the index of periods written since history existed.
   const index = rawIndex || [];
   const periods = new Set(index);
@@ -70,10 +148,22 @@ async function history(res, room, visible) {
       period: p,
       total: bill.total,
       status: bill.status,
+      receiptNo: withReceipt(bill).receiptNo,
       due: bill.due || null,
       hasSlip: !!bill.slipPath,
     };
   });
   const items = records.filter(Boolean);
   return res.status(200).json({ room, items });
+}
+
+// The cancelled bills of a room that were re-issued, newest first. `bill-voids:<room>` lists them as
+// "<period>:<rev>"; the index is capped, so this reads a bounded number of keys.
+async function voided(res, room, period) {
+  const tags = ((await store.get(`bill-voids:${room}`)) || [])
+    .filter((t) => typeof t === "string" && /^\d{4}-\d{2}:\d+$/.test(t) && (!period || t.startsWith(`${period}:`)))
+    .map((t) => t.split(":"))
+    .sort((a, b) => (a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : Number(b[1]) - Number(a[1]))); // period, then rev, newest first
+  const records = await mapLimit(tags, HISTORY_READ_CONCURRENCY, ([p, rev]) => store.get(`bill-void:${p}:${room}:${rev}`));
+  return res.status(200).json({ room, items: records.filter(Boolean) });
 }

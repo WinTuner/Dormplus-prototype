@@ -70,19 +70,28 @@ graph TD
 2. ผู้ใช้กรอกหน่วยน้ำ/ไฟ; หน้าเว็บคำนวณยอดโชว์สด ๆ ด้วย `rent + water*waterRate + elec*elecRate`
 3. กดปุ่ม → `POST /api/run` body `{period, due, readings:[{room, water, elec}]}`
 4. `run.js` เช็ก `POST` + owner + `readings` ไม่ว่าง + มี `period` (จาก body, `BILL_PERIOD`)
-5. ต่อห้อง: `configFor(room)` → คูณหน่วยเป็นบาท (`Math.round`) → เขียน `meter:<room>` → เขียน `bill:<room>` (สถานะ `unpaid` เสมอ) → ถ้ามี `room-user:<room>` ก็ `push()` การ์ดบิล (ถ้า push พังแค่ log แล้วคืน `pushed:false`)
+5. ต่อห้อง: ห้องต้องอยู่ใน `ROOMS` และต้องมีทั้งหน่วยน้ำและไฟ (ขาด/ว่าง/`null` → `{ room, error: "ต้องกรอกหน่วยน้ำและไฟ" }` ไม่ใช่ 0 หน่วย; `0` ตรง ๆ ใช้ได้) → อ่านบิลเดิม/config/ผู้เช่า/prepay พร้อมกัน → ถ้าบิลรอบนี้เป็น `void` เก็บไว้ที่ `bill-void:<period>:<room>:<rev>` + `bill-voids:<room>` ก่อน → คูณหน่วยเป็นบาท (`Math.round`) → เขียน `meter:<room>` + `saveBill()` พร้อมกัน → ถ้ามี `room-user:<room>` ก็ `push()` การ์ดบิล (ไม่มี `due` = ไม่มีบรรทัดครบกำหนด; ถ้า push พังแค่ log แล้วคืน `pushed:false`)
 6. ตอบกลับ `{ok, period, due, rooms:[{room,total,pushed}]}` ให้หน้าเว็บสรุป
 
 ### 3.4 แนบสลิป → เจ้าของยืนยัน → ปิดบิล
 
 1. ผู้เช่ากด "แนบสลิป & แจ้งชำระ" → หน้าเว็บย่อรูปในเบราว์เซอร์ (`createImageBitmap` → canvas ด้านยาวสุด 1280px → `toDataURL("image/jpeg", 0.8)`) แล้ว `POST /api/slip` body `{room, image}`
-2. `slip.js` ตรวจสิทธิ์ห้องเดียวกับ `bill.js`; ถ้าไม่มีบิล หรือบิลล่าสุด `paid` แล้ว → ทางโอนก่อนบิลออก: เก็บเป็น `prepay:<room>` (รูปที่ `slips/<room>-advance-<ts>.<ext>`), push ข้อความหาเจ้าของ, ตอบ `status:"advance"` — `POST /api/run` รอบถัดไปจะผูกสลิปนี้กับบิลใหม่ให้เอง
+2. `slip.js` ตรวจสิทธิ์ห้องเดียวกับ `bill.js`; ถ้าไม่มีบิล หรือบิลล่าสุด `paid`/`void` แล้ว → ทางโอนก่อนบิลออก: เก็บเป็น `prepay:<room>` (รูปที่ `slips/<room>-advance-<ts>.<ext>`), push ข้อความหาเจ้าของ, ตอบ `status:"advance"` — `POST /api/run` รอบถัดไปจะผูกสลิปนี้กับบิลใหม่ให้เอง
 3. ถ้ามี `image`: ต้องตรง regex `data:image/(jpeg|png|webp);base64,...`, ถอด base64, เกิน 3MB → `413 TOO_LARGE`; เขียนไฟล์ด้วย `_store.putFile()` ที่ `slips/<room>-<timestamp>.<ext>` แบบ private
-4. เขียน `bill:<room>` และ `bill:<period>:<room>` เป็นสถานะ `pending` พร้อม `slipPath`, `slipNote`, `slipAt`, `slipCount` (ผู้เช่าส่งได้ 5 ครั้ง/บิล ห่างกัน ≥ 30 วินาที) แล้วลบรูปสลิปเก่าที่ถูกแทน
+4. เขียน `bill:<room>` และ `bill:<period>:<room>` เป็นสถานะ `pending` พร้อม `slipPath`, `slipNote`, `slipAt`, `slipCount` (ผู้เช่าส่งได้ 5 ครั้ง/บิล ห่างกัน ≥ 30 วินาที) แล้วลบรูปสลิปเก่าที่ถูกแทน — เฉพาะเมื่อไม่มีบิลอื่นของห้องที่ยังชี้ไปที่รูปนั้น (สลิปหลายงวดแชร์รูปเดียวกัน)
 5. `push()` การ์ด `confirmBubble()` หา `OWNER_USER_ID` — push พังไม่ทำให้ request ของผู้เช่าล้ม
-6. เจ้าของกดปุ่ม "ยืนยันการชำระ" → postback `action=confirm&room=<room>` → `POST /api/webhook`
-7. `webhook.js` (ไม่เช็กว่า userId เป็นเจ้าของ — ดูข้อจำกัดข้อ 6) เขียน `bill:<room>` เป็น `paid` + `paidAt` แล้ว `push()` แจ้งผู้เช่าจาก `room-user:<room>` และ `reply()` ยืนยันกลับ
+   - **สลิปเดียวหลายงวด:** ถ้า body มี `periods: ["2026-10","2026-11"]` ทุกบิลต้องเป็น `unpaid`/`pending` ของสัญญาเช่าปัจจุบัน → ทุกบิลเป็น `pending` ด้วยรูป/`slipAt` เดียวกัน พร้อม `slipGroup: { periods, total }` และเจ้าของได้การ์ดใบเดียว (ยอดรวม ปุ่ม `periods=`)
+6. เจ้าของกดปุ่ม "ยืนยันการชำระ" → postback `action=confirm&room=<room>&period=<period>` (หรือ `periods=<p1,p2>` กรณีหลายงวด) → `POST /api/webhook`
+7. `webhook.js` ตรวจ `isOwner` แล้วเขียนบิลเป็น `paid` + `paidAt` + `confirmedBy` + `receiptNo` (`R<yyyymm>-<room>[-<rev>]` คำนวณจากบิล ไม่ใช้ตัวนับกลาง) แล้ว `push()` **ใบเสร็จ** (Flex `receiptBubble`) ให้ผู้เช่าจาก `room-user:<room>` และ `reply()` ยืนยันกลับ · บิล `void` ตอบ "บิลนี้ถูกยกเลิกแล้ว" ไม่เขียนอะไร · กรณี `periods=` ยืนยันเฉพาะบิลที่ยัง `pending` และ `slipGroup.periods` ตรงกับการ์ด แต่ละใบได้เลขใบเสร็จของตัวเอง (push ละไม่เกิน 5 ข้อความ)
 8. ดูรูปสลิป: `GET /api/slip-image?room=` → ตรวจสิทธิ์ → `get(bill.slipPath, {access:"private", useCache:false})` → stream byte กลับพร้อม `Cache-Control: private, no-store`
+
+### 3.5 เตือนบิลค้างรายวัน (cron)
+
+1. Vercel Cron เรียก `GET /api/cron` วันละครั้ง (02:00 UTC = 09:00 เวลาไทย) พร้อม `Authorization: Bearer <CRON_SECRET>` — `cron.js` ตอบ `405`/`503`/`401` ถ้าไม่ใช่ GET / ไม่ได้ตั้งรหัส (≥ 16 ตัว) / รหัสไม่ตรง
+2. `cron.js` หาวันนี้เวลา Asia/Bangkok แล้วเรียก `_remind.runReminders({ today, baseUrl })`
+3. ต่อห้อง (ทีละ 4 ห้อง): อ่าน `bill:<room>` + `bills:<room>` พร้อมกัน → ดึงบิลรอบเก่าที่ยัง `unpaid` (ย้อนไม่เกิน 12 รอบ) → ต่อบิลที่มี `due` คำนวณ `kind` จากจำนวนวัน (`before_3` / `due_0` / `after_1` / `after_5` / `after_10`) → ข้ามที่มี `reminded:<room>:<period>:<kind>` แล้ว
+4. ถ้ามีผู้เช่าผูกห้อง (`room-user:<room>`) และบิลเป็นของสัญญาเช่าปัจจุบัน → push การ์ดเตือน **หนึ่ง push ต่อห้อง** (รวมได้ไม่เกิน 5 ข้อความ) แล้วเขียน `reminded:…` ของแต่ละใบ · push พัง = ไม่เขียน รอบหน้าลองใหม่ · เขียนไม่สำเร็จแค่ log
+5. ถ้ามีเตือนชนิด `after_*` push สรุปหา `OWNER_USER_ID` หนึ่งข้อความ แล้วตอบ `{ ok, today, sent, failed }`
 
 ## 4. บทบาทผู้ใช้
 
@@ -111,20 +120,26 @@ stateDiagram-v2
   pending --> pending: POST /api/slip อีกครั้ง (เปลี่ยนรูป)
   unpaid --> paid: postback action=confirm
   pending --> paid: postback action=confirm (เจ้าของ)
-  paid --> unpaid: POST /api/run รอบใหม่ (เขียนทับทั้งใบ)
+  unpaid --> void: POST /api/bill action=void (เจ้าของ)
+  pending --> void: POST /api/bill action=void (เจ้าของ)
+  paid --> void: POST /api/bill action=void (เจ้าของ)
+  void --> unpaid: POST /api/run ออกบิลใหม่ (rev + 1)
   [*] --> pending: POST /api/run เมื่อมี prepay (บิลเกิดพร้อมสลิป, prepaid)
 ```
+
+`paid` แก้ไม่ได้ — ไม่มีลูกศรจาก `paid` ไปสถานะอื่นนอกจาก `void` (ยกเลิกแล้วออกบิลใหม่ด้วย `rev + 1`; ใบเสร็จใหม่จึงได้เลข `-2` ส่วนใบเก่ายังอยู่ในบิลที่ `void` เป็นหลักฐาน) · สลิปเดียวจ่ายหลายงวด (`periods`) เปลี่ยนหลายบิลเป็น `pending` พร้อมกัน และการ์ดยืนยันใบเดียวปิดทั้งกลุ่มเป็น `paid` (ข้ามบิลที่มีสลิปใหม่ของตัวเองไปแล้ว)
 
 สลิปที่มาก่อนบิล (ไม่มีบิล หรือบิลล่าสุด `paid`) ไม่เปลี่ยนสถานะบิลใด ๆ — `POST /api/slip` เก็บเป็น `prepay:<room>` แล้ว `POST /api/run` ของรอบถัดไปคัดลอกลงบิลใหม่ให้เป็น `pending` ทันทีและตั้ง `prepay` เป็น `null`
 
 | การเปลี่ยนสถานะ | ใคร/what | ไฟล์ | เงื่อนไข/ผลข้างเคียง |
 |---|---|---|---|
-| → `unpaid` | `POST /api/run` | `api/run.js` | บิล `unpaid` ของรอบเดิมเขียนทับได้ (แก้เลขผิด) · `pending`/`paid` ถูกปฏิเสธ · รอบเก่าไม่ทับบิลล่าสุด |
+| → `unpaid` | `POST /api/run` | `api/run.js` | บิล `unpaid` ของรอบเดิมเขียนทับได้ (แก้เลขผิด, คง `rev`) · บิล `void` ออกใหม่ได้ด้วย `rev` = เดิม + 1 · `pending`/`paid` ถูกปฏิเสธ · รอบเก่าไม่ทับบิลล่าสุด |
+| → `void` | `POST /api/bill` `{action:"void", room, period, reason}` | `api/bill.js` | เฉพาะเจ้าของ · `reason` 1–200 ตัวอักษร · เขียน `voidedAt`, `voidedBy`, `voidReason`, `statusBefore` (เก็บ `receiptNo` และสลิปไว้) · `void` ซ้ำ → 409 · แจ้งผู้เช่าถ้าบิลเป็นของสัญญาเช่าปัจจุบัน |
 | → `unpaid` | `POST /api/dev?do=seed` (header) | `api/dev.js` | เขียนทับทุกห้องใน `ROOMS` ด้วยข้อมูลตัวอย่าง |
-| `unpaid`/`pending` → `pending` | `POST /api/slip` | `api/slip.js` | ตั้ง `slipAt` ใหม่ทุกครั้ง; `slipPath` เดิมถูกเก็บต่อถ้าไม่ได้แนบรูปใหม่ |
-| ไม่เปลี่ยน | `POST /api/slip` ตอนไม่มีบิล หรือบิลล่าสุด `paid` | `api/slip.js` | เขียน `prepay:<room>` ตอบ `status:"advance"` · push ข้อความหาเจ้าของ · บิลที่ `paid` ไม่ถูกแตะ |
+| `unpaid`/`pending` → `pending` | `POST /api/slip` | `api/slip.js` | ตั้ง `slipAt` ใหม่ทุกครั้ง; `slipPath` เดิมถูกเก็บต่อถ้าไม่ได้แนบรูปใหม่ · ส่ง `periods` = หลายบิลพร้อมกัน (รูป/`slipAt` เดียวกัน, `slipGroup`) |
+| ไม่เปลี่ยน | `POST /api/slip` ตอนไม่มีบิล หรือบิลล่าสุด `paid`/`void` | `api/slip.js` | เขียน `prepay:<room>` ตอบ `status:"advance"` · push ข้อความหาเจ้าของ · บิลที่ `paid` ไม่ถูกแตะ |
 | → `pending` | `POST /api/run` เมื่อมี `prepay:<room>` | `api/run.js` | บิลใหม่เกิดเป็น `pending` + `prepaid:true` พร้อมสลิปที่คัดลอกมา · push `confirmBubble` หาเจ้าของ · ถ้าบิลรอบนั้นไม่ใช่ `unpaid` ถูกปฏิเสธและ prepay อยู่ต่อ |
-| → `paid` | postback `action=confirm` | `api/webhook.js` | ถ้า `paid` อยู่แล้วตอบ "ยืนยันไปแล้ว" ไม่เขียนซ้ำ |
+| → `paid` | postback `action=confirm` (`period=` หรือ `periods=`) | `api/webhook.js` | เขียน `receiptNo` · ถ้า `paid` อยู่แล้วตอบ "ยืนยันไปแล้ว" ไม่เขียนซ้ำ · `void` ตอบ "บิลนี้ถูกยกเลิกแล้ว" |
 
 ข้อสังเกตที่โค้ดทำจริง: postback ยืนยัน **ตรวจว่า event มาจาก `OWNER_USER_ID`** (`isOwner`) ก่อนปิดบิล — ผู้ที่ไม่ใช่เจ้าของถูกปฏิเสธและสถานะไม่เปลี่ยน · แต่ยังยอมให้กระโดดจาก `unpaid` → `paid` ได้โดยตรงถ้าเจ้าของกด
 
@@ -143,9 +158,13 @@ stateDiagram-v2
 | `tenancy:<room>` | `kv/tenancy-<room>.json` | `{ since: ISO }` — สัญญาเช่าปัจจุบันของห้องเริ่มเมื่อ `since` | `qr` (เปลี่ยนผู้เช่า / ผู้เช่าย้ายออกด้วย `confirmMove`) | `bill`, `slip`, `slip-image`, `webhook` |
 | `prepay-old:<room>:<slipAt>` | `kv/prepay-old-<room>-<slipAt>.json` | prepay ของผู้เช่าเดิม (รูปแบบเดียวกับ `prepay`; ไฟล์รูปเก็บไว้) | `qr` (ตอนเขียน `tenancy`) | ไม่มีที่อ่าน — เจ้าของตรวจสอบ/คืนเงินเอง |
 | `prepay:<room>` | `kv/prepay-<room>.json` | `{ room, slipPath, slipNote, slipAt, slipCount, by }` หรือ `null` | `slip` (ทางโอนก่อนบิลออก), `run` (ตั้ง `null` หลังผูกกับบิล) | `slip`, `bill`, `slip-image`, `rooms`, `run` |
+| `bill:<period>:<room>` / `bills:<room>` | `kv/bill-<period>-<room>.json` / `kv/bills-<room>.json` | บิลต่อรอบ (สำเนาที่เป็นหลัก) / index รอบ (ใหม่→เก่า สูงสุด 60) | `saveBills()` ใน `_bills.js` (ผ่าน `run`, `slip`, `webhook`, `bill` void) | `bill`, `slip`, `webhook`, `run`, `_remind` |
+| `bill-void:<period>:<room>:<rev>` | `kv/bill-void-<period>-<room>-<rev>.json` | บิลที่ถูก `void` ตามที่เป็นตอนยกเลิก (ไม่แก้) — เก็บตอนออกบิลรอบนั้นใหม่ทับ | `run` (`archiveVoid`) | `bill` (`?voided=1`) |
+| `bill-voids:<room>` | `kv/bill-voids-<room>.json` | `["<period>:<rev>", …]` รายการที่ archive ไว้ (ล่าสุด 200) | `run` (`archiveVoid`) | `bill` (`?voided=1`) |
+| `reminded:<room>:<period>:<kind>` | `kv/reminded-<room>-<period>-<kind>.json` | ISO เวลาที่ส่งเตือนชนิดนั้น (`before_3` / `due_0` / `after_1` / `after_5` / `after_10`) — ไว้กันส่งซ้ำ | `_remind` (หลัง push สำเร็จ) | `_remind` |
 | `slips/<room>-<ts>.<ext>` | pathname เดียวกัน (ไม่อยู่ใต้ `kv/`) | ไฟล์รูป (สลิปโอนก่อนบิลออกใช้ `slips/<room>-advance-<ts>.<ext>`) | `slip.js` (`put`) | `slip-image.js` (`get`) |
 
-bill object ที่ `run.js` สร้าง: `{ room, period, rent, water, elec, waterUnits, elecUnits, total, due, issuedAt, status }` (`issuedAt` = ISO ตอนออก/ออกซ้ำ) — `slip.js` เพิ่ม `slipPath`, `slipNote`, `slipAt`, `slipCount`; บิลที่ผูกสลิปโอนก่อนบิลออกมี `prepaid: true` ด้วย; `webhook.js` เพิ่ม `paidAt`; `GET /api/bill` ตอบเพิ่ม `hasSlip: !!bill.slipPath` โดยไม่เก็บลง Blob
+bill object ที่ `run.js` สร้าง: `{ room, period, rent, water, elec, waterUnits, elecUnits, total, due, rev, issuedAt, status }` (`issuedAt` = ISO ตอนออก/ออกซ้ำ; `rev` = ครั้งที่ออกบิลของรอบนั้น เริ่ม 1 ไม่มี = 1 เพิ่มเมื่อออกใหม่แทนบิล `void`) — `slip.js` เพิ่ม `slipPath`, `slipNote`, `slipAt`, `slipCount` และ `slipGroup: { periods, total }` เมื่อสลิปเดียวจ่ายหลายงวด; บิลที่ผูกสลิปโอนก่อนบิลออกมี `prepaid: true` ด้วย; `webhook.js` เพิ่ม `paidAt`, `confirmedBy`, `receiptNo` (`R<yyyymm>-<room>` + `-<rev>` เมื่อ `rev > 1` — คำนวณจากบิลเพราะ Blob ไม่มี transaction ตัวนับกลางอาจแจกเลขซ้ำ); `POST /api/bill` (void) เพิ่ม `voidedAt`, `voidedBy`, `voidReason`, `statusBefore`; `GET /api/bill` ตอบเพิ่ม `hasSlip: !!bill.slipPath` โดยไม่เก็บลง Blob
 
 การตั้งค่า Blob: ทุก call ระบุ `access: "private"` และไม่มีการใส่ token ในโค้ด (ใช้ OIDC ของ Vercel) — โค้ดอ่านค่า store จาก environment ที่ Vercel ตั้งให้ <!-- VERIFY: ชื่อ env `BLOB_STORE_ID` และการผูก store ผ่าน `vercel storage connect` มาจาก README ไม่ใช่จากโค้ด --> ฝั่งอ่านใช้ `useCache: false` ทุกครั้ง ซึ่งเป็นเงื่อนไขจำเป็น ไม่ใช่ตัวเลือก
 
@@ -159,17 +178,20 @@ bill object ที่ `run.js` สร้าง: `{ room, period, rent, water, el
 | `api/_store.js` | `get(key)` / `set(key, value)` บน Blob | JSON เท่านั้น; หนึ่ง key = หนึ่งไฟล์; เขียนทับได้ |
 | `api/_rooms.js` | `ROOMS`, `DEFAULTS`, `configFor(room)` | ค่า default จาก env, ทับด้วย `room:<room>` |
 | `api/me.js` | `GET` ข้อมูลตัวเอง: `userId`, `owner`, `room` | ใช้ตัดสินว่า LIFF จะแสดง view ไหน |
-| `api/bill.js` | `GET` บิลห้องเดียว | ผู้เช่าเห็นเฉพาะห้องที่ผูก, เจ้าของเห็นทุกห้อง |
+| `api/bill.js` | `GET` บิลห้องเดียว / ประวัติ · `POST` ยกเลิกบิล (void) | ผู้เช่าเห็นเฉพาะห้องที่ผูก, เจ้าของเห็นทุกห้อง · void เฉพาะเจ้าของ |
 | `api/slip.js` | `POST` แนบสลิป → `pending` + push การ์ดหาเจ้าของ | เขียนไฟล์รูปผ่าน `_store.putFile()`; จำกัด 3MB |
 | `api/slip-image.js` | `GET` stream รูปสลิป private | ตรวจสิทธิ์รายห้องก่อนอ่าน |
 | `api/rooms.js` | `GET` ทุกห้อง + config + meter + bill + tenant | เฉพาะเจ้าของ |
 | `api/run.js` | `POST` ออกรอบบิลจากหน่วยมิเตอร์ + push การ์ด | เฉพาะเจ้าของ; เขียน `meter` + `bill` ต่อห้อง |
 | `api/dev.js` | `POST` ใส่บิลตัวอย่างทุกห้อง (header `x-seed-token`) | เขียนทับของเดิมได้ · production ตอบ 404 |
 | `api/dev.js` | `POST` ยิงการ์ดบิลหาคนเดียว (header `x-seed-token`) | เครื่องมือทดสอบ · production ตอบ 404 |
+| `api/cron.js` | `GET` งานเตือนบิลค้างรายวัน (Vercel Cron) | ตรวจ `Authorization: Bearer <CRON_SECRET>`; เรียก `_remind.runReminders()` |
+| `api/_remind.js` | ตัดสินชนิดเตือน (`kindFor`), อ่านบิลที่ยัง `unpaid`, push ต่อห้อง, เขียน `reminded:` | ไม่ใช่ endpoint; รับ `today` เพื่อให้เทสต์เลือกวันได้ |
+| `api/_bills.js` | `saveBills()`/`saveBill()`, `archiveVoid()`, `tenancyOf`/`visibleToTenant`, `receiptNoOf`, `PERIOD` | เขียนสำเนาต่อรอบ + index + `bill:<room>` ครั้งเดียวต่อกลุ่ม; ผู้เรียกที่เพิ่งอ่าน `bill:<room>` ส่ง `{ latest }` ได้ จะได้ไม่อ่านซ้ำ |
 | `api/config.js` | `GET` คืน `{ liffId }` | public โดยตั้งใจ |
 | `liff/bill.html` | หน้าเดียว 2 บทบาท + ตัวเรียก API ทั้งหมด | ไม่มี build; inline CSS/JS; ใช้ LIFF SDK จาก CDN |
 | `smoke.js` | เทสต์ offline: signature + รูปการ์ด + postback data | ใช้ `assert`, ตั้ง env ปลอมเอง |
-| `vercel.json` | rewrite `/` → `/liff/bill.html` | ไม่มี `crons`, ไม่มี build config |
+| `vercel.json` | rewrite `/` → `/liff/bill.html` และ `crons`: `/api/cron` ทุกวัน 02:00 UTC | ไม่มี build config |
 
 ## 8. Abstraction หลัก
 
@@ -212,7 +234,7 @@ line-app/
 1. **ไม่มีฐานข้อมูลและไม่มี transaction** — `_store.set()` เขียนทับทั้งไฟล์ (`allowOverwrite: true`) ทุกรูปแบบ "อ่าน–แก้–เขียน" จึงเป็น race ได้: `slip.js` อ่าน `bill:<room>` แล้วเขียนทั้งก้อน ขณะที่ postback ยืนยันอาจเขียนทับในจังหวะเดียวกัน → ค่าที่เขียนทีหลังชนะ ไม่มี lock, ETag หรือ conditional write ในโค้ด
 2. **`useCache: false` เป็นเงื่อนไขความถูกต้อง** — ถ้าลบออก การอ่านอาจได้ค่าเก่า (โค้ด `_store.js` ระบุไว้ชัด) ปัญหานี้เคยเกิดกับบิลรอบเก่า
 3. **ประวัติถูกเก็บแยกจากบิลล่าสุด** — `bill:<period>:<room>` เก็บย้อนหลังได้ถึง 60 รอบ (`bills:<room>` เป็น index) ส่วน `bill:<room>` เป็น pointer ของรอบล่าสุดที่แชทและหน้า LIFF อ่าน; `saveBill()` เขียนทั้งคู่และไม่ยอมให้รอบเก่าทับรอบใหม่
-4. **line-app ไม่มี background job / cron / queue** — บิลรอบใหม่เกิดเมื่อมีคนกดจากหน้าเจ้าของเท่านั้น ส่วนคิวและทวงอัตโนมัติอยู่ใน backend (`Procrastinate` + Neon) ไม่ใช่ที่นี่
+4. **line-app มี cron งานเดียว ไม่มี queue** — `GET /api/cron` วันละครั้ง (§3.5) เตือนบิลค้างเท่านั้น · บิลรอบใหม่ยังเกิดเมื่อมีคนกดจากหน้าเจ้าของ · คิวและทวงแบบ background จริงอยู่ใน backend (`Procrastinate` + Neon) ไม่ใช่ที่นี่ · cron รันซ้อนกันไม่ได้ป้องกัน (ไม่มี lock) ถ้า Vercel retry ในจังหวะเดียวกันอาจส่งเตือนซ้ำ
 5. **Function เป็น stateless และ env ถูกอ่านตอน module load** — `_line.js` (`TOKEN`, `SECRET`, `LIFF_ID`), `_auth.js` (`CHANNEL_ID`), `_rooms.js` (`ROOMS`, `DEFAULTS`) เก็บค่าไว้เป็น const ระดับ module → เปลี่ยน env แล้วต้องมี deploy/instance ใหม่ถึงจะมีผล
 6. **postback ตรวจเจ้าของแล้ว แต่ไม่มี CSRF token** — `webhook.js` เทียบ `isOwner(event.source.userId)` ก่อนปิดบิล; ที่ยังไม่มีคือ nonce กัน replay (event เดิมที่ดักได้สามารถส่งซ้ำได้จนกว่าบิลจะเป็น `paid`)
 7. **ไม่มี idempotency ของ webhook** — event ทั้งชุดถูก `Promise.all` พร้อมกัน (await ครบ แต่**ไม่มีการรับประกันลำดับ**) และไม่เก็บ `webhookEventId`; ถ้า LINE ส่ง event ซ้ำ (retry เพราะ response ช้า/หลุด) การ `push` การ์ดหรือการเขียน Blob จะเกิดซ้ำ

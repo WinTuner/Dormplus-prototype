@@ -146,19 +146,25 @@ async function accept(req, res, userId, code) {
   }
 
   const current = await roleOf(userId);
-  // Already an owner, or already the helper this code would make them: nothing to do.
-  if (current === "owner" || current === role) return res.status(200).json({ owner: current === "owner", role: current, already: true });
-
-  await store.set(`owner:${userId}`, { addedAt: new Date().toISOString(), addedBy: found.createdBy, role });
-  await store.set(key, { ...found, usedAt: new Date().toISOString(), usedBy: userId });
-
-  if (process.env.RICHMENU_OWNER_ID) {
-    await linkRichMenu(userId, process.env.RICHMENU_OWNER_ID).catch((err) =>
-      console.error("richmenu link failed", err.message)
-    );
+  const usedAt = new Date().toISOString();
+  // Already an owner, or already the helper this code would make them: nothing to grant, but the
+  // code is still spent. Left alive, it could be handed on for the rest of its 10 minutes.
+  if (current === "owner" || current === role) {
+    await store.set(key, { ...found, usedAt, usedBy: userId });
+    return res.status(200).json({ owner: current === "owner", role: current, already: true });
   }
+
+  // The grant and the spent mark are different keys, and the menu link and the name lookup are
+  // LINE calls that do not depend on either: all of it runs together.
+  const [, , name] = await Promise.all([
+    store.set(`owner:${userId}`, { addedAt: usedAt, addedBy: found.createdBy, role }),
+    store.set(key, { ...found, usedAt, usedBy: userId }),
+    displayName(userId),
+    process.env.RICHMENU_OWNER_ID
+      ? linkRichMenu(userId, process.env.RICHMENU_OWNER_ID).catch((err) => console.error("richmenu link failed", err.message))
+      : null,
+  ]);
   // The first owner always hears that someone new got owner screens.
-  const name = await displayName(userId);
   await push(process.env.OWNER_USER_ID, [
     {
       type: "text",

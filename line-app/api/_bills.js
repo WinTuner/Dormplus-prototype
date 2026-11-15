@@ -1,30 +1,59 @@
 // Bills live under two keys: `bill:<room>` (the newest, what chat and slips use) and
 // `bill:<period>:<room>` (history). `bills:<room>` indexes the periods so history is one read.
-// Every write goes through saveBill() so the two copies can never disagree.
+// Every write goes through saveBill()/saveBills() so the two copies can never disagree.
 const store = require("./_store");
 
 const PERIOD = /^\d{4}-(0[1-9]|1[0-2])$/;
 
-async function indexBill(room, period) {
+// Adds periods to `bills:<room>` with one read and at most one write.
+async function indexBills(room, newPeriods) {
   const key = `bills:${room}`;
   const periods = (await store.get(key)) || [];
-  if (periods.includes(period)) return;
-  periods.push(period);
+  const fresh = newPeriods.filter((p) => !periods.includes(p));
+  if (!fresh.length) return;
+  periods.push(...fresh);
   periods.sort().reverse();
   await store.set(key, periods.slice(0, 60));
 }
 
-async function saveBill(bill) {
-  // The three steps touch different keys, so they run together instead of one after another.
-  const [latest] = await Promise.all([
-    store.get(`bill:${bill.room}`),
-    store.set(`bill:${bill.period}:${bill.room}`, bill),
-    indexBill(bill.room, bill.period),
+const indexBill = (room, period) => indexBills(room, [period]);
+
+// Saves bills of ONE room together: the per-period copies and the index are written side by side,
+// and `bill:<room>` is touched once, with the newest of them. A caller that has just read
+// `bill:<room>` passes it as `latest` (null when there is none) so it is not fetched again; that
+// saves one round trip on every slip, confirmation and void.
+async function saveBills(bills, { latest } = {}) {
+  if (!bills.length) return;
+  const room = bills[0].room;
+  const newest = bills.reduce((a, b) => (b.period > a.period ? b : a));
+  const [seen] = await Promise.all([
+    latest === undefined ? store.get(`bill:${room}`) : latest,
+    ...bills.map((b) => store.set(`bill:${b.period}:${room}`, b)),
+    indexBills(room, bills.map((b) => b.period)),
   ]);
   // Never let an older period replace the newest bill.
-  if (!latest || !latest.period || bill.period >= latest.period) {
-    await store.set(`bill:${bill.room}`, bill);
+  if (!seen || !seen.period || newest.period >= seen.period) {
+    await store.set(`bill:${room}`, newest);
   }
+}
+
+const saveBill = (bill, opts) => saveBills([bill], opts);
+
+// A void bill that is about to be re-issued is archived first: `bill-void:<period>:<room>:<rev>`
+// keeps the record exactly as it was (reason, receipt number, slip) and `bill-voids:<room>` lists
+// the `<period>:<rev>` pairs so the owner can read them back (GET /api/bill?voided=1).
+const VOID_INDEX_MAX = 200;
+async function archiveVoid(bill) {
+  const rev = bill.rev || 1;
+  const tag = `${bill.period}:${rev}`;
+  const indexKey = `bill-voids:${bill.room}`;
+  await Promise.all([
+    store.set(`bill-void:${bill.period}:${bill.room}:${rev}`, bill),
+    (async () => {
+      const tags = (await store.get(indexKey)) || [];
+      if (!tags.includes(tag)) await store.set(indexKey, [...tags, tag].slice(-VOID_INDEX_MAX));
+    })(),
+  ]);
 }
 
 // A new tenant must not read the previous tenant's bills. `tenancy:<room>` = { since: ISO } is
@@ -40,4 +69,13 @@ function visibleToTenant(bill, tenancy) {
   return !!bill && !!bill.issuedAt && bill.issuedAt >= tenancy.since;
 }
 
-module.exports = { indexBill, saveBill, tenancyOf, visibleToTenant, PERIOD };
+// Receipt number: R<yyyymm>-<room>, plus -<rev> from the second issue of a period on. It is derived
+// from the bill on purpose: Blob has no transactions, so a shared counter could hand the same
+// number to two receipts. One bill per room per period makes this unique, and `rev` only grows
+// when a voided bill is re-issued (api/run.js), which is why the re-issued receipt differs.
+function receiptNoOf(bill) {
+  const rev = Number(bill.rev) > 1 ? `-${bill.rev}` : "";
+  return `R${String(bill.period).replace("-", "")}-${bill.room}${rev}`;
+}
+
+module.exports = { indexBill, indexBills, saveBill, saveBills, archiveVoid, tenancyOf, visibleToTenant, receiptNoOf, PERIOD };
