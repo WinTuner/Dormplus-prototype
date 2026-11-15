@@ -39,9 +39,10 @@ repo นี้มี **สอง stack ที่เป็นอิสระจ�
    (`line-app/api/_bills.js`) ขณะที่ `backend/` เก็บเป็นแถวใน `invoices`
 3. **คนละบทบาทใน lifecycle** — `docs/HANDOFF.md` ระบุชัดว่า `line-app/` คือของที่ผู้ใช้เห็นอยู่ตอนนี้
    ส่วน `backend/` เป็นเป้าหมายระยะยาวตามสัญญา [`docs/API.md`](./API.md)
-4. **backend ไม่รับ event จาก LINE** — `backend/app/main.py` ประกอบ router แค่
-   auth · rooms · billing · me · dunning · cron · invites · ไม่มี webhook (`POST /webhooks/line/:property_id`
-   ยังเป็น ⬜ ใน `docs/API.md`) ส่วน `line-app/api/webhook.js` เป็นที่เดียวที่รับ event
+4. **backend รับ event ได้แล้ว แต่ไม่มีใครส่งมา** — `backend/app/main.py` มี router
+   auth · properties · rooms · billing · me · dunning · cron · invites · webhooks
+   (`POST /v1/webhooks/line/:property_id` ตรวจ signature แล้วเขียน `audit_log`) แต่ **ช่องทางของ OA
+   ยังชี้ที่ `line-app/api/webhook.js`** ซึ่งเป็นที่เดียวที่ตอบผู้เช่าจริง
 5. **ทางออกของ backend คือ push เท่านั้น** — `backend/app/line_push.py` เรียก
    `POST https://api.line.me/v2/bot/message/push` และไม่รู้จัก state ที่ line-app เขียนไว้
 
@@ -106,8 +107,10 @@ graph TD
   (การ์ดยืนยันให้เจ้าของ — ถ้าบิลเป็นสลิปใบเดียวหลายรอบ จะเป็นการ์ดเดียวที่ postback ระบุ `periods=`
   ทุกรอบ), `receiptBubble` (ใบเสร็จให้ผู้เช่าหลังยืนยัน) และข้อความ text ของการทวง/แจ้งเตือน
 
-**ฝั่ง `backend/`** ไม่มี webhook และไม่รับ event: การคุยกับ LINE มีทิศทางเดียวคือ push
-(`backend/app/line_push.py`) ซึ่งถูกเรียกจาก task ในคิวเท่านั้น (`backend/app/tasks.py`)
+**ฝั่ง `backend/`** ส่งข้อความได้ (`backend/app/line_push.py`, เรียกจาก task ในคิวเท่านั้น —
+`backend/app/tasks.py`) และ **รับ event ได้** ที่ `POST /v1/webhooks/line/:property_id` (ตรวจ
+`X-Line-Signature` ด้วย `LINE_CHANNEL_SECRET`) แต่ endpoint นั้นยังไม่มี handler ที่ตอบผู้ใช้ และ
+webhook ของ OA ยังชี้ที่ `line-app`
 
 > มี LIFF สองใบที่ห้ามสับสน: `line-app/liff/bill.html` คือใบที่ OA ใช้จริง ส่วน
 > `backend/liff/index.html` เป็นหน้าของ stack backend (เรียก `/v1/*` ด้วย cookie) และยังไม่ผูกกับ OA
@@ -502,8 +505,9 @@ pakdee-prototype/
    เก่ากว่าทุก tenancy (ผู้เช่าที่ผูกอยู่จะไม่เห็น) · ห้องที่ยังไม่เคยเปลี่ยนผู้เช่าตั้งแต่เปิดใช้
    `tenancy:<room>` จะไม่มี record และ `visibleToTenant()` คืน `true` (เห็นทุกใบเหมือนเดิม) —
    ช่องว่างนี้หายไปเองเมื่อห้องนั้นเปลี่ยนผู้เช่าครั้งแรก
-6. **ไม่มี webhook ฝั่ง backend** — backend ส่งได้อย่างเดียว ไม่รับ event · ถ้าต้องการผูก OA เข้ากับ
-   backend ต้องสร้าง `POST /webhooks/line/:property_id` (ยังเป็น ⬜ ใน `docs/API.md`)
+6. **webhook ฝั่ง backend ยังไม่ผูกช่องทาง** — endpoint มีและตรวจ signature แล้ว แต่ LINE อนุญาต
+   webhook URL เดียวต่อช่องทาง ซึ่งยังเป็นของ `line-app` · สลับเมื่อไหร่บอทที่ใช้งานจริงจะดับ
+   และยังไม่มี handler ที่ตอบผู้ใช้ (งานตอนนี้คือ `audit_log` 1 แถว)
 7. **ตรวจสลิปเป็น manual ทั้งสองฝั่ง** — `payments.verify_ok` เป็น `null` จนเจ้าของกดยืนยัน
    และ `line-app/` ก็ให้เจ้าของกด postback ยืนยันเอง · ยังไม่มี SlipOK (`slip.verify` ยังเป็นงานค้าง)
 8. **จำนวนห้องไม่ตรงกัน** — `line-app/` มาจาก env `ROOMS` (ค่าเริ่มต้น 12 ห้อง `201`–`212`)

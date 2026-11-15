@@ -58,6 +58,8 @@ UC-07 และ UC-08 เพิ่มเข้ามาหลังแผนภ�
 | TC-01-6 | เจ้าของแก้ค่าเช่า/อัตราน้ำไฟของห้องผ่านหน้าจอ/API | เจ้าของล็อกอิน | ส่งค่าใหม่ของห้อง 201 | บันทึกสำเร็จ · เจ้าของร่วมทำได้ · ผู้ช่วย/ผู้เช่า 403 · ค่าติดลบ/ไม่ใช่ตัวเลขถูกปฏิเสธ · มีบันทึกว่าใครแก้ | ⏳ ยังไม่สร้าง |
 | TC-01-7 | ค่าตั้งของห้องที่ไม่มีใน ROOMS / env `ROOMS` เว้นวรรคและค่าว่าง | ตั้ง `ROOMS=" 101, ,102 "` | เรียก `/api/rooms` | ได้ห้อง 101, 102 เท่านั้น (ตัดช่องว่างและค่าว่าง) — ต้องมี test ที่ตั้ง env ก่อน require โมดูล | ⏳ ยังไม่สร้าง |
 | TC-01-8 | backend: ห้องเหมาจ่ายไม่ต้องจดมิเตอร์ ห้องว่างไม่ถูกออกบิล | seed demo dorm | `POST /v1/billing/run` | ห้องเหมาจ่ายถูกออกบิลโดยไม่มีมิเตอร์ ห้องว่างถูกข้าม | ✅ `backend/tests/test_billing.py::test_flat_rate_rooms_need_no_reading_and_vacant_rooms_are_skipped` |
+| TC-01-9 | backend: เจ้าของอ่านค่าตั้งของหอตัวเอง | seed demo dorm | `GET /v1/properties/p_1` | 200 · `billing_mode`, เรตน้ำ/ไฟ, `due_days`, `rooms` = ทุกห้องรวมห้องว่าง | ✅ `backend/tests/test_properties.py::test_owner_reads_own_property` |
+| TC-01-10 | backend: หออื่นตอบ 404 (ไม่ใช่ 403) · ผู้เช่า 403 · ไม่ล็อกอิน 401 | มีหอ p_2 ในฐานข้อมูล | `GET /v1/properties/*` ด้วย session ต่าง ๆ | p_2 → 404 · ผู้เช่า → 403 · ไม่ล็อกอิน → 401 | ✅ `backend/tests/test_properties.py` (3 เทสต์) |
 
 ## UC-02 จดมิเตอร์น้ำ–ไฟ
 
@@ -119,6 +121,8 @@ UC-07 และ UC-08 เพิ่มเข้ามาหลังแผนภ�
 | TC-03-15 | เจ้าของเห็นผลออกบิลจริงบนหน้าจอ LIFF และผู้เช่าได้รับการ์ดใน LINE จริง | LINE OA + LIFF จริง | กรอกหน่วยทุกห้อง กดออกบิล | แสดงผลต่อห้อง · การ์ดถึงผู้เช่า · ปุ่มเปิดหน้าบิลถูกห้อง | 🖐 ทดสอบมือกับ LINE จริง |
 | TC-03-16 | backend: ออกบิลห้องที่มีมิเตอร์เดือนนี้ · 42 ห้องในคำขอเดียว · ออกซ้ำ 409 · ล้มกลางทางย้อนทั้งชุด | seed + มิเตอร์ | `POST /v1/billing/run` | 202 และยอดตรงสัญญา | ✅ `backend/tests/test_billing.py::test_bills_the_rooms_that_have_this_months_reading`<br>`backend/tests/test_billing.py::test_all_42_rooms_in_one_request`<br>`backend/tests/test_billing.py::test_running_again_is_409_and_creates_nothing`<br>`backend/tests/test_billing.py::test_a_failure_halfway_rolls_back_the_whole_run` |
 | TC-03-17 | backend: ผู้เช่าออกบิลไม่ได้ · period ผิดถูกปฏิเสธ · ผู้เช่าที่ไม่มีมิเตอร์เดือนก่อนไม่ถูกออกบิล | — | เรียก `/v1/billing/run` | 403 / 422 / ข้ามห้อง | ✅ `backend/tests/test_billing.py::test_tenants_cannot_run_billing`<br>`backend/tests/test_billing.py::test_bad_period_is_rejected`<br>`backend/tests/test_billing.py::test_a_room_without_an_earlier_reading_is_not_billed` |
+| TC-03-18 | backend: ออกบิลแล้วส่งข้อความบิลเข้า LINE และ drain ในคำขอเดียว | ห้อง 3 ห้องผูก LINE | `POST /v1/billing/run` | `queued = 3`, `drained = true`, `job_id` = งานแรก · งาน `kind="invoice"` ต่อใบ · บิลทุกห้องที่พร้อมยังถูกสร้าง | ✅ `backend/tests/test_billing.py::test_run_notifies_the_rooms_that_have_a_tenant`<br>`backend/tests/test_notify.py` |
+| TC-03-19 | backend: คิวไม่พร้อม (ยังไม่ apply schema) ต้องไม่ออกบิลล้ม | มีผู้เช่าผูก LINE | `POST /v1/billing/run` โดยคิวโยน exception | 202 · `queued: 0, drained: false` · บิลครบ 12 ใบใน DB | ✅ `backend/tests/test_billing.py::test_queue_down_still_returns_the_bills` |
 | TC-03-18 | backend: ส่งบิลทาง LINE (queue) ใช้ line item เดียว | — | ออกบิลแล้วคิวส่ง push | batch เดียว ไม่ N+1 | ✅ `backend/tests/test_billing.py::test_create_invoice_batches_line_item_execute` |
 
 ## UC-04 ยืนยันการชำระ (include ออกใบเสร็จ)
@@ -322,6 +326,8 @@ UC-07 และ UC-08 เพิ่มเข้ามาหลังแผนภ�
 | TC-10-10 | หน้าบิลใน LIFF แสดงรายการและสถานะถูกต้อง · ปุ่มแนบสลิป/ดูสลิป · ภาษาไทย/วันที่ | LIFF จริง | ผู้เช่าเปิดจากการ์ดใน LINE | แสดงบิลตรงกับ API · สลิปแสดงเฉพาะของห้องตัวเอง | 🖐 ทดสอบมือกับ LINE จริง |
 | TC-10-12 | ผู้เช่าใหม่ไม่เห็นบิลของผู้เช่าเก่า (บิลล่าสุด/งวด/ประวัติ/แชท "บิล") | หลังเจ้าของเปลี่ยนผู้เช่า | ผู้เช่าใหม่อ่านบิล | 404 · ประวัติว่าง · แชทตอบ "ยังไม่มีบิล" — รายละเอียดที่ UC-08 | ✅ `line-app/smoke-usecases.js › TC-08-6` |
 | TC-10-11 | backend: ผู้เช่าเห็นเฉพาะใบแจ้งหนี้ของห้องตัวเองจาก session | ผูก LINE แล้ว | `GET /v1/me/invoices` | รายการใบแจ้งหนี้ของห้อง (12 งวดล่าสุด) | ✅ `backend/tests/test_line_link.py::test_linking_binds_line_to_the_room_and_logs_in` |
+| TC-10-13 | backend: เจ้าของอ่านบิลใบเดียวได้ทุกห้องของหอ | ออกบิลรอบ พ.ย. แล้ว | `GET /v1/invoices/:id` | 200 · `items` 3 บรรทัด (`ค่าเช่า`/`ค่าน้ำ`/`ค่าไฟ`) · `payment` = `null` ก่อนจ่าย | ✅ `backend/tests/test_billing.py::test_owner_reads_any_invoice_of_the_dorm` |
+| TC-10-14 | backend: ผู้เช่าเห็นเฉพาะบิลห้องตัวเอง · ใบอื่น/หออื่น 404 · `payment` ขึ้นหลังแนบสลิป | ผู้เช่าห้อง 201 | `GET /v1/invoices/:id` | บิล 201 → 200 · บิล 202 → 404 · ใบของหออื่น → 404 · หลังแนบสลิป `status: pending`, `payment.verify_ok: null` | ✅ `backend/tests/test_billing.py::test_tenant_reads_own_room_invoice_only`<br>`backend/tests/test_billing.py::test_payment_appears_after_the_slip`<br>`backend/tests/test_billing.py::test_invoice_of_another_dorm_is_404` |
 
 ## UC-11 แจ้งชำระ (แนบสลิป)
 
@@ -557,20 +563,32 @@ UC-07 และ UC-08 เพิ่มเข้ามาหลังแผนภ�
 | TC-18-12 | ยกเลิกบิลหนึ่งงวดของสลิปหลายงวด | สลิปกลุ่ม pending | ยกเลิกหนึ่งงวด แล้วกดการ์ดกลุ่ม | งวดที่เหลือปิดได้ งวด void ไม่ถูกปิด · ยอดบนการ์ดยังรวมงวดที่ยกเลิก (ข้อสังเกต) — รายละเอียดที่ UC-13 | ✅ `line-app/smoke-usecases.js › TC-13-10` |
 | TC-18-13 | ยกเลิกบิลที่จ่ายแล้ว: ขั้นตอนคืนเงิน/ใบลดหนี้ | บิล paid | เจ้าของยกเลิกบิลที่ผู้เช่าจ่ายไปแล้ว | บิลที่ยกเลิกบันทึก `refundDue` = ยอดที่ต้องคืน และ response มี `refund` (LIFF ขึ้น "ต้องคืนเงิน X บาท") · **ยังไม่มีการติดตามว่าคืนแล้วหรือไม่** (ต้องตัดสินนโยบาย) | ⏳ ยังไม่สร้าง (บันทึกยอดแล้ว) |
 
+## UC-19 รับ event จาก LINE (webhook ฝั่ง backend)
+
+endpoint พร้อมและตรวจ signature จริง แต่ **ยังไม่ผูกกับ OA** (webhook ของช่องทางยังชี้ที่ `line-app`) — เทสต์ทั้งหมดยิงที่ `backend/tests/test_webhook.py`
+
+| # | เคส | เงื่อนไขตั้งต้น | ขั้นตอน | ผลที่ต้องเห็น | สถานะ |
+|---|---|---|---|---|---|
+| TC-19-1 | signature ถูกต้อง → 200 และบันทึก event | ตั้ง `LINE_CHANNEL_SECRET` | POST body ที่มี 2 event | 200 `{"ok": true}` · `audit_log` 1 แถว action `webhook.line` payload `{count: 2, types: [...]}` | ✅ `backend/tests/test_webhook.py::test_valid_signature_is_200_and_writes_one_audit_row` |
+| TC-19-2 | signature ผิด → 401 และไม่เขียนอะไร | ตั้ง secret แล้ว | POST ด้วย signature ของ secret อื่น | 401 · ไม่มีแถวใหม่ใน `audit_log` | ✅ `backend/tests/test_webhook.py::test_bad_signature_is_401_and_logs_nothing` |
+| TC-19-3 | หอที่ไม่ใช่ของ deployment → 404 แม้ signature ถูก | path `p_2` | POST พร้อม signature ที่ถูก | 404 · ไม่เขียน `audit_log` | ✅ `backend/tests/test_webhook.py::test_another_dorm_is_404_even_with_a_valid_signature` |
+| TC-19-4 | body ที่ไม่ใช่ JSON → 400 | signature ของ body นั้นถูกต้อง | POST body ขยะ | 400 · ไม่เขียน `audit_log` | ✅ `backend/tests/test_webhook.py::test_body_that_is_not_json_is_400` |
+| TC-19-5 | ยังไม่ตั้ง secret → 503 | `LINE_CHANNEL_SECRET` ว่าง | POST อะไรก็ได้ | 503 `NOT_CONFIGURED` | ✅ `backend/tests/test_webhook.py::test_missing_secret_is_503` |
+
 ## สรุป
 
 | UC | ชื่อ | TC ทั้งหมด | ✅ automated | 🖐 manual | ⏳ ยังไม่สร้าง |
 |---|---|---:|---:|---:|---:|
-| UC-01 | ตั้งค่าหอ (ค่าเช่า · อัตราน้ำไฟ) | 8 | 6 | 0 | 2 |
+| UC-01 | ตั้งค่าหอ (ค่าเช่า · อัตราน้ำไฟ) | 10 | 8 | 0 | 2 |
 | UC-02 | จดมิเตอร์น้ำ–ไฟ | 14 | 12 | 1 | 1 |
-| UC-03 | ออกบิล (คำนวณบิล · ส่งบิลทาง LINE) | 18 | 16 | 1 | 1 |
+| UC-03 | ออกบิล (คำนวณบิล · ส่งบิลทาง LINE) | 20 | 18 | 1 | 1 |
 | UC-04 | ยืนยันการชำระ (include ออกใบเสร็จ) | 16 | 14 | 1 | 1 |
 | UC-05 | ดูห้องค้างชำระ (ค้างกี่งวด · เกินกี่วัน) | 11 | 8 | 1 | 2 |
 | UC-06 | ดูรายรับ | 7 | 4 | 1 | 2 |
 | UC-07 | เพิ่ม/ถอนเจ้าของและผู้ช่วย | 16 | 14 | 1 | 1 |
 | UC-08 | เปลี่ยนผู้เช่า / หมุน QR ห้อง | 17 | 15 | 2 | 0 |
 | UC-09 | ผูกบัญชี LINE กับห้อง | 17 | 16 | 1 | 0 |
-| UC-10 | ดูบิล | 12 | 11 | 1 | 0 |
+| UC-10 | ดูบิล | 14 | 13 | 1 | 0 |
 | UC-11 | แจ้งชำระ (แนบสลิป) | 16 | 14 | 1 | 1 |
 | UC-12 | ตรวจสลิปอัตโนมัติ | 8 | 0 | 1 | 7 |
 | UC-13 | ชำระหลายงวดในสลิปเดียว | 12 | 8 | 1 | 3 |
@@ -579,7 +597,8 @@ UC-07 และ UC-08 เพิ่มเข้ามาหลังแผนภ�
 | UC-16 | ทวงอัตโนมัติ (เลยกำหนด 1 / 5 / 10 วัน) | 24 | 20 | 2 | 2 |
 | UC-17 | แจ้งชำระก่อนบิลออก (โอนก่อน) | 26 | 20 | 4 | 2 |
 | UC-18 | ยกเลิกบิล (void) และออกบิลใหม่ | 13 | 11 | 1 | 1 |
-| **รวม** | | **249** | **198** | **23** | **28** |
+| UC-19 | รับ event จาก LINE (webhook ฝั่ง backend) | 5 | 5 | 0 | 0 |
+| **รวม** | | **260** | **209** | **23** | **28** |
 
 หมายเหตุ: คอลัมน์ ✅ รวมทั้ง test ใน `line-app/smoke-usecases.js` (156 ข้อ) และ test ที่มีอยู่แล้วใน `backend/tests/` ที่ผูกกับกรณีนั้น (บางแถวอ้างหลายฟังก์ชัน นับเป็น 1 TC) แถว ✅ ที่อ้าง pytest ไม่ได้ถูกรันโดยชุดนี้ — รันด้วย `cd backend && pytest -q`
 
