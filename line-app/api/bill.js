@@ -108,6 +108,9 @@ async function voidBill(req, res, userId) {
     voidedBy: userId,
     voidReason: reason,
     statusBefore: bill.status,
+    // Money the dorm is holding for a cancelled payment. The system does not move money; this is the
+    // number the owner has to refund, kept on the record so it is not lost.
+    ...(bill.status === "paid" && bill.total ? { refundDue: bill.total } : {}),
   };
   const [, tenant, tenancy] = await Promise.all([
     // Archive at once, not only when run.js re-issues it: a bill cancelled and never re-issued must
@@ -126,7 +129,7 @@ async function voidBill(req, res, userId) {
     }
   }
 
-  return res.status(200).json({ ok: true, room, period, status: "void" });
+  return res.status(200).json({ ok: true, room, period, status: "void", ...(voided.refundDue ? { refund: voided.refundDue } : {}) });
 }
 
 // Bills written before this change only have `bill:<room>` (the latest). Include it so history is

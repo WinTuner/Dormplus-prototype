@@ -784,8 +784,10 @@ const { saveBill } = require("./api/_bills");
 
     mark = pushed.length;
     r = await voidIt("Uowner", { reason: "  กรอกยอดผิด  " });
-    assert.deepStrictEqual([r.status, r.body], [200, { ok: true, room: "208", period: "2026-11", status: "void" }]);
+    assert.deepStrictEqual([r.status, r.body.room, r.body.period, r.body.status], [200, "208", "2026-11", "void"]);
     let v = data.get("bill:2026-11:208");
+    assert.strictEqual(r.body.refund, v.total, "voiding a paid bill reports the refund owed");
+    assert.strictEqual(v.refundDue, v.total, "and keeps it on the record");
     assert.deepStrictEqual([v.status, v.voidedBy, v.voidReason, v.statusBefore, v.receiptNo], ["void", "Uowner", "กรอกยอดผิด", "paid", "R202611-208"],
       "void records who, why and what it was, and keeps the receipt number");
     assert.ok(!Number.isNaN(Date.parse(v.voidedAt)));

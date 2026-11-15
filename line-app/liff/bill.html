@@ -1051,9 +1051,11 @@ function ownerEntry(roomNo) {
     <button class="btn" id="skip">ข้ามห้องนี้</button>`);
 
   $("save").onclick = () => {
-    if ($("inW").value === "" && $("inE").value === "") return toast("กรอกหน่วยน้ำหรือไฟก่อน", true);
+    // The API refuses a bill without both readings; catch it here so the owner is not surprised later.
+    if ($("inW").value.trim() === "" || $("inE").value.trim() === "") return toast("กรอกหน่วยน้ำและไฟให้ครบ", true);
     const u = units();
     if (u.water < 0 || u.elec < 0) return toast("หน่วยติดลบไม่ได้", true);
+    if (!Number.isInteger(u.water) || !Number.isInteger(u.elec)) return toast("หน่วยต้องเป็นจำนวนเต็ม", true);
     O.draft[r.room] = u;
     O.skipped.delete(r.room);
     saveDraft();
@@ -1216,8 +1218,8 @@ async function voidBill(room, bill) {
   const btn = $("voidBtn");
   if (btn) btn.disabled = true;
   try {
-    await api("/api/bill", { method: "POST", body: JSON.stringify({ action: "void", room, period: bill.period, reason }) });
-    toast(`ยกเลิกบิลห้อง ${room} แล้ว`);
+    const out = await api("/api/bill", { method: "POST", body: JSON.stringify({ action: "void", room, period: bill.period, reason }) });
+    toast(out.refund ? `ยกเลิกแล้ว — ต้องคืนเงินผู้เช่า ${fmt(out.refund)} บาท` : `ยกเลิกบิลห้อง ${room} แล้ว`);
     await loadOwner();
   } catch (e) {
     toast(e.message, true);
