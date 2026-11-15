@@ -9,7 +9,7 @@ from app import errors
 from app.config import get_settings
 from app.db import get_engine
 from app.errors import ApiError
-from app.routes import auth, billing, cron, dunning, invites, me, rooms
+from app.routes import auth, billing, cron, dunning, invites, me, properties, rooms
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 LIFF_DIR = BACKEND_DIR / "liff"
@@ -28,6 +28,7 @@ def create_app() -> FastAPI:
     )
     errors.install(app)
     app.include_router(auth.router)
+    app.include_router(properties.router)
     app.include_router(rooms.router)
     app.include_router(billing.router)
     app.include_router(me.router)
