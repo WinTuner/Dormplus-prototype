@@ -1,5 +1,6 @@
 """Billing and invoices: POST /v1/billing/run and GET /v1/invoices (docs/API.md)."""
 import json
+import logging
 from datetime import date, datetime, timedelta
 from typing import Literal
 
@@ -7,13 +8,16 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Connection, Engine, text
 
-from app.auth import Session, owner_session, tenant_session
+from app.auth import Session, current_session, owner_session, tenant_session
 from app.clock import PERIOD_PATTERN, period_of, today
 from app.db import get_engine
 from app.errors import ApiError
 from app.ids import invoice_id, payment_id
+from app.notify import notify_invoices
+from app.routes.cron import drain_queue
 
 router = APIRouter(prefix="/v1", tags=["billing"])
+logger = logging.getLogger(__name__)
 
 Status = Literal["unpaid", "pending", "paid", "void"]
 
@@ -23,11 +27,13 @@ class BillingRunIn(BaseModel):
 
 
 class BillingRunOut(BaseModel):
-    job_id: str | None  # LINE sending is not queued yet, so this stays null for now
+    job_id: str | None  # the first queued LINE job, when at least one message went to the queue
     period: str
     rooms_to_bill: int
     skipped_no_reading: int
     skipped_no_previous_reading: int
+    queued: int = 0     # messages handed to the queue: rooms with a tenant linked to LINE
+    drained: bool = False  # whether this request also sent them
 
 
 class InvoiceRow(BaseModel):
@@ -50,6 +56,31 @@ class InvoicesOut(BaseModel):
     period: str
     items: list[InvoiceRow]
     summary: InvoiceSummary
+
+
+class InvoiceItemOut(BaseModel):
+    label: str
+    qty: int
+    unit_price: int
+    amount: int
+
+
+class PaymentOut(BaseModel):
+    amount: int
+    slip_key: str | None
+    verify_ok: bool | None
+    verified_at: datetime | None
+
+
+class InvoiceDetailOut(BaseModel):
+    id: str
+    period: str
+    room_no: str
+    items: list[InvoiceItemOut]
+    total: int
+    status: Status
+    due_date: date
+    payment: PaymentOut | None
 
 
 class SlipIn(BaseModel):
@@ -103,8 +134,28 @@ ROOMS_TO_BILL_SQL = text("""
 """)
 
 
+# One row per new invoice, carrying the single tenant to message: the newest one still in the room,
+# the same rule dunning uses, so a room with roommates does not get two of every message.
+NOTIFY_ROWS_SQL = text("""
+    select i.id, i.period, i.total, i.due_date, r.room_no, t.line_user_id
+    from invoices i
+    join rooms r on r.id = i.room_id
+    join lateral (
+        select line_user_id
+        from tenants
+        where room_id = r.id
+          and line_user_id is not null
+          and (moved_out is null or moved_out > :today)
+        order by moved_in desc nulls last
+        limit 1
+    ) t on true
+    where r.property_id = :property_id and i.id = any(cast(:ids as text[]))
+    order by r.room_no
+""")
+
+
 @router.post("/billing/run", status_code=202, response_model=BillingRunOut)
-def run_billing(
+async def run_billing(
     body: BillingRunIn,
     session: Session = Depends(owner_session),
     engine: Engine = Depends(get_engine),
@@ -164,9 +215,30 @@ def run_billing(
                  "payload": json.dumps({"period": body.period, "invoice_ids": created})},
             )
 
-    return BillingRunOut(job_id=None, period=body.period, rooms_to_bill=len(created),
-                         skipped_no_reading=no_reading, skipped_no_previous_reading=no_previous)
+    # The bills are committed. Everything below is the message about them, and a queue that is not
+    # set up must not turn a saved billing run into an error for the owner.
+    queued, first, drained = 0, None, False
+    if created:
+        try:
+            with engine.connect() as conn:
+                rows = conn.execute(
+                    NOTIFY_ROWS_SQL,
+                    {"property_id": session.property_id, "today": day, "ids": created},
+                ).mappings().all()
+            queued, first = notify_invoices([dict(row) for row in rows])
+        except Exception:  # noqa: BLE001 - logged, and the answer still explains the run
+            logger.exception("invoice notify failed for %s bills of %s", len(created), body.period)
+            queued, first = 0, None
+        if queued:  # draining an empty queue would only open a connection
+            try:
+                await drain_queue()
+                drained = True
+            except Exception:  # noqa: BLE001 - the jobs are queued; the next drain sends them
+                logger.exception("draining the invoice queue failed for %s", body.period)
 
+    return BillingRunOut(job_id=str(first) if first else None, period=body.period,
+                         rooms_to_bill=len(created), skipped_no_reading=no_reading,
+                         skipped_no_previous_reading=no_previous, queued=queued, drained=drained)
 
 def create_invoice(conn: Connection, room_id: str, period: str, rent: int,
                    items: list[tuple[str, int, int]], due: date) -> str | None:
@@ -228,6 +300,56 @@ def list_invoices(
         items=[InvoiceRow(id=r.id, room_no=r.room_no, total=r.total, status=r.status, due_date=r.due_date,
                           days_overdue=days_overdue(r.status, r.due_date)) for r in rows],
         summary=InvoiceSummary(total=paid + pending + unpaid, paid=paid, pending=pending, unpaid=unpaid),
+    )
+
+
+INVOICE_DETAIL_SQL = text("""
+    select i.id, i.period, i.total, i.status, i.due_date, r.room_no
+    from invoices i join rooms r on r.id = i.room_id
+    where i.id = :id and r.property_id = :property_id
+      and (cast(:room_id as text) is null or i.room_id = :room_id)
+""")
+
+
+@router.get("/invoices/{invoice_id}", response_model=InvoiceDetailOut)
+def get_invoice(
+    invoice_id: str,
+    session: Session = Depends(current_session),
+    engine: Engine = Depends(get_engine),
+) -> InvoiceDetailOut:
+    """One bill with its line items and latest payment.
+
+    An owner sees any bill of their dorm; a tenant sees only their own room's. Anything else is
+    404 rather than 403, so the caller cannot learn that the bill exists (docs/API.md).
+    """
+    room_id = session.room_id if session.role == "tenant" else None
+    if session.role == "tenant" and not room_id:
+        # Without this the query would drop the room filter and show a roomless tenant the whole
+        # dorm. Fail closed, like every other tenant route.
+        raise ApiError(403, "FORBIDDEN", "เฉพาะผู้เช่าที่ผูกห้องแล้ว")
+    with engine.connect() as conn:
+        row = conn.execute(
+            INVOICE_DETAIL_SQL,
+            {"id": invoice_id, "property_id": session.property_id, "room_id": room_id},
+        ).first()
+        if row is None:
+            raise ApiError(404, "NOT_FOUND", "ไม่พบบิลนี้")
+        items = conn.execute(
+            text("select label, qty, unit_price, amount from invoice_items "
+                 "where invoice_id = :id order by id"),
+            {"id": invoice_id},
+        ).all()
+        payment = conn.execute(
+            text("select amount, slip_key, verify_ok, verified_at from payments "
+                 "where invoice_id = :id order by created_at desc, id desc limit 1"),
+            {"id": invoice_id},
+        ).first()
+
+    return InvoiceDetailOut(
+        id=row.id, period=row.period, room_no=row.room_no, total=row.total, status=row.status,
+        due_date=row.due_date,
+        items=[InvoiceItemOut(**item._mapping) for item in items],
+        payment=PaymentOut(**payment._mapping) if payment is not None else None,
     )
 
 

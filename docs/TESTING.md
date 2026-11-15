@@ -17,13 +17,13 @@ repo นี้แยกเป็นสองครึ่งที่ deploy แ�
 | `line-app` โครงสร้าง/handler | `smoke.js`, `smoke-handlers.js`, `smoke-reads.js` | `node` (หรือ `npm test`) | Node ≥ 20 · ไม่ต้องมีเน็ต · **ไม่ต้อง `npm install`** | signature ของ webhook, Flex card, QR binding + move-confirm, rate limit, ยืนยันการชำระ + ใบเสร็จ, ยกเลิก/ออกบิลใหม่, สลิปหนึ่งใบหลายงวด, roles/invite, slip limits, concurrency ของ read |
 | `line-app` use case | `smoke-usecases.js` | `node smoke-usecases.js` | เหมือนข้างบน | **156 เคส** ที่ id ตรงกับ `docs/TEST-CASES.md` (TC-xx-n) ไล่ตาม UC-01 … UC-18 |
 | `line-app` cron เตือนรายวัน | `smoke-cron.js` | `node smoke-cron.js` | เหมือนข้างบน | auth ของ `/api/cron`, lock กันรอบซ้อน, 6 หน้าต่างเตือน, dedup, catch-up, ข้ามบิลที่ไม่ควรเตือน, retry, สรุปถึงเจ้าของ |
-| `backend` API | `backend/tests/*.py` (10 ไฟล์) | `pytest` | Python ≥ 3.11 · **Postgres** สำหรับ test ที่แตะ DB | สัญญา error, session cookie, LINE idToken, ห้อง/มิเตอร์, ออกบิล, สลิป/ยืนยัน/ตีกลับ, ผูก LINE, dunning, cron, **RLS** |
+| `backend` API | `backend/tests/*.py` (13 ไฟล์) | `pytest` | Python ≥ 3.11 · **Postgres** สำหรับ test ที่แตะ DB | สัญญา error, session cookie, LINE idToken, ห้อง/มิเตอร์, ออกบิล + ส่งบิลเข้า LINE, สลิป/ยืนยัน/ตีกลับ, ผูก LINE, dunning, cron, **RLS**, webhook signature |
 | LIFF inline script | `line-app/liff/bill.html` | `node --check` (ใน CI) | Node | แค่ **parse ได้** ไม่ได้รัน logic |
 | production หลัง deploy | `scripts/prod-smoke.mjs` | `node scripts/prod-smoke.mjs` | เน็ต + URL จริง | **14 ข้อ**: build ปัจจุบัน, security header, endpoint ที่ต้อง auth ตอบ 401, dev endpoint ปิด, cron ป้องกัน secret |
 
 > ไม่มี Jest/Vitest/Playwright และไม่มี coverage tool ใน repo นี้ — ทุกอย่างข้างบนคือทั้งหมดที่มี
 
-**catalogue ของเคสคือ [`docs/TEST-CASES.md`](TEST-CASES.md)**: 249 เคสใน 18 use case โดยแบ่งเป็น ✅ 198 เคสที่ automation แตะ, 🖐 23 เคสที่ต้องทำมือกับ LINE/LIFF จริง และ ⏳ 28 เคสที่ **ยังไม่สร้างฟีเจอร์** (จึงยังไม่มี test) — ใน 198 เคสนั้น 156 เคสมี id ของตัวเองใน `smoke-usecases.js`, 33 เคสชี้ไปที่ backend pytest และอีก 9 เคสชี้ไปเคสที่ automate ไว้แล้วใน UC อื่น (หรือ `smoke-cron.js`)
+**catalogue ของเคสคือ [`docs/TEST-CASES.md`](TEST-CASES.md)**: 263 เคสใน 19 use case โดยแบ่งเป็น ✅ 212 เคสที่ automation แตะ, 🖐 23 เคสที่ต้องทำมือกับ LINE/LIFF จริง และ ⏳ 28 เคสที่ **ยังไม่สร้างฟีเจอร์** (จึงยังไม่มี test) — ใน 212 เคสนั้น 156 เคสมี id ของตัวเองใน `smoke-usecases.js`, 47 เคสชี้ไปที่ backend pytest และอีก 9 เคสชี้ไปเคสที่ automate ไว้แล้วใน UC อื่น (หรือ `smoke-cron.js`)
 
 ---
 
@@ -187,8 +187,8 @@ pytest -q
 
 | สภาพ | ผล |
 |---|---|
-| `pytest -q` ไม่มี Postgres | **20 passed, 91 skipped** (test ที่ไม่ต้องใช้ DB รันได้หมด) |
-| `pytest --collect-only -q` | **111 tests collected** ใน 10 ไฟล์ |
+| `pytest -q` ไม่มี Postgres | **23 passed, 108 skipped** (test ที่ไม่ต้องใช้ DB รันได้หมด) |
+| `pytest --collect-only -q` | **131 tests collected** ใน 13 ไฟล์ |
 
 ### 3.3 ไฟล์ test แต่ละไฟล์
 
@@ -199,7 +199,10 @@ pytest -q
 | `test_cron.py` | ไม่ (stub queue) | `GET /v1/cron/daily`: ไม่มี secret / secret ผิด / token ทาง query → 401 · secret ถูก → 200 `{"queued":1,"drained":true}` และ drain ใน invocation เดียว · ไม่ตั้ง `CRON_SECRET` → fail closed |
 | `test_rooms.py` | ใช่ | 401 ไม่มี session · `DEV_AUTH` header เลือก session · ผู้เช่า → 403 · หออื่นเห็น/แก้ห้องนี้ไม่ได้ · list ตาม period + invoice ของ period · บันทึกมิเตอร์เทียบเดือนก่อน, ส่งซ้ำทับได้, เลขลดลงเตือนแต่บันทึก, ออกบิลแล้วแก้ไม่ได้ (409), ห้องไม่รู้จัก, ค่าผิด → 422 |
 | `test_schema_and_seed.py` | ใช่ | seed สร้าง demo dorm และตัวเลขตรง prototype · seed ซ้ำไม่เปลี่ยนอะไร · DB กันบิลซ้ำ `(room, period)` · สถานะบิลถูกล็อกด้วย constraint |
-| `test_billing.py` | ใช่ | `POST /v1/billing/run`: ออกบิลเฉพาะห้องที่มี reading · 42 ห้องใน request เดียว · รันซ้ำ 409 · จดมิเตอร์ทีหลังแล้วรันซ้ำออกเฉพาะห้องนั้น · พังกลางทาง rollback ทั้งก้อน · ใช้มิเตอร์เดือนก่อนค่าล่าสุด · ห้องเหมาจ่าย/ห้องว่าง · ผู้เช่า → 403 · period ผิดรูป → 422 (pydantic pattern) · `GET /v1/invoices`: `days_overdue`, `summary`, กรองสถานะ, ค่า default period, หออื่นไม่เห็น |
+| `test_billing.py` | ใช่ | `POST /v1/billing/run`: ออกบิลเฉพาะห้องที่มี reading · 42 ห้องใน request เดียว · รันซ้ำ 409 · จดมิเตอร์ทีหลังแล้วรันซ้ำออกเฉพาะห้องนั้น · พังกลางทาง rollback ทั้งก้อน · ใช้มิเตอร์เดือนก่อนค่าล่าสุด · ห้องเหมาจ่าย/ห้องว่าง · ผู้เช่า → 403 · period ผิดรูป → 422 (pydantic pattern) · **ส่งบิลเข้า LINE**: `queued`/`drained`/`job_id`, คิวพังก็ยัง 200 และบิลครบ · `GET /v1/invoices`: `days_overdue`, `summary`, กรองสถานะ, ค่า default period, หออื่นไม่เห็น · **`GET /v1/invoices/:id`**: เจ้าของ/ผู้เช่า/หออื่น/ใบที่ไม่มี |
+| `test_properties.py` | ใช่ | `GET /v1/properties/:id`: เจ้าของอ่านหอตัวเอง (รวมจำนวนห้อง) · หออื่น → 404 ไม่ใช่ 403 · ผู้เช่า → 403 · ไม่ล็อกอิน → 401 |
+| `test_notify.py` | ไม่ (stub queue) | `notify_invoices`: 1 งานต่อใบด้วย `line.push_text` kind `invoice` · ข้อความมีห้องและยอด · ห้องไม่มีผู้เช่าไม่ถูก enqueue · ไม่มีอะไรส่ง = ไม่เปิดคิว |
+| `test_webhook.py` | ใช่ | `POST /v1/webhooks/line/:property_id`: signature ถูก → 200 + `audit_log` 1 แถว (count/types) · signature ผิด → 401 และไม่เขียน · หออื่น → 404 แม้ signature ถูก · body ไม่ใช่ JSON → 400 · ไม่ตั้ง `LINE_CHANNEL_SECRET` → 503 |
 | `test_slip_confirm_reject.py` | ใช่ | สลิป → `pending` และเก็บ URL ตามที่หน้าเว็บส่ง · แนบห้องอื่น → 404 · แนบซ้ำ → 409 · ยืนยันแล้ว `paid` + `receipt_no` ไม่ซ้ำ · ยืนยันก่อนมีสลิปไม่ได้ · หออื่นยืนยันไม่ได้ · **ยืนยันรอ lock ระดับหอ** (`test_confirm_waits_for_the_dorm_lock`) · ตีกลับ → `unpaid` + `audit_log` |
 | `test_line_link.py` | ใช่ | ออก invite ให้ผู้เช่าที่ยังไม่มี LINE · invite ใหม่ยกเลิกอันเก่า · ผูกแล้ว login ได้ทันที · พิมพ์ตัวเล็ก/เว้นวรรคได้ · เปิดซ้ำได้ · คนอื่นใช้ซ้ำ 409 · หมดอายุ/ถูกยกเลิก 410 · รหัสผิด 404 · ผูกครั้งเดียวต่อบัญชี · รูมเมท · หออื่นทำไม่ได้ · ยกเลิกผูก/move-out ตัด session เดิม · เดารหัสถี่ถูก rate limit |
 | `test_dunning.py` | ใช่ | เลือกบิลตามวัน overdue (1/5/10) · kind ต่อบิล · `due_for_reminder` ใช้ `SELECT` เดียว · push ล้มไม่นับว่าส่งแล้วและ task โยน error ให้คิว retry · ผู้เช่าที่ไม่มี LINE ไม่ถูก enqueue · บิล `paid` ข้าม · เคย log kind นั้นแล้วไม่เลือกซ้ำ · หออื่นไม่ถูกแตะ |
@@ -277,16 +280,16 @@ cd ..\backend; $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@lo
 
 **ไม่มีการตั้ง coverage threshold ที่ไหนเลย** — ไม่มี `.coveragerc`, `.nycrc`, `pytest-cov`, หรือ `--cov` ใน CI และ `line-app` ไม่มี coverage tool (ทดสอบด้วย `assert` ตรง ๆ) ดังนั้นตัวเลข coverage ที่ "ควรมี" ไม่มีอยู่ใน repo นี้
 
-สิ่งที่พอวัดได้คือ **ความครอบของ use case** จาก [`docs/TEST-CASES.md`](TEST-CASES.md) (249 เคส / 18 UC):
+สิ่งที่พอวัดได้คือ **ความครอบของ use case** จาก [`docs/TEST-CASES.md`](TEST-CASES.md) (263 เคส / 19 UC):
 
 | สถานะในเอกสาร | จำนวน | ใครตรวจ |
 |---|---|---|
 | ✅ automated — id ของตัวเองใน `smoke-usecases.js` | 156 | `line-app/smoke-usecases.js` |
-| ✅ automated — ชี้ไป backend pytest | 33 | `backend/tests/*.py` |
+| ✅ automated — ชี้ไป backend pytest | 47 | `backend/tests/*.py` |
 | ✅ automated — ชี้ไปเคสที่ automate แล้วใน UC อื่น (หรือ `smoke-cron.js`) | 9 | `smoke-usecases.js` / `smoke-cron.js` |
 | 🖐 manual | 23 | คนกดกับ LINE OA + LIFF จริง (ข้อ 7) |
 | ⏳ ยังไม่สร้าง | 28 | ยังไม่มีฟีเจอร์ จึงยังไม่มี test |
-| **รวม** | **249** | |
+| **รวม** | **263** | |
 
 ตัวเลข 198 ไม่ได้แปลว่าโค้ดทุกบรรทัดถูกตรวจ — เคสหนึ่งอาจ assert หลายอย่างหรือแค่ทางเดียวของ handler
 
@@ -423,7 +426,7 @@ test อัตโนมัติที่ครอบส่วนนี้: `lin
 
 ## เอกสารที่เกี่ยวข้อง
 
-- [`docs/TEST-CASES.md`](TEST-CASES.md) — catalogue 249 เคส / 18 UC พร้อมสถานะ ✅/🖐/⏳ และโค้ดที่แต่ละเคสอ้างถึง
+- [`docs/TEST-CASES.md`](TEST-CASES.md) — catalogue 263 เคส / 19 UC พร้อมสถานะ ✅/🖐/⏳ และโค้ดที่แต่ละเคสอ้างถึง
 - [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — โครงสร้างสองครึ่ง, data flow, state machine ของบิล
 - [`docs/CONFIGURATION.md`](CONFIGURATION.md) — env ทุกตัว (`TEST_DATABASE_URL`, `CRON_SECRET`, `DEV_AUTH`)
 - [`line-app/docs/TESTING.md`](../line-app/docs/TESTING.md) — matrix ระดับ endpoint, LINE e2e script, ตาราง race เต็ม

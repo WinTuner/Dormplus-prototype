@@ -28,6 +28,7 @@
 | `LINE_CHANNEL_ID` | **จำเป็นถ้าใช้ LINE Login** | ไม่ใส่ก็ได้ | `""` | `POST /v1/auth/line` ตอบ `503 LINE_NOT_CONFIGURED` |
 | `LIFF_ID` | **จำเป็นถ้าใช้หน้า LIFF** | ไม่ใส่ก็ได้ | `""` | `GET /v1/liff-config` คืน `{"liff_id": ""}` → หน้า LIFF `liff.init()` ไม่ได้ |
 | `LINE_CHANNEL_ACCESS_TOKEN` | **จำเป็นถ้าต้องส่งข้อความ** | ไม่ใส่ก็ได้ | `""` | push ไม่Throw แต่คืน `"skipped: no LINE_CHANNEL_ACCESS_TOKEN"` แล้ว log `skipped` — ผู้ใช้ไม่ได้รับข้อความ |
+| `LINE_CHANNEL_SECRET` | **จำเป็นถ้าจะรับ webhook** | ไม่ใส่ก็ได้ | `""` | `POST /v1/webhooks/line/:property_id` ตอบ `503 NOT_CONFIGURED`; ค่าต้องเป็น channel secret ของ OA เดียวกับ access token |
 | `CRON_SECRET` | ไม่บังคับ (cron ของ backend ปิดอยู่) | ไม่ใส่ก็ได้ | `""` | endpoint `/v1/cron/daily` ยังอยู่แต่ตอบ 401 ทุกครั้ง จนกว่าจะตั้งค่านี้ — ใช้เมื่อยิงมือหรือเปิด cron กลับ (ดู §1.4) |
 | `DUNNING_TOKEN` | ทางเลือกแทน `CRON_SECRET` | — | — | ชื่อเก่าที่ยังรับผ่าน `AliasChoices`; ถ้าตั้งทั้งคู่ `CRON_SECRET` ชนะ · **alias นี้มีเฉพาะฝั่ง backend** `line-app` ไม่รับชื่อนี้ |
 | `PROPERTY_ID` | **จำเป็นต้องตรงข้อมูล** | `p_1` | `p_1` | ไม่ error แต่ทุก connection ถูกตั้ง `app.property_id` เป็นค่านี้ → RLS จะไม่เห็นแถวของหออื่นเลย และ cron จะเลือกบิลเฉพาะหอนี้ (ดู §1.6) |
@@ -51,6 +52,8 @@
 <!-- VERIFY: ชื่อ endpoint pooled/unpooled จริงของ Neon และว่า production ตั้ง `?sslmode=require` ครบหรือไม่ — อยู่ใน Vercel Project → Settings → Environment Variables ไม่มีในเรพ -->
 <!-- VERIFY: `DATABASE_URL` บน Vercel ของโปรเจกต์ `line-backend` ชี้ Neon ตัวเดียวกับที่ `backend/.env` ใช้หรือคนละตัว — เทียบจาก dashboard เท่านั้น -->
 <!-- VERIFY: role ที่ผูกกับ `DATABASE_URL` บน production คือ `dormplus_app` จริง (ไม่ใช่ `neondb_owner`) — ตรวจได้จาก dashboard/psql เท่านั้น -->
+
+> **ตรวจแล้ว 2026-11-16 (read-only):** ฐานข้อมูลที่ `backend/.env` ใช้อยู่ head = `0004` และมี role `dormplus_app` ที่ `rolbypassrls = false` — **แต่ connection ของ `.env` ในเครื่องนี้ล็อกอินเป็น `neondb_owner` ซึ่ง `rolbypassrls = true`** แปลว่า RLS ถูกข้ามเมื่อรัน backend จากเครื่องนี้ ถ้าจะทดสอบเรื่องข้ามหอในเครื่อง ต้องเปลี่ยน `.env` ไปใช้ `dormplus_app` (หรือเชื่อ `tests/test_rls.py` ที่ `set local role` เอง) — production ยังต้องยืนยันจาก Vercel env ว่าใช้ `dormplus_app`
 
 ### 1.2 `SESSION_SECRET`
 
@@ -88,9 +91,8 @@
 
 ฝั่ง line-app (`line-app/api/cron.js`) — ดู §2.4
 
-<!-- VERIFY: บน Vercel dashboard ตั้ง `CRON_SECRET` ไว้บนทั้งสองโปรเจกต์หรือยัง และ cron `/api/cron` (line-app) ถูก register จริงบน plan Hobby — `vercel.json` เป็นเพียงคำประกาศ -->
-<!-- VERIFY: Hobby plan อนุญาต cron วันละครั้งและคลาดได้ถึง ±59 นาทีตามที่ README กล่าว — ตรวจที่ Vercel → Project → Cron Jobs (ทั้งสองโปรเจกต์) -->
-<!-- VERIFY: cron ของ `line-backend` ถูกถอดออกจาก dashboard ด้วยหรือแค่ถอดจาก `vercel.json` — ถ้า dashboard ยังมีอยู่ จะยังถูกยิงและได้ 401 -->
+- **ตรวจแล้ว 2026-11-16:** `vercel crons list` โปรเจกต์ `line-app` คืน `/api/cron  0 2 * * *` (ลงทะเบียนจริง) · `GET /api/cron` ไม่มี header → `401` (แปลว่า `CRON_SECRET` ถูกตั้งแล้ว) · โปรเจกต์ `line-backend` ไม่มี cron job เลย
+<!-- VERIFY: Hobby plan อนุญาต cron วันละครั้งและคลาดได้ถึง ±59 นาทีตามที่ README กล่าว — เป็นข้อจำกัดของ plan ไม่ได้ประกาศในเรพ -->
 
 ### 1.5 กลุ่ม LINE ฝั่ง backend
 
@@ -99,6 +101,7 @@
 | `LINE_CHANNEL_ID` | `app/routes/auth.py` | LINE Login channel ที่ออก idToken; ว่าง → 503 |
 | `LIFF_ID` | `app/main.py` | `GET /v1/liff-config` คืนให้หน้า LIFF (public โดยตั้งใจ) |
 | `LINE_CHANNEL_ACCESS_TOKEN` | `app/line_push.py` | Messaging API push; ว่าง → คืน `skipped:` ไม่ throw |
+| `LINE_CHANNEL_SECRET` | `app/routes/webhooks.py` | ตรวจ `X-Line-Signature` (HMAC ของ raw body); ว่าง → 503 |
 
 > `LINE_CHANNEL_ACCESS_TOKEN` ถูกอ่านโดย `Settings` แต่ **ไม่ปรากฏใน `backend/.env.example`** — ถ้าคัดลอก example ไปใช้ ต้องเพิ่มเองไม่งั้นการทวงหนี้จะ log `skipped` เงียบ ๆ (ตอนนี้การทวงจริงอยู่ที่ `line-app` จึงกระทบเฉพาะตอนเปิด cron ฝั่งนี้)
 
@@ -264,7 +267,7 @@ PROPERTY_ID=p_1
 | `COOKIE_SECURE` | `true` | `backend/app/config.py` |
 | `DEV_AUTH` | `false` | `backend/app/config.py` |
 | `PROPERTY_ID` | `p_1` (ถูกตั้งเป็น `app.property_id` ทุก connection) | `backend/app/config.py`, `backend/app/db.py` |
-| `LINE_CHANNEL_ID` / `LIFF_ID` / `LINE_CHANNEL_ACCESS_TOKEN` / `CRON_SECRET` | `""` | `backend/app/config.py` |
+| `LINE_CHANNEL_ID` / `LIFF_ID` / `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_CHANNEL_SECRET` / `CRON_SECRET` | `""` | `backend/app/config.py` |
 | `PORT` | `8000` | `Dockerfile` |
 | `CRON_SECRET` (line-app) | `""` (ใช้ได้เมื่อ ≥ 16 ตัว) | `line-app/api/cron.js` |
 | ความยาวต่ำสุดของ cron secret (line-app) | `16` | `line-app/api/cron.js` |

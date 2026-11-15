@@ -17,14 +17,19 @@ LINE Login ผ่าน LIFF และ flow แนบสลิป → เจ้�
 | `DELETE /v1/tenants/:id/line` | เจ้าของหอ | ยกเลิกการผูก LINE ของผู้เช่า (204) |
 | `GET /v1/me/invoices` | ผู้เช่า | บิลของห้องตัวเอง 12 รอบล่าสุด — ห้องมาจาก session ไม่ใช่ request |
 | `GET /v1/rooms?period=YYYY-MM` | เจ้าของหอ | ห้องทั้งหมดของหอใน session พร้อมผู้เช่า มิเตอร์ และบิลของรอบนั้น ไม่ส่ง `period` = เดือนนี้ (เวลาไทย) |
+| `GET /v1/properties/:id` | เจ้าของหอ | ค่าตั้งของหอตัวเอง (`billing_mode`, เรตน้ำ/ไฟ, `due_days`, จำนวนห้อง) · หออื่น → 404 |
 | `PUT /v1/rooms/:id/reading` | เจ้าของหอ | ส่งซ้ำทับค่าเดิมได้ · ออกบิลรอบนั้นแล้ว → 409 · ห้องของหออื่น → 403 |
-| `POST /v1/billing/run` | เจ้าของหอ | ทั้งหอใน transaction เดียว · ออกเฉพาะห้องที่พร้อมและยังไม่มีบิล · ไม่มีห้องใหม่ → 409 |
+| `POST /v1/billing/run` | เจ้าของหอ | ทั้งหอใน transaction เดียว · ออกเฉพาะห้องที่พร้อมและยังไม่มีบิล · ไม่มีห้องใหม่ → 409 · **ส่งข้อความบิลเข้า LINE แล้ว drain คิวในคำขอเดียวกัน** → `queued`/`drained` |
 | `GET /v1/invoices?period=&status=` | เจ้าของหอ | บิลของรอบ + `days_overdue` (เฉพาะ `unpaid`) + `summary` ยอดทั้งรอบ |
+| `GET /v1/invoices/:id` | เจ้าของหอ + ผู้เช่า (ห้องตัวเอง) | บิลใบเดียว + `items` + `payment` ล่าสุด · นอกนั้น → 404 |
 | `POST /v1/invoices/:id/slip` | ผู้เช่า (ห้องตัวเอง) | แจ้งชำระ → `pending` + แถวใน `payments` · สถานะอื่น → 409 |
 | `POST /v1/invoices/:id/confirm` | เจ้าของหอ | `pending` → `paid` + `receipt_no` (`REC-<period>-NNNN`) + `paid_at` |
 | `POST /v1/invoices/:id/reject` | เจ้าของหอ | `pending` → `unpaid` พร้อมเหตุผล (ลง `audit_log`) |
+| `POST /v1/webhooks/line/:property_id` | LINE (signature) | ตรวจ `X-Line-Signature` ด้วย `LINE_CHANNEL_SECRET` → `audit_log` 1 แถว · **ยังไม่ผูกกับ OA** (บอทจริงอยู่ที่ `line-app`) |
 
 หน้า LIFF ผู้เช่าอยู่ที่ `/liff` (เสิร์ฟจาก `backend/liff/`)
+
+**คิว Procrastinate:** `/v1/billing/run` enqueue ข้อความบิลหนึ่งงานต่อใบ (`kind = "invoice"`) แล้ว drain ในคำขอเดียวกัน — backend ไม่มี cron ที่ตั้งเวลาไว้ จึงไม่มีใครมา drain ให้ถ้าไม่ทำตรงนี้ · ต้องรัน `python -m app.queue` ครั้งเดียวต่อฐานข้อมูลเพื่อสร้างตารางคิว; ถ้ายังไม่สร้าง บิลยังออกครบและตอบ `202` แต่ `queued: 0` (ไม่มีข้อความถึงผู้เช่า)
 
 ## Session
 

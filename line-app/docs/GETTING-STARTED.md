@@ -11,7 +11,7 @@
 - ไม่มี `npm run dev` / `npm start` / `npm run build` — เรพนี้ไม่มี dev server
 - `npm test` = `node smoke.js && node smoke-handlers.js && node smoke-reads.js`
 - ไม่มี `.env`, `.env.example` และไม่มี `dotenv` — ใส่ค่าในไฟล์ `.env` แล้วไม่มีผล เพราะไม่มีอะไรโหลดไฟล์นั้น (รายละเอียดใน [`CONFIGURATION.md`](./CONFIGURATION.md) ข้อ 4)
-- ไม่มี dev server สำหรับ `liff/bill.html` — หน้าเว็บเรียก `/api/*` แบบ path สัมพัทธ์ผ่าน helper `fetch` ตัวเดียว (จุดเรียกจริง: `/api/config` · `/api/me` · `/api/bill` · `/api/slip` · `/api/slip-image` · `/api/rooms` · `/api/run`) จึงต้องเสิร์ฟจาก origin เดียวกับ API
+- ไม่มี dev server สำหรับ `liff/bill.html` — หน้าเว็บเรียก `/api/*` แบบ path สัมพัทธ์ผ่าน helper `fetch` ตัวเดียว (จุดเรียกจริง: `/api/config` · `/api/me` · `/api/owner` · `/api/bill` · `/api/slip` · `/api/slip-image` · `/api/rooms` · `/api/run` · `/api/qr`) จึงต้องเสิร์ฟจาก origin เดียวกับ API
 
 สิ่งที่รันได้ในเครื่องตอนนี้มีอย่างเดียวคือ smoke test แบบ offline และ "คำขอแรกที่สำเร็จ" ของคุณจะเกิดบน **deployment บน Vercel** ไม่ใช่บน localhost
 
@@ -20,7 +20,7 @@
 | สิ่งที่ต้องมี | ทำไม | ตรวจจาก |
 |---|---|---|
 | Node.js **>= 20** | `package.json` → `engines.node` | `node -v` |
-| npm (มากับ Node) | ติดตั้ง dependency ตัวเดียว `@vercel/blob@^2.9.0` | `npm -v` |
+| npm (มากับ Node) | ติดตั้ง dependency สองตัว (`@vercel/blob`, `qrcode-svg`) | `npm -v` |
 | บัญชี LINE (ฟรี) + เบอร์ที่ผูก LINE | สร้าง Messaging API channel (webhook) และ LINE Login channel (LIFF) | — |
 | บัญชี Vercel + Vercel Blob store | ทุก endpoint ที่อ่าน/เขียนข้อมูลต้องใช้ Blob | — |
 
@@ -49,7 +49,7 @@ node smoke.js
 ผลที่ต้องเห็น (ยืนยันแล้วบน Node v26.13.0 ในเครื่องผู้เขียน):
 
 ```
-smoke OK — signature + flex card + confirm card
+smoke OK — signature + flex card + confirm card + auth guards
 ```
 
 `smoke.js` ไม่ต้องใช้ network, ไม่ต้องใช้ Blob, และ **ไม่ต้อง `npm install` ก็รันได้** เพราะ dependency chain ของมันคือ `smoke.js` → `api/_line.js` ซึ่งใช้แค่ `crypto` ของ Node (ดู `api/_line.js` บรรทัด 2) — มันตั้ง `LINE_CHANNEL_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` ปลอมเองในโปรเซสที่บรรทัด 2–3 ก่อน `require`
@@ -62,7 +62,7 @@ smoke OK — signature + flex card + confirm card
 
 ```bash
 npm i -g vercel
-vercel link          # ไม่มีใน README: เรพไม่มี .vercel ติดมา (.gitignore มีบรรทัดเดียวคือ .vercel)
+vercel link          # โฟลเดอร์ `.vercel/` ถูก gitignore ไว้ จึงต้องผูกใหม่ทุกเครื่อง
 vercel --prod
 ```
 
@@ -125,7 +125,7 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "http://localhost:3000/api/bill?room
 
 - [ ] `node -v` → ต้อง `>= 20`
 - [ ] `npm install` → มี `node_modules/@vercel/blob` (2.9.0)
-- [ ] `node smoke.js` → เห็น `smoke OK — signature + flex card + confirm card`
+- [ ] `node smoke.js` → เห็น `smoke OK — signature + flex card + confirm card + auth guards`
 - [ ] อ่าน [`CONFIGURATION.md`](./CONFIGURATION.md) ข้อ 1 ให้ครบ 16 ตัวแปร — ตัวที่ขาดแล้วพังทันทีคือ `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`, `LIFF_ID`, `OWNER_USER_ID`
 - [ ] มี Messaging API channel (secret + long-lived token) และ LINE Login channel สำหรับ LIFF (README ข้อ 2, 6)
 - [ ] `vercel --prod` แล้ว `curl.exe -s https://<โดเมน>/api/config` ตอบ `200`
@@ -136,7 +136,7 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "http://localhost:3000/api/bill?room
 
 | อาการ | สาเหตุ | ทางแก้ |
 |---|---|---|
-| หา `npm run dev` / `npm start` ไม่เจอ | `package.json` ไม่มี `scripts` | ไม่มีจริง — ใช้ deploy + `curl` ตามข้อ 4 |
+| หา `npm run dev` / `npm start` ไม่เจอ | `package.json` มีแค่ `scripts.test` | ไม่มีจริง (มีแต่ `npm test`) — ใช้ deploy + `curl` ตามข้อ 4 |
 | `node smoke.js` ขึ้น `Cannot find module '...smoke.js'` | รันจากโฟลเดอร์อื่น (path ของ smoke.js ผิด) | `cd` ไปที่ root ของ `line-app` ก่อน — ตัว `require("./api/_line")` ข้างในอ้างจากตำแหน่งไฟล์ ไม่ใช่ cwd |
 | ใส่ค่าใน `.env` แล้วค่าไม่ติด | ไม่มี dotenv ใน dependency | ต้องตั้ง env บน Vercel (หรือ `$env:X="..."` ใน PowerShell ก่อนรัน) |
 | เรียก API แล้วได้ `500` | Blob ยังไม่เชื่อม / ยังไม่ Redeploy | `vercel storage connect ...` แล้ว Redeploy |

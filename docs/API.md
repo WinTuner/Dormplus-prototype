@@ -20,10 +20,10 @@
 | `POST /auth/line/link` | ✅ (รหัสเชิญ) |
 | `POST /rooms/:id/invite` · `DELETE /rooms/:id/invite` | ✅ |
 | `DELETE /tenants/:id/line` | ✅ |
-| `GET /properties/:id` | ⬜ |
-| `GET /invoices/:id` (รายละเอียด + items) | ⬜ |
+| `GET /properties/:id` | ✅ |
+| `GET /invoices/:id` (รายละเอียด + items) | ✅ |
 | `GET /v1/reports/summary` | ⬜ |
-| `POST /webhooks/line/:property_id` | ⬜ |
+| `POST /webhooks/line/:property_id` | ✅ (endpoint + signature; **ยังไม่ผูก OA**) |
 
 ## กติกากลาง
 
@@ -111,10 +111,12 @@ LINE userId ผู้ใช้มองไม่เห็น เจ้าขอ�
 ## หอและห้อง
 
 ### `GET /properties/:id`
+เฉพาะเจ้าของหอ · `id` ต้องเป็นหอของ session ไม่งั้น `404 NOT_FOUND` (ไม่ใช่ 403 — ผู้เรียกต้องไม่รู้ว่าหอนั้นมีอยู่)
 ```json
 { "id": "p_1", "name": "หอพักบ้านสวน", "billing_mode": "meter",
   "water_rate": 25, "elec_rate": 7, "due_days": 5, "rooms": 42 }
 ```
+`rooms` นับทุกห้องของหอ รวมห้องว่าง · ผู้เช่า → `403 FORBIDDEN` · ไม่ได้ล็อกอิน → `401`
 
 ### `GET /rooms?period=2026-11`
 เฉพาะเจ้าของหอ · ไม่ส่ง `period` = เดือนปัจจุบันตามเวลาไทย · `reading`, `invoice`, `tenant` เป็น `null` ถ้ายังไม่มี
@@ -151,13 +153,14 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
 ## บิล
 
 ### `POST /billing/run`
-สร้างบิลทั้งหอจากค่ามิเตอร์ที่จดแล้ว (ยังไม่ส่ง LINE — เส้นทางนี้ยังไม่ enqueue อะไร)
+สร้างบิลทั้งหอจากค่ามิเตอร์ที่จดแล้ว แล้ว **ส่งข้อความบิลเข้า LINE ของผู้เช่าแต่ละห้อง**
 ```json
 // req
 { "period": "2026-11" }
 // res 202
-{ "job_id": "job_9", "period": "2026-11", "rooms_to_bill": 42,
-  "skipped_no_reading": 0, "skipped_no_previous_reading": 0 }
+{ "job_id": "12", "period": "2026-11", "rooms_to_bill": 42,
+  "skipped_no_reading": 0, "skipped_no_previous_reading": 0,
+  "queued": 42, "drained": true }
 ```
 - ทำทั้งหอใน transaction เดียว ล้มกลางทาง → rollback ทั้งหมด
 - ออกบิลเฉพาะห้องที่พร้อมและยังไม่มีบิลรอบนี้ · ห้อง `vacant` ข้าม
@@ -167,7 +170,11 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
 - หน่วยคิดจาก reading รอบก่อนหน้า **ณ ตอนออกบิล** (ถ้าแก้มิเตอร์เดือนก่อนหลังจดเดือนนี้แล้ว บิลจะใช้ค่าที่แก้)
 - ค่าน้ำ/ไฟ/วันครบกำหนดจาก `properties` ของหอ · ครบกำหนด = วันที่ออกบิล (เวลาไทย) + `due_days`
 - สร้าง `invoice_items` (ค่าเช่า · ค่าน้ำ · ค่าไฟ) และเขียน `audit_log` action `billing.run`
-- `/billing/run` ยังไม่ enqueue อะไร (Procrastinate มีโครงใน `app/queue.py` และ `/v1/cron/daily` เป็นตัว drain แต่การออกบิลเองยังทำใน request) → `job_id` = `null`
+- **ส่งบิล:** หลัง commit แล้ว เลือกผู้เช่าคนเดียวต่อห้อง (คนที่ `moved_in` ใหม่สุดที่ยังไม่ `moved_out` — สูตรเดียวกับ dunning) แล้ว `defer` งาน `line.push_text` หนึ่งงานต่อใบ (`kind = "invoice"`, ข้อความจาก `app/tasks.invoice_text`) จากนั้น **drain คิวในคำขอเดียวกัน** (`await drain_queue()` แบบเดียวกับ `/v1/cron/daily`) — backend ไม่มี cron แล้ว ถ้า enqueue แล้วจบ บิลจะค้างในคิวโดยไม่มีใครส่ง
+  - `queued` = จำนวนงานที่เข้าคิวจริง (**เฉพาะห้องที่มีผู้เช่าผูก LINE**) · `drained` = คำขอนี้ส่งเลยหรือไม่ (`queued > 0` และ drain สำเร็จ) · `job_id` = id ของงานแรก หรือ `null`
+  - ห้องที่ไม่มีผู้เช่าผูก LINE ยังถูกออกบิล (นับใน `rooms_to_bill`) แต่ `queued` ไม่นับ
+  - **คิวไม่พร้อม** (ยังไม่รัน `python -m app.queue` บนฐานข้อมูลนั้น): บิลถูกบันทึกครบแล้ว ตอบ `202` ด้วย `queued: 0, drained: false` — การออกบิลที่สำเร็จต้องไม่กลายเป็น error ของเจ้าของ
+  - การส่งเป็น at-least-once: คิว retry งานที่ล้มได้ ผู้เช่าอาจได้ข้อความซ้ำ
 
 ### `GET /invoices?period=2026-11&status=unpaid`
 เฉพาะเจ้าของหอ · ไม่ส่ง `period` = เดือนปัจจุบันตามเวลาไทย · `status` = `unpaid` | `pending` | `paid` | `void`
@@ -181,6 +188,7 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
 - `summary` เป็นยอดทั้งรอบของหอ ไม่ขึ้นกับ `status` ที่กรอง · `total` ไม่รวมบิล `void`
 
 ### `GET /invoices/:id`
+เจ้าของเห็นบิลทุกใบของหอ · ผู้เช่าเห็นเฉพาะบิลของห้องตัวเอง · นอกนั้น `404 NOT_FOUND` (ไม่ใช่ 403) · `payment` = แถวล่าสุดใน `payments` หรือ `null`
 ```json
 { "id": "inv_1", "period": "2026-11", "room_no": "203",
   "items": [ { "label": "ค่าเช่า", "qty": 1, "unit_price": 3220, "amount": 3220 },
@@ -189,6 +197,7 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
   "total": 3842, "status": "unpaid", "due_date": "2026-11-09",
   "payment": null }
 ```
+`items` เรียงตามลำดับที่บันทึก · `payment` เมื่อมี = `{ "amount", "slip_key", "verify_ok", "verified_at" }` (`verify_ok: null` = รอเจ้าของตรวจ)
 
 ---
 
@@ -231,8 +240,13 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
 ## Webhook (LINE → server)
 
 ### `POST /webhooks/line/:property_id`
-- ตรวจ `X-Line-Signature` ด้วย channel secret ของหอนั้น
-- ตอบ 200 ทันที แล้วประมวลผลแบบ async
+`api` ฝั่ง backend รับ event ของ Messaging API แล้ว — **endpoint ทำงานได้ แต่ช่องทางของ OA ยังชี้ที่ `line-app`** (สลับเมื่อไหร่บอทที่ใช้งานจริงจะดับ) จึงยังไม่มี handler ที่ตอบผู้ใช้: งานของ endpoint นี้คือพิสูจน์ signature และบันทึก event
+
+- **Auth:** `X-Line-Signature` = Base64(HMAC-SHA256 ของ **raw body** ด้วย `LINE_CHANNEL_SECRET`) เทียบแบบ constant-time · ไม่ใช้ session
+- **Error:** `503 NOT_CONFIGURED` (ไม่ได้ตั้ง `LINE_CHANNEL_SECRET`) → `404 NOT_FOUND` (`:property_id` ไม่ใช่หอของ deployment — signature ผูกกับ channel เดียว) → `401 UNAUTHORIZED` (signature ไม่ตรง) → `400 VALIDATION` (body ไม่ใช่ JSON)
+- **200:** `{ "ok": true }`
+- **Side effect:** เขียน `audit_log` 1 แถว action `webhook.line` payload `{ "count": <จำนวน event>, "types": ["follow", ...] }`
+- **ยังไม่มีคิวในเส้นทางนี้** — งานเดียวคือ insert 1 แถว; เมื่อมี handler ที่ต้องเรียก LINE กลับจริง่อยเพิ่มคิวตอนนั้น
 
 ---
 
@@ -311,8 +325,9 @@ curl -s -X POST "$BASE/v1/billing/run" \
 ```
 
 ```json
-{ "job_id": null, "period": "2026-11", "rooms_to_bill": 12,
-  "skipped_no_reading": 0, "skipped_no_previous_reading": 0 }
+{ "job_id": "12", "period": "2026-11", "rooms_to_bill": 12,
+  "skipped_no_reading": 0, "skipped_no_previous_reading": 0,
+  "queued": 3, "drained": true }
 ```
 
 - `period` เป็น field บังคับ — ส่ง `{}` จะได้ `422 VALIDATION`
@@ -391,7 +406,7 @@ curl -s -X POST "$BASE/v1/invoices/inv_202_2026-11/reject" \
 
 ### `GET /v1/reports/summary`
 
-⬜ ยังไม่มี route นี้ใน `backend/` (`app/main.py` mount แค่ auth, rooms, billing, me, dunning, cron, invites) — ตัวอย่างด้านล่างเป็นสัญญาที่วางไว้
+⬜ ยังไม่มี route นี้ใน `backend/` (`app/main.py` mount auth, properties, rooms, billing, me, dunning, cron, invites, webhooks — ไม่มี reports) — ตัวอย่างด้านล่างเป็นสัญญาที่วางไว้
 
 ```bash
 curl -s "$BASE/v1/reports/summary"

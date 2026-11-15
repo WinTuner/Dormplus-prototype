@@ -15,9 +15,9 @@ node -v      # ต้อง >= 20 ตาม engines ใน package.json
 
 <!-- VERIFY: ไม่มี git remote/.git ในเวิร์กสเปซนี้ (`git rev-parse` ตอบ "not a git repository") จึงยืนยัน URL ของเรพต้นทางไม่ได้ -->
 
-หลัง `npm install` จะได้ dependency ตัวเดียวคือ `@vercel/blob@2.9.0` (ตาม `package-lock.json`) **ไม่มีขั้นตอน build และไม่มี dev server**
+หลัง `npm install` จะได้ dependency สองตัวคือ `@vercel/blob` กับ `qrcode-svg` (ตาม `package-lock.json`) **ไม่มีขั้นตอน build และไม่มี dev server**
 
-- `package.json` ไม่มี `scripts` เลย → ไม่มี `npm run dev`, `npm start`, `npm test`
+- `package.json` มี `scripts.test` ตัวเดียว (smoke สามชุดแรก) → ไม่มี `npm run dev`, `npm start`; ชุด `smoke-usecases.js` / `smoke-cron.js` ต้องสั่งเองหรือพึ่ง CI
 - ไม่มี `.env`, `.env.example` และไม่มี `dotenv` → ใส่ค่าในไฟล์ `.env` ไม่มีผล (ดู [`CONFIGURATION.md`](./CONFIGURATION.md) ข้อ 4)
 - `liff/bill.html` เรียก `/api/*` เป็น path สัมพัทธ์ จึงต้องถูกเสิร์ฟจาก origin เดียวกับ API
 
@@ -25,7 +25,7 @@ node -v      # ต้อง >= 20 ตาม engines ใน package.json
 
 ```bash
 node smoke.js
-# smoke OK — signature + flex card + confirm card
+# smoke OK — signature + flex card + confirm card + auth guards
 ```
 
 `smoke.js` ตั้ง `LINE_CHANNEL_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` ปลอมเองที่บรรทัด 2–3 **ก่อน** `require("./api/_line")` — ลำดับนี้สำคัญเพราะโมดูลอ่าน env ตอน module load (ข้อ 6)
@@ -63,7 +63,7 @@ module.exports = async (req, res) => {
 |---|---|---|
 | ชื่อไฟล์ = route | `api/bill.js` → `/api/bill` | ไม่มี router, ไม่มี `vercel.json` routes |
 | signature | `module.exports = async (req, res)` | ทุกไฟล์ใน `api/` — ยกเว้น `api/config.js` ที่เป็น sync (ไม่ต้อง await อะไร) |
-| `req.method` | เช็กเองทุก endpoint ที่ไม่ใช่ GET | `run.js`, `slip.js`, `seed.js`, `sendbill.js`, `webhook.js` |
+| `req.method` | เช็กเองทุก endpoint ที่ไม่ใช่ GET | `run.js`, `slip.js`, `dev.js` (มี `?do=seed` / `do=sendbill`), `webhook.js` |
 | `req.query` | อ่าน query ตรง ๆ | `req.query.room`, `req.query.token` |
 | `req.body` | **parse มาแล้ว** ไม่มีการ parse ในโค้ด | `run.js` บรรทัด 14, `slip.js` บรรทัด 14 |
 | `req.headers` | lowercase key | `req.headers["x-line-signature"]`, `req.headers.authorization` |
@@ -89,7 +89,7 @@ async function readRaw(req) {
 | Module | export | contract ที่ผู้เรียกต้องรู้ |
 |---|---|---|
 | `api/_store.js` | `get(key)`, `set(key, value)` | JSON เท่านั้น · `get` คืน `null` เมื่อไม่มี · เขียนทับทั้งไฟล์เสมอ (`allowOverwrite: true`) · `useCache: false` ทุกครั้ง — **ลบไม่ได้** ไม่งั้นอ่านค่าเก่า |
-| `api/_auth.js` | `requireUser(req, res)`, `isOwner(userId)`, `CHANNEL_ID` | `requireUser` **ตอบ 401/403 เองแล้วคืน `null`** ผู้เรียกจึงเขียนแค่ `if (!userId) return;` · `isOwner` คืน `false` เสมอถ้าไม่ได้ตั้ง `OWNER_USER_ID` |
+| `api/_auth.js` | `requireUser(req, res)`, `isOwner(userId)`, `CHANNEL_ID` | `requireUser` **ตอบ 401/403 เองแล้วคืน `null`** ผู้เรียกจึงเขียนแค่ `if (!userId) return;` · `isOwner` รับ `OWNER_USER_ID` **หรือ** เจ้าของที่ถูกเชิญ (`owner:<userId>`) — คืน `false` เมื่อไม่ใช่ทั้งสอง |
 | `api/_line.js` | `verify(rawBody, signature)`, `reply()`, `push()`, `billBubble()`, `confirmBubble()`, `LIFF_ID` | `verify` รับ `Buffer` ดิบ · `reply`/`push` **throw** เมื่อ LINE ตอบไม่ 200 · `*Bubble` เป็นฟังก์ชันบริสุทธิ์ ไม่มี side effect (จึงเทสต์ offline ได้) |
 | `api/_rooms.js` | `ROOMS`, `DEFAULTS`, `configFor(room)` | `ROOMS`/`DEFAULTS` ถูกอ่านจาก env **ตอน module load** · `configFor` merge `DEFAULTS` กับ `room:<room>` จาก Blob |
 
@@ -130,8 +130,8 @@ import อะไรจากที่ไหน:
 มีสองรูปแบบปนกันอยู่ ต้องรู้ก่อนเขียนใหม่:
 
 ```js
-// 405 ที่ทุกไฟล์ใช้ (error เป็น string)
-res.status(405).json({ error: "POST only" });
+// 405 ที่ทุกไฟล์ใช้ (envelope เดียวกับ error อื่น)
+res.status(405).json({ error: { code: "METHOD_NOT_ALLOWED", message: "..." } });
 
 // ที่เหลือทั้งหมด (error เป็น object)
 res.status(400).json({ error: { code: "VALIDATION", message: "ต้องระบุ room" } });
@@ -145,11 +145,11 @@ res.status(400).json({ error: { code: "VALIDATION", message: "ต้องระ
 | `FORBIDDEN` | 403 | idToken ไม่ผ่าน, ไม่ใช่เจ้าของ, ไม่ได้ผูกห้อง, `x-seed-token` ผิด/สั้นกว่า 16 ตัว | `_auth.js`, `bill.js`, `dev.js` |
 | `VALIDATION` | 400 | input ไม่ครบ/ผิดรูป | `run.js`, `slip.js` |
 | `NOT_FOUND` | 404 | ไม่พบบิล/สลิป/ไฟล์ | `bill.js`, `slip-image.js` |
-| `INVALID_STATE` | 409 | แนบสลิปบนบิลที่ `paid` แล้ว | `slip.js` |
+| ไม่มี error (สลิปถูกเก็บเป็น `prepay:<room>`) | 200 | แนบสลิปบนบิลที่ `paid`/`void` แล้ว — รอไปผูกบิลรอบถัดไป | `slip.js` |
 | `TOO_LARGE` | 413 | รูปเกิน 3MB | `slip.js` |
-| — | 401 | `bad signature` (webhook) | `webhook.js` |
+| `UNAUTHORIZED` | 401 | signature ของ webhook ไม่ตรง | `webhook.js` |
 
-`message` เป็นภาษาไทยเสมอ (ผู้ใช้เห็น) ส่วน `code` เป็น `SCREAMING_SNAKE_CASE` ภาษาอังกฤษ
+`message` ที่ผู้ใช้เห็นเป็นภาษาไทยเกือบทั้งหมด (ข้อยกเว้น: ข้อความใน `webhook.js` บางข้อความของระบบ และ log/ข้อความของ `cron.js` ที่เป็นภาษาอังกฤษ) ส่วน `code` เป็น `SCREAMING_SNAKE_CASE` ภาษาอังกฤษ
 
 Cache header ที่มีจริง:
 
@@ -237,7 +237,7 @@ vercel storage connect domplus-bills --yes
 - 2 spaces, double quotes, semicolons, `const` (ไม่มี `var`)
 - ไฟล์ละ 1 บรรทัดคอมเมนต์บนสุดบอก route + หน้าที่ เช่น `// GET /api/bill?room=203 — a tenant sees only their own room; the owner sees all.`
 - คอมเมนต์เป็นภาษาอังกฤษ เฉพาะ "ทำไม" ที่โค้ดบอกไม่ได้ (เช่น `// bill status changes after a slip is attached`, `// Tell the owner, but never fail the tenant's slip because of a push error.`)
-- ความรู้ที่ยังจำกัดอยู่ใช้คอมเมนต์นำหน้า `shortcut:` (มีที่เดียว: bypass `x-seed-token` ใน `_auth.js` บรรทัด 16) — ตามเมื่อมีทางที่ถูกกว่า
+- ความรู้ที่ยังจำกัดอยู่ใช้คอมเมนต์นำหน้า `shortcut:` — ตอนนี้ยังไม่มีที่ไหนใช้ (ของเดิมคือ bypass `x-seed-token` ใน `_auth.js` ซึ่งถูกแก้ให้ปลอดภัยแล้ว) ใช้เมื่อมีข้อจำกัดที่ตั้งใจปล่อยไว้
 - ข้อความที่ผู้ใช้เห็นเป็น **ภาษาไทยทั้งหมด** (ข้อความในแชท, `message` ของ error, ข้อความในหน้า LIFF) — โค้ด/ชื่อตัวแปร/`code` เป็นอังกฤษ
 - ตัวเลขเงินปัดด้วย `Math.round()` และแสดงด้วย `toLocaleString("th-TH")`
 - input จากภายนอกถูกแปลงก่อนใช้เสมอ: `String(x || "").trim()`, `Number(...)` แล้วเช็ก `Number.isFinite`
@@ -276,7 +276,7 @@ vercel storage connect domplus-bills --yes
 
 **Runtime / env**
 - [ ] env ใหม่ที่อ่านตอน module load ถูกบันทึกใน [`CONFIGURATION.md`](./CONFIGURATION.md) และรู้ว่าต้อง Redeploy
-- [ ] ไม่ได้เพิ่ม dependency โดยไม่จำเป็น (ตอนนี้มีตัวเดียว)
+- [ ] ไม่ได้เพิ่ม dependency โดยไม่จำเป็น (ตอนนี้มี `@vercel/blob` กับ `qrcode-svg`)
 - [ ] ไฟล์ helper ขึ้นต้นด้วย `_` ไม่ให้กลายเป็น route
 
 **Webhook (ถ้าแตะ)**

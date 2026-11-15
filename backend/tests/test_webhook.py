@@ -1,0 +1,91 @@
+﻿"""POST /v1/webhooks/line/{property_id} â€” verify the signature, then log what arrived.
+
+Mutation of the section below must stay in step with docs/API.md ("Webhook").
+"""
+import base64
+import hashlib
+import hmac
+import json
+
+import pytest
+from sqlalchemy import text
+
+from app.config import get_settings
+
+SECRET = "s3cret-for-tests"
+
+
+def sign(body: bytes, secret: str = SECRET) -> str:
+    return base64.b64encode(hmac.new(secret.encode(), body, hashlib.sha256).digest()).decode()
+
+
+@pytest.fixture
+def line_secret(monkeypatch):
+    """Turn the webhook on for one test, and put the cached settings back afterwards."""
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", SECRET)
+    get_settings.cache_clear()
+    yield SECRET
+    get_settings.cache_clear()
+
+
+def post(client, body: bytes, signature: str, property_id: str = "p_1"):
+    return client.post(
+        f"/v1/webhooks/line/{property_id}",
+        content=body,
+        headers={"X-Line-Signature": signature, "Content-Type": "application/json"},
+    )
+
+
+def audit_rows(engine):
+    with engine.connect() as conn:
+        return conn.execute(
+            text("select property_id, actor, payload from audit_log where action = 'webhook.line'")
+        ).all()
+
+
+def test_valid_signature_is_200_and_writes_one_audit_row(seeded, client_for, line_secret):
+    body = json.dumps({"events": [{"type": "follow"}, {"type": "message"}]}).encode()
+    r = post(client_for(seeded), body, sign(body))
+    assert r.status_code == 200
+    assert r.json() == {"ok": True}
+
+    rows = audit_rows(seeded)
+    assert len(rows) == 1
+    assert rows[0].property_id == "p_1"
+    assert rows[0].payload == {"count": 2, "types": ["follow", "message"]}
+
+
+def test_bad_signature_is_401_and_logs_nothing(seeded, client_for, line_secret):
+    body = b'{"events":[{"type":"follow"}]}'
+    assert post(client_for(seeded), body, sign(body, "another-secret")).status_code == 401
+    assert audit_rows(seeded) == []
+
+
+def test_another_dorm_is_404_even_with_a_valid_signature(seeded, client_for, line_secret):
+    body = b'{"events":[{"type":"follow"}]}'
+    assert post(client_for(seeded), body, sign(body), property_id="p_2").status_code == 404
+    assert audit_rows(seeded) == []
+
+
+def test_body_that_is_not_json_is_400(seeded, client_for, line_secret):
+    body = b"not json at all"
+    assert post(client_for(seeded), body, sign(body)).status_code == 400
+    assert audit_rows(seeded) == []
+
+
+def test_missing_secret_is_503(seeded, client_for, monkeypatch):
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "")
+    get_settings.cache_clear()
+    try:
+        body = b'{"events":[]}'
+        assert post(client_for(seeded), body, sign(body)).status_code == 503
+    finally:
+        get_settings.cache_clear()
+
+def test_a_header_with_non_ascii_characters_does_not_match(seeded, client_for, line_secret):
+    """A header LINE would never send must fail the check, not crash the handler."""
+    from app.routes import webhooks
+
+    body = b'{"events":[]}'
+    assert webhooks.signature_matches(SECRET, body, "ünïcode") is False
+    assert webhooks.signature_matches(SECRET, body, sign(body)) is True

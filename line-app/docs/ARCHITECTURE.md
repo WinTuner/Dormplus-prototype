@@ -8,7 +8,7 @@
 
 อินพุตมีสองทาง: (1) LINE Messaging API ยิง webhook เข้า `POST /api/webhook` เมื่อมีข้อความ/postback และ (2) ผู้ใช้เปิดหน้า LIFF แล้วเรียก API ด้วย `Authorization: Bearer <idToken>` เอาต์พุตคือข้อความ/การ์ด Flex ที่ส่งกลับเข้าแชท LINE และ JSON ที่หน้า LIFF เอาไปวาด
 
-สถานะทั้งหมดเก็บใน **Vercel Blob แบบ private** โดยใช้เป็น key-value store: หนึ่ง key = หนึ่งไฟล์ JSON ใต้พาธ `kv/` ส่วนรูปสลิปเก็บแยกที่ `slips/` dependency ตัวเดียวของโปรเจกต์คือ `@vercel/blob` (`package.json`)
+สถานะทั้งหมดเก็บใน **Vercel Blob แบบ private** โดยใช้เป็น key-value store: หนึ่ง key = หนึ่งไฟล์ JSON ใต้พาธ `kv/` ส่วนรูปสลิปเก็บแยกที่ `slips/` dependency ของโปรเจกต์มีสองตัวคือ `@vercel/blob` กับ `qrcode-svg` (`package.json`)
 
 รูปแบบสถาปัตยกรรมจึงเป็น *stateless serverless functions + external blob store* ไม่มีเลเยอร์ middleware กลาง ทุก endpoint ประกอบ `_auth` / `_store` / `_line` เองทีละไฟล์
 
@@ -46,7 +46,7 @@ graph TD
 6. `handleEvent()` รองรับเฉพาะ:
    - `follow` → เขียน `user:<userId> = {followedAt}` แล้ว `reply()` ข้อความต้อนรับ
    - `message` ชนิด `text` ค่า `บิล`/`bill` → อ่าน `user-room:<userId>` แล้ว `bill:<room>` → `reply()` การ์ด `billBubble()`
-   - `message` ชนิด `text` รูปแบบ `ผูก <เลข 2-4 หลัก>` → **ต้องมี `bill:<room>` อยู่ก่อน** ไม่งั้นตอบ "ไม่พบห้อง" แล้วเขียน `user-room:<userId>` และ `room-user:<room>` (ผูกสองทาง)
+   - `message` ชนิด `text` รูปแบบ `ผูก <เลข 2-4 หลัก>` → **ไม่มีแล้ว**: การผูกห้องทำทาง QR เท่านั้น (`qr.js` เขียน `user-room:<userId>` และ `room-user:<room>`) ข้อความอื่นที่ไม่ใช่ "บิล"/"bill" ถูกข้าม
    - `postback` ที่ `action=confirm` → ดูข้อ 5
    - event ชนิดอื่นถูกเมิน (ยังตอบ 200)
 7. การส่งกลับใช้ `reply(replyToken, messages)` ถ้ามี replyToken และใช้ `push(to, messages)` เมื่อต้องส่งหาคนที่ไม่ได้เป็นคนกด (เช่น แจ้งผู้เช่าว่าชำระแล้ว)
@@ -106,7 +106,7 @@ graph TD
 - **ผู้เช่าใหม่ไม่เห็นของผู้เช่าเก่า:** `_bills.visibleToTenant(bill, tenancy)` = จริงเมื่อไม่มี `tenancy:<room>` หรือ `bill.issuedAt >= tenancy.since` (บิลไม่มี `issuedAt` = เก่ากว่าทุก tenancy) ใช้กับผู้เช่าใน `bill` (ล่าสุด/`period`/`history`), `slip-image`, `slip` (บิลที่ถูกซ่อน = ไม่มีบิลเปิด → ทางโอนก่อนบิลออก), แชท "บิล" และการ push แจ้ง "ชำระแล้ว" ตอนเจ้าของยืนยัน · เจ้าของ/ผู้ช่วย (`canView`) ไม่ถูกกรอง · `tenancy` เขียนตอนผู้เช่าออก (`POST /api/qr?room=` "เปลี่ยนผู้เช่า" และผู้เช่าย้ายห้องด้วย `confirmMove`) ไม่ใช่ตอนผูก · ห้องที่ไม่มี record เห็นทุกบิลเหมือนเดิม จึงไม่ตัดประวัติผู้เช่าปัจจุบัน
 - `OWNER_USER_ID` มีคนเดียวต่อ deployment → 1 deploy = 1 หอ
 - `isOwner()` เป็น **async** (อ่าน Blob ทุก request — ถอนสิทธิ์แล้วมีผลทันที) — คืน `true` ถ้า userId ตรงกับ `OWNER_USER_ID` หรือมี key `owner:<userId>` role `owner` · รหัสเชิญใช้ได้เท่าที่คนสร้างยังมีสิทธิ์ · ถ้าไม่ได้ตั้ง `OWNER_USER_ID` จะไม่มีใครออก QR เพิ่มเจ้าของได้ (`/api/owner` ตอบ 409) แต่เจ้าของที่เคยได้สิทธิ์ยังใช้ได้
-- rich menu แยกตามบทบาท: ผู้เช่าได้เมนูบิลเมื่อ `ผูก <room>` สำเร็จ · เจ้าของได้เมนูจดมิเตอร์เมื่อรับสิทธิ์ทาง QR (ผูกผ่าน Messaging API `POST /v2/bot/user/{userId}/richmenu/{id}`; สคริปต์สร้างเมนูอยู่ที่ `scripts/setup-richmenu.js`)
+- rich menu แยกตามบทบาท: ผู้เช่าได้เมนูบิลเมื่อผูกห้องทาง QR สำเร็จ (`qr.js` เรียก `linkRichMenu` ด้วย `RICHMENU_TENANT_ID`) · เจ้าของได้เมนูจดมิเตอร์เมื่อรับสิทธิ์ทาง QR (ผูกผ่าน Messaging API `POST /v2/bot/user/{userId}/richmenu/{id}`; สคริปต์สร้างเมนูอยู่ที่ `scripts/setup-richmenu.js`)
 - ตัว bypass ใน `_auth.js` ถูกจำกัดด้วย `BYPASS_ALLOWED` (`vercel dev` หรือ `ALLOW_SEED_BYPASS=true` นอก production) — production ปฏิเสธเสมอ แม้ตั้ง `ALLOW_SEED_BYPASS`
 
 ## 5. State machine ของบิล
@@ -141,7 +141,7 @@ stateDiagram-v2
 | → `pending` | `POST /api/run` เมื่อมี `prepay:<room>` | `api/run.js` | บิลใหม่เกิดเป็น `pending` + `prepaid:true` พร้อมสลิปที่คัดลอกมา · push `confirmBubble` หาเจ้าของ · ถ้าบิลรอบนั้นไม่ใช่ `unpaid` ถูกปฏิเสธและ prepay อยู่ต่อ |
 | → `paid` | postback `action=confirm` (`period=` หรือ `periods=`) | `api/webhook.js` | เขียน `receiptNo` · ถ้า `paid` อยู่แล้วตอบ "ยืนยันไปแล้ว" ไม่เขียนซ้ำ · `void` ตอบ "บิลนี้ถูกยกเลิกแล้ว" |
 
-ข้อสังเกตที่โค้ดทำจริง: postback ยืนยัน **ตรวจว่า event มาจาก `OWNER_USER_ID`** (`isOwner`) ก่อนปิดบิล — ผู้ที่ไม่ใช่เจ้าของถูกปฏิเสธและสถานะไม่เปลี่ยน · แต่ยังยอมให้กระโดดจาก `unpaid` → `paid` ได้โดยตรงถ้าเจ้าของกด
+ข้อสังเกตที่โค้ดทำจริง: postback ยืนยัน **ตรวจว่า event มาจากเจ้าของ** (`isOwner` — `OWNER_USER_ID` หรือ `owner:<id>`) และ **ต้องเป็นบิล `pending` เท่านั้น** (บรรทัด `bill.status !== "pending"` ใน `webhook.js`) — กระโดดจาก `unpaid` → `paid` ตรง ๆ ไม่ได้ ต้องผ่านการแนบสลิปก่อน
 
 ## 6. ข้อมูลที่เก็บ (Blob key map)
 
@@ -150,8 +150,8 @@ stateDiagram-v2
 | key ที่เรียกใช้ในโค้ด | pathname จริง | ค่า | เขียนโดย | อ่านโดย |
 |---|---|---|---|---|
 | `user:<userId>` | `kv/user-<userId>.json` | `{ followedAt }` | webhook (`follow`) | ไม่มีที่อ่าน |
-| `user-room:<userId>` | `kv/user-room-<userId>.json` | `"203"` (string) | webhook (`ผูก`) | webhook, `me`, `bill`, `slip`, `slip-image` |
-| `room-user:<room>` | `kv/room-user-<room>.json` | `"U..."` (string) | webhook (`ผูก`) | `run`, `rooms`, `webhook` (แจ้งผู้เช่า) |
+| `user-room:<userId>` | `kv/user-room-<userId>.json` | `"203"` (string) | `qr` (`POST` ด้วยรหัสผูก) | webhook, `me`, `bill`, `slip`, `slip-image` |
+| `room-user:<room>` | `kv/room-user-<room>.json` | `"U..."` (string) | `qr` (`POST` ด้วยรหัสผูก) | `run`, `rooms`, `webhook` (แจ้งผู้เช่า) |
 | `bill:<room>` | `kv/bill-<room>.json` | bill object | `run`, `seed`, `slip`, `webhook` | `webhook`, `bill`, `slip`, `slip-image`, `rooms` |
 | `meter:<room>` | `kv/meter-<room>.json` | `{ water, elec, at }` | `run` | `rooms` |
 | `room:<room>` | `kv/room-<room>.json` | `{ rent, waterRate, elecRate }` | `seed` | `_rooms.configFor` |
@@ -159,10 +159,10 @@ stateDiagram-v2
 | `prepay-old:<room>:<slipAt>` | `kv/prepay-old-<room>-<slipAt>.json` | prepay ของผู้เช่าเดิม (รูปแบบเดียวกับ `prepay`; ไฟล์รูปเก็บไว้) | `qr` (ตอนเขียน `tenancy`) | ไม่มีที่อ่าน — เจ้าของตรวจสอบ/คืนเงินเอง |
 | `prepay:<room>` | `kv/prepay-<room>.json` | `{ room, slipPath, slipNote, slipAt, slipCount, by }` หรือ `null` | `slip` (ทางโอนก่อนบิลออก), `run` (ตั้ง `null` หลังผูกกับบิล) | `slip`, `bill`, `slip-image`, `rooms`, `run` |
 | `bill:<period>:<room>` / `bills:<room>` | `kv/bill-<period>-<room>.json` / `kv/bills-<room>.json` | บิลต่อรอบ (สำเนาที่เป็นหลัก) / index รอบ (ใหม่→เก่า สูงสุด 60) | `saveBills()` ใน `_bills.js` (ผ่าน `run`, `slip`, `webhook`, `bill` void) | `bill`, `slip`, `webhook`, `run`, `_remind` |
-| `bill-void:<period>:<room>:<rev>` | `kv/bill-void-<period>-<room>-<rev>.json` | บิลที่ถูก `void` ตามที่เป็นตอนยกเลิก (ไม่แก้) — เก็บตอนออกบิลรอบนั้นใหม่ทับ | `run` (`archiveVoid`) | `bill` (`?voided=1`) |
-| `bill-voids:<room>` | `kv/bill-voids-<room>.json` | `["<period>:<rev>", …]` รายการที่ archive ไว้ (ล่าสุด 200) | `run` (`archiveVoid`) | `bill` (`?voided=1`) |
+| `bill-void:<period>:<room>:<rev>` | `kv/bill-void-<period>-<room>-<rev>.json` | บิลที่ถูก `void` ตามที่เป็นตอนยกเลิก (ไม่แก้) — เก็บ **ตอนกดยกเลิก** และ `run` เก็บซ้ำได้ (idempotent) | `bill` (void), `run` (`archiveVoid`) | `bill` (`?voided=1`) |
+| `bill-voids:<room>` | `kv/bill-voids-<room>.json` | `["<period>:<rev>", …]` รายการที่ archive ไว้ (ล่าสุด 200) | `bill` (void), `run` (`archiveVoid`) | `bill` (`?voided=1`) |
 | `reminded:<room>:<period>:<kind>:<rev>` | `kv/reminded-<room>-<period>-<kind>-<rev>.json` | ISO เวลาที่ส่งเตือนชนิดนั้นของบิล rev นั้น (`before_3` / `due_0` / `after_1` / `after_5` / `after_10`) — ไว้กันส่งซ้ำ · บิลที่ยกเลิกแล้วออกใหม่ (rev ใหม่) เตือนได้อีกครั้ง; คีย์รุ่นเก่าที่ไม่มี `rev` ยังถูกอ่านด้วย | `_remind` (หลัง push สำเร็จ) | `_remind` |
-| `cron-lock` | `kv/cron-lock.json` | ISO ของรอบ cron ที่กำลังทำงาน — retry ที่เข้ามาใน 15 นาทีจะถูกข้าม (Blob ไม่มี compare-and-set จึงลดโอกาสซ้อน ไม่ได้ปิดสนิท) | `cron.js` | `cron.js` |
+| `cron-lock` | `kv/cron-lock.json` | `{ at: <ISO> }` ของรอบ cron ที่กำลังทำงาน — retry ที่เข้ามาใน 15 นาทีจะถูกข้าม (Blob ไม่มี compare-and-set จึงลดโอกาสซ้อน ไม่ได้ปิดสนิท) · รอบที่จบล้างค่าเป็น `null` | `cron.js` | `cron.js` |
 | `slips/<room>-<ts>.<ext>` | pathname เดียวกัน (ไม่อยู่ใต้ `kv/`) | ไฟล์รูป (สลิปโอนก่อนบิลออกใช้ `slips/<room>-advance-<ts>.<ext>`) | `slip.js` (`put`) | `slip-image.js` (`get`) |
 
 bill object ที่ `run.js` สร้าง: `{ room, period, rent, water, elec, waterUnits, elecUnits, total, due, rev, issuedAt, status }` (`issuedAt` = ISO ตอนออก/ออกซ้ำ; `rev` = ครั้งที่ออกบิลของรอบนั้น เริ่ม 1 ไม่มี = 1 เพิ่มเมื่อออกใหม่แทนบิล `void`) — `slip.js` เพิ่ม `slipPath`, `slipNote`, `slipAt`, `slipCount` และ `slipGroup: { periods, total }` เมื่อสลิปเดียวจ่ายหลายงวด; บิลที่ผูกสลิปโอนก่อนบิลออกมี `prepaid: true` ด้วย; `webhook.js` เพิ่ม `paidAt`, `confirmedBy`, `receiptNo` (`R<yyyymm>-<room>` + `-<rev>` เมื่อ `rev > 1` — คำนวณจากบิลเพราะ Blob ไม่มี transaction ตัวนับกลางอาจแจกเลขซ้ำ); `POST /api/bill` (void) เพิ่ม `voidedAt`, `voidedBy`, `voidReason`, `statusBefore`; `GET /api/bill` ตอบเพิ่ม `hasSlip: !!bill.slipPath` โดยไม่เก็บลง Blob
@@ -201,13 +201,13 @@ bill object ที่ `run.js` สร้าง: `{ room, period, rent, water, el
 | `get` / `set` | `api/_store.js` | ทางเดียวที่โค้ดส่วนใหญ่แตะ Blob (ยกเว้นไฟล์รูปใน `slip.js` / `slip-image.js` ที่เรียก `@vercel/blob` ตรง) |
 | `pathOf` (internal) | `api/_store.js` | แปลง key → pathname และ sanitize อักขระที่ Blob ไม่ชอบ |
 | `requireUser(req, res)` | `api/_auth.js` | คืน userId หรือตอบ 401/403 เองแล้วคืน `null` (ผู้เรียกแค่ `if (!userId) return;`) |
-| `isOwner(userId)` | `api/_auth.js` | เทียบกับ `OWNER_USER_ID` คนเดียว |
+| `isOwner(userId)` | `api/_auth.js` | `OWNER_USER_ID` **หรือ** เจ้าของที่ถูกเชิญ (`owner:<userId>`) |
 | `verify(rawBody, signature)` | `api/_line.js` | HMAC-SHA256/base64 ของ body ดิบ |
 | `reply` / `push` | `api/_line.js` | ครอบ `POST /v2/bot/message/{reply,push}` และ throw เมื่อ LINE ตอบไม่ 200 |
 | `billBubble` / `confirmBubble` | `api/_line.js` | สร้าง Flex JSON ล้วน ๆ ไม่มี side effect — เทสต์ได้แบบ offline |
 | `configFor(room)` | `api/_rooms.js` | รวม `DEFAULTS` (env) กับ override ใน `room:<room>` |
 | `api()` (frontend) | `liff/bill.html` | แนบ Bearer token + แปลง error JSON เป็น exception เดียว |
-| `boot()` / `billView()` / `ownerView()` | `liff/bill.html` | เลือกหน้าตาม role และ `tab` query param |
+| `boot()` / `renderTenant()` / `renderOwner()` | `liff/bill.html` | เลือกหน้าตาม role และ `tab` query param (`notice()` ใช้เมื่อ role ไม่ตรงกับแท็บ) |
 
 ## 9. โครงสร้างไดเรกทอรีและเหตุผล
 
@@ -223,7 +223,7 @@ line-app/
 ├─ docs/                # เอกสาร
 ├─ smoke.js             # เทสต์ offline
 ├─ vercel.json          # rewrite / → /liff/bill.html
-└─ package.json         # dep เดียว: @vercel/blob; engines node >= 20
+└─ package.json         # dep: @vercel/blob + qrcode-svg; engines node >= 20; scripts.test
 ```
 
 เหตุผลที่แบนราบขนาดนี้: ทั้งระบบถูกออกแบบให้ deploy ด้วย `vercel` คำสั่งเดียวโดยไม่ต้องมี bundler, routing layer หรือ ORM — ชื่อไฟล์ใน `api/` คือ route, ไฟล์ `_*.js` คือ shared module ที่ `require()` กันตรง ๆ (จึงต้องเป็น CommonJS ไม่ใช่ ESM)
@@ -235,7 +235,7 @@ line-app/
 1. **ไม่มีฐานข้อมูลและไม่มี transaction** — `_store.set()` เขียนทับทั้งไฟล์ (`allowOverwrite: true`) ทุกรูปแบบ "อ่าน–แก้–เขียน" จึงเป็น race ได้: `slip.js` อ่าน `bill:<room>` แล้วเขียนทั้งก้อน ขณะที่ postback ยืนยันอาจเขียนทับในจังหวะเดียวกัน → ค่าที่เขียนทีหลังชนะ ไม่มี lock, ETag หรือ conditional write ในโค้ด
 2. **`useCache: false` เป็นเงื่อนไขความถูกต้อง** — ถ้าลบออก การอ่านอาจได้ค่าเก่า (โค้ด `_store.js` ระบุไว้ชัด) ปัญหานี้เคยเกิดกับบิลรอบเก่า
 3. **ประวัติถูกเก็บแยกจากบิลล่าสุด** — `bill:<period>:<room>` เก็บย้อนหลังได้ถึง 60 รอบ (`bills:<room>` เป็น index) ส่วน `bill:<room>` เป็น pointer ของรอบล่าสุดที่แชทและหน้า LIFF อ่าน; `saveBill()` เขียนทั้งคู่และไม่ยอมให้รอบเก่าทับรอบใหม่
-4. **line-app มี cron งานเดียว ไม่มี queue** — `GET /api/cron` วันละครั้ง (§3.5) เตือนบิลค้างเท่านั้น · บิลรอบใหม่ยังเกิดเมื่อมีคนกดจากหน้าเจ้าของ · คิวและทวงแบบ background จริงอยู่ใน backend (`Procrastinate` + Neon) ไม่ใช่ที่นี่ · cron รันซ้อนกันไม่ได้ป้องกัน (ไม่มี lock) ถ้า Vercel retry ในจังหวะเดียวกันอาจส่งเตือนซ้ำ
+4. **line-app มี cron งานเดียว ไม่มี queue** — `GET /api/cron` วันละครั้ง (§3.5) เตือนบิลค้างเท่านั้น · บิลรอบใหม่ยังเกิดเมื่อมีคนกดจากหน้าเจ้าของ · คิวและทวงแบบ background จริงอยู่ใน backend (`Procrastinate` + Neon) ไม่ใช่ที่นี่ · มี `cron-lock` 15 นาทีกันรอบซ้อน (Blob ไม่มี compare-and-set จึงลดโอกาส ไม่ได้ปิดสนิท)
 5. **Function เป็น stateless และ env ถูกอ่านตอน module load** — `_line.js` (`TOKEN`, `SECRET`, `LIFF_ID`), `_auth.js` (`CHANNEL_ID`), `_rooms.js` (`ROOMS`, `DEFAULTS`) เก็บค่าไว้เป็น const ระดับ module → เปลี่ยน env แล้วต้องมี deploy/instance ใหม่ถึงจะมีผล
 6. **postback ตรวจเจ้าของแล้ว แต่ไม่มี CSRF token** — `webhook.js` เทียบ `isOwner(event.source.userId)` ก่อนปิดบิล; ที่ยังไม่มีคือ nonce กัน replay (event เดิมที่ดักได้สามารถส่งซ้ำได้จนกว่าบิลจะเป็น `paid`)
 7. **ไม่มี idempotency ของ webhook** — event ทั้งชุดถูก `Promise.all` พร้อมกัน (await ครบ แต่**ไม่มีการรับประกันลำดับ**) และไม่เก็บ `webhookEventId`; ถ้า LINE ส่ง event ซ้ำ (retry เพราะ response ช้า/หลุด) การ `push` การ์ดหรือการเขียน Blob จะเกิดซ้ำ
@@ -245,8 +245,8 @@ line-app/
 11. **rate limit มี 2 จุด** — การแลกรหัส (`_limit.js`: ผิดได้ 10 ครั้ง/ชม./บัญชี) และการส่งสลิป (`slip.js`: 5 ครั้ง/บิล, ห่าง ≥ 30 วินาที) · ไม่มี CORS middleware · security header (nosniff, no-referrer, X-Frame-Options, Permissions-Policy) ตั้งใน `vercel.json`
 12. **1 deploy = 1 หอ** — `OWNER_USER_ID` คนเดียว, รายชื่อห้องมาจาก env `ROOMS` (ค่าเริ่มต้น `201`–`212`), ไม่มีแนวคิดหลายหอ/หลายเจ้าของในข้อมูล
 13. **`_store.get()` ไม่มี error handling** — คืน `null` เมื่อผลลัพธ์เป็น falsy; ถ้า SDK throw (เช่น blob หาย/สิทธิ์ผิด) error จะหลุดขึ้นเป็น 500 ที่ endpoint ตามธรรมชาติ
-14. **หน้า LIFF มีแท็บที่ยังไม่ถูกสร้าง** — `tab=slips|unpaid|report|rooms` แสดงข้อความ "ยังไม่เปิดใช้งาน" (`notice()`), `tab=meter` และ `tab=bill` ใช้แสดง view ตาม role
-15. **เทสต์เป็นแบบ offline ไม่มี `npm test`** — `node smoke.js` (signature, การ์ด, สิทธิ์ owner/viewer, เงื่อนไข bypass) และ `node smoke-handlers.js` (store ในหน่วยความจำ + fetch ปลอม: `/api/dev`, ผูก QR + ยืนยันย้ายห้อง, rate limit, ยืนยันการชำระ, `/api/run`, cache idToken, `/api/owner` สิทธิ์ + ถอนสิทธิ์, จำกัดสลิป) และ `node smoke-reads.js` (การอ่านพร้อมกัน, ประวัติบิล, `/api/rooms` ไม่ส่ง userId) และ `node smoke-usecases.js` (เทสต์ตาม use case — ดู `../../docs/TEST-CASES.md`) · CI รันทั้งสี่ไฟล์
+14. **ทุกแท็บของ rich menu มีหน้าจอแล้ว** — `meter`/`rooms`/`slips`/`unpaid`/`report` และ `bill`; `notice()` ใช้เฉพาะเมื่อ role ไม่ตรงกับแท็บ (เช่นเจ้าของเปิด `tab=bill`, ผู้ช่วยเปิดแท็บเจ้าของ)
+15. **เทสต์ offline ห้าชุด** — `npm test` รันสามชุดแรก (`smoke.js`, `smoke-handlers.js`, `smoke-reads.js`) ส่วน `smoke-usecases.js` (156 เคสตาม `../../docs/TEST-CASES.md`) และ `smoke-cron.js` ต้องสั่งเอง · **CI รันทั้งห้าชุด** (`.github/workflows/ci.yml`, job `line-app`)
 16. **ผูกห้องผ่าน QR เท่านั้น** — QR ผูกได้เฉพาะห้องที่ยังไม่มีผู้เช่า · เปลี่ยนผู้เช่าด้วย `POST /api/qr?room=` (ถอดคนเดิม + รหัสใหม่)
 
 ## เอกสารที่เกี่ยวข้อง
