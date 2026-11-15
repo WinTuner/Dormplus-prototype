@@ -326,7 +326,10 @@ const pathOf = (key) => `kv/${String(key).replace(/[^a-zA-Z0-9._-]/g, "-")}.json
 | `api/slip-image.js` | `bill:<room>`, `prepay:<room>` (`advance=1`), `prepay-old:<room>` (`archived=1`) |
 | `api/webhook.js` | `bill:<room>` และ `bill:<period>:<room>` (การ์ดเก่าต้องหากันเจอ) + `tenancy:<room>` |
 | `api/_remind.js` | `bill:<room>`, `bills:<room>`, `bill:<period>:<room>`, `reminded:…`, `tenancy:<room>`, `room-user:<room>` |
+| `api/_verify.js` | ไม่แตะ Blob — เรียก SlipOK แล้วคืน `{ok, reason, amount, transRef}` ให้ `slip.js` |
 | `api/cron.js` | `cron-lock` |
+| `api/_verify.js` | ไม่แตะ Blob เอง — คืนผลให้ `slip.js` |
+| `api/slip.js` | `slip-ref:<transRef>` (เขียนหลังตรวจผ่าน) |
 | `api/dev.js` | `bill:<room>` |
 | `api/qr.js` | เขียน `tenancy:<room>`, `prepay-old:*` (ไม่ใช่ reader ของบิล) |
 | `smoke-handlers.js`, `smoke-reads.js`, `smoke-usecases.js`, `smoke-cron.js` | เขียน/อ่าน key ตรง ๆ ใน Map |

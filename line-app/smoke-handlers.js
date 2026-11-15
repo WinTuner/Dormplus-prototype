@@ -52,8 +52,16 @@ Module._load = function (request, ...rest) {
 const pushed = [];
 const unlinked = [];
 let verifyCalls = 0;
+// SlipOK is the only outbound call these tests care about: `slipok` holds what it should answer.
+let slipok = null;
+const slipokCalls = [];
 global.fetch = async (url, opts = {}) => {
   const ok = (body) => ({ ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) });
+  if (String(url).includes("api.slipok.com")) {
+    slipokCalls.push({ url: String(url), init: opts });
+    if (!slipok) return { ok: false, status: 500, json: async () => ({}), text: async () => "{}" };
+    return { ok: slipok.status === 200, status: slipok.status, json: async () => slipok.body, text: async () => JSON.stringify(slipok.body) };
+  }
   if (String(url).includes("/oauth2/v2.1/verify")) {
     verifyCalls++;
     const token = new URLSearchParams(opts.body).get("id_token");
@@ -884,7 +892,7 @@ const { saveBill } = require("./api/_bills");
     mark = pushed.length;
     r = await sendPeriods(["2026-11", "2026-09"], { image: png, note: "สองงวด" });
     const sum = sep.total + nov.total;
-    assert.deepStrictEqual([r.status, r.body], [200, { ok: true, status: "pending", periods: ["2026-09", "2026-11"], total: sum, hasSlip: true }]);
+    assert.deepStrictEqual([r.status, r.body], [200, { ok: true, status: "pending", periods: ["2026-09", "2026-11"], total: sum, hasSlip: true, verify: { provider: "slipok", ok: null, reason: "not_configured" } }]);
     const s1 = data.get("bill:2026-09:206");
     const n1 = data.get("bill:2026-11:206");
     assert.deepStrictEqual([s1.status, n1.status], ["pending", "pending"]);
@@ -1177,7 +1185,113 @@ const { saveBill } = require("./api/_bills");
   assert.strictEqual(devAuth.seedTokenOk(reqWith({ "x-seed-token": "short" })), false, "a short SEED_TOKEN does not count as set");
   delete process.env.VERCEL_ENV;
 
-  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token");
+  // ---------------------------------------------------------------- slip verification (SlipOK)
+  // Room 210, one unpaid bill of 3,500. Each case sets what SlipOK should answer.
+  const vBill = { room: "210", period: "2026-11", rent: 3500, water: 0, elec: 0, total: 3500, status: "unpaid" };
+  const resetV = () => {
+    data.set("bill:210", { ...vBill });
+    data.set("bill:2026-11:210", { ...vBill });
+    data.set("user-room:Udave", "210");
+    data.set("room-user:210", "Udave");
+    data.delete("slip-ref:REF-OK");
+    slipokCalls.length = 0;
+  };
+  const verifyOf = () => data.get("bill:2026-11:210").slipVerify;
+  const okSlip = { status: 200, body: { success: true, data: { success: true, message: "ok", amount: 3500, transRef: "REF-OK", transDate: "20261110", transTime: "10:15:07", transTimestamp: "2026-11-10T03:15:07.000Z", receivingBank: "006" } } };
+  const failSlip = (code) => ({ status: 200, body: { success: false, code, message: `error ${code}` } });
+
+  delete process.env.SLIPOK_API_KEY;
+  delete process.env.SLIPOK_BRANCH_ID;
+  resetV();
+  r = await call(slip, { body: { image: png }, user: "Udave" });
+  assert.strictEqual(r.status, 200, "a slip is still accepted before SlipOK is configured");
+  assert.deepStrictEqual([verifyOf().ok, verifyOf().reason], [null, "not_configured"], "no keys = not verified, not fake");
+  assert.strictEqual(slipokCalls.length, 0, "nothing is sent without keys");
+
+  process.env.SLIPOK_API_KEY = "test-key";
+  process.env.SLIPOK_BRANCH_ID = "1234";
+
+  resetV();
+  slipok = okSlip;
+  r = await call(slip, { body: { image: png }, user: "Udave" });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(slipokCalls.length, 1, "the photo is sent to SlipOK once");
+  assert.ok(String(slipokCalls[0].url).endsWith("/1234"), "the branch id is in the path");
+  assert.strictEqual(slipokCalls[0].init.headers["x-authorization"], "test-key");
+  assert.strictEqual(slipokCalls[0].init.body.get("log"), "true", "log:true is what makes SlipOK check the account and duplicates");
+  assert.strictEqual(slipokCalls[0].init.body.get("amount"), "3500", "the bill total is what the slip must match");
+  assert.deepStrictEqual(
+    [verifyOf().ok, verifyOf().amount, verifyOf().transRef, verifyOf().provider],
+    [true, 3500, "REF-OK", "slipok"],
+  );
+  assert.strictEqual(data.get("bill:210").status, "pending", "verification never pays the bill on its own");
+  assert.ok(data.get("slip-ref:REF-OK"), "the transaction reference is remembered for the next slip");
+
+  // The same slip, second bill: our own key catches it even if SlipOK says it is fine.
+  data.set("bill:211", { ...vBill, room: "211" });
+  data.set("bill:2026-11:211", { ...vBill, room: "211" });
+  data.set("user-room:Udave", "211");
+  data.set("room-user:211", "Udave");
+  r = await call(slip, { body: { image: png }, user: "Udave" });
+  const reused = data.get("bill:2026-11:211").slipVerify;
+  assert.deepStrictEqual([r.status, reused.ok], [200, false], "a reused transaction reference is not verified");
+  assert.match(reused.reason, /ใช้ไปแล้ว/);
+
+  resetV();
+  slipok = failSlip(1013);
+  await call(slip, { body: { image: png }, user: "Udave" });
+  assert.deepStrictEqual([verifyOf().ok, /ยอด/.test(verifyOf().reason)], [false, true], "1013 = amount mismatch");
+
+  resetV();
+  slipok = failSlip(1014);
+  await call(slip, { body: { image: png }, user: "Udave" });
+  assert.deepStrictEqual([verifyOf().ok, /บัญชี/.test(verifyOf().reason)], [false, true], "1014 = not the dorm's account");
+
+  resetV();
+  slipok = failSlip(1012);
+  await call(slip, { body: { image: png }, user: "Udave" });
+  assert.deepStrictEqual([verifyOf().ok, /ซ้ำ/.test(verifyOf().reason)], [false, true], "1012 = duplicate slip");
+
+  // 1009/1011 are "cannot check right now" — that must not be reported as a fake slip.
+  resetV();
+  slipok = failSlip(1009);
+  await call(slip, { body: { image: png }, user: "Udave" });
+  assert.strictEqual(verifyOf().ok, null, "a bank outage is 'unverified', not 'invalid'");
+
+  // An unreadable photo is the same class: the tenant gets "ตรวจไม่ได้", never "สลิปปลอม".
+  resetV();
+  slipok = failSlip(1006);
+  await call(slip, { body: { image: png }, user: "Udave" });
+  assert.deepStrictEqual([verifyOf().ok, /อ่าน/.test(verifyOf().reason)], [null, true], "1006 = unreadable, not fake");
+
+  // A dead provider must not lose the slip the tenant already sent.
+  resetV();
+  slipok = null; // the stub answers 500
+  r = await call(slip, { body: { image: png }, user: "Udave" });
+  assert.deepStrictEqual([r.status, verifyOf().ok], [200, null], "a provider 500 leaves the slip unverified, not rejected");
+
+  // One slip for two periods: verified against the sum, carried by both bills.
+  resetV();
+  data.set("bill:210", { ...vBill, status: "unpaid" });
+  data.set("bill:2026-11:210", { ...vBill, status: "unpaid" });
+  data.set("bill:2026-10:210", { ...vBill, period: "2026-10", status: "unpaid" });
+  data.set("bills:210", ["2026-10", "2026-11"]);
+  slipok = { status: 200, body: { success: true, data: { success: true, message: "ok", amount: 7000, transRef: "REF-GROUP", transDate: "20261110", transTime: "10:15:07", transTimestamp: "2026-11-10T03:15:07.000Z", receivingBank: "006" } } };
+  r = await call(slip, { body: { image: png, periods: ["2026-10", "2026-11"] }, user: "Udave" });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(slipokCalls[0].init.body.get("amount"), "7000", "a group slip is checked against the sum");
+  assert.deepStrictEqual(
+    [data.get("bill:2026-10:210").slipVerify.ok, data.get("bill:2026-11:210").slipVerify.ok],
+    [true, true],
+    "every period of the group carries the result",
+  );
+  assert.strictEqual(data.get("bill:2026-11:210").status, "pending", "a verified group still waits for the owner");
+
+  slipok = null;
+  delete process.env.SLIPOK_API_KEY;
+  delete process.env.SLIPOK_BRANCH_ID;
+
+  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK)");
 })().catch((err) => {
   console.error(err);
   process.exit(1);

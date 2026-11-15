@@ -17,6 +17,7 @@ const { ROOMS } = require("./_rooms");
 const { mapLimit } = require("./_async");
 const { push, confirmBubble } = require("./_line");
 const { requireUser, isOwner } = require("./_auth");
+const { verifySlip } = require("./_verify");
 
 const MAX_BYTES = 3 * 1024 * 1024;
 const MAX_NOTE_LENGTH = 500;
@@ -71,6 +72,7 @@ module.exports = async (req, res) => {
 
   const oldSlip = prev?.slipPath || null;
   let slipPath = oldSlip;
+  let shot = null;
   if (image) {
     const m = /^data:(image\/(jpeg|png|webp));base64,(.+)$/.exec(image);
     if (!m) return fail(res, 400, "VALIDATION", "รูปต้องเป็น JPEG/PNG/WEBP");
@@ -79,9 +81,15 @@ module.exports = async (req, res) => {
     const ext = m[2] === "jpeg" ? "jpg" : m[2];
     slipPath = `slips/${room}-${advance ? "advance-" : ""}${Date.now()}.${ext}`;
     await store.putFile(slipPath, bytes, m[1]);
+    shot = { bytes, mime: m[1] };
   }
 
-  if (advance) return saveAdvance({ res, room, userId, note, slipPath, sent });
+  // A new photo is checked; a note-only update keeps whatever the last photo was checked as.
+  const verify = shot
+    ? await rememberRef(await verifySlip({ bytes: shot.bytes, mime: shot.mime, amount: bill?.total ?? prev?.total }), room)
+    : prev?.slipVerify || null;
+
+  if (advance) return saveAdvance({ res, room, userId, note, slipPath, sent, verify });
 
   const next = {
     ...bill,
@@ -90,6 +98,7 @@ module.exports = async (req, res) => {
     slipNote: note || null,
     slipAt: new Date().toISOString(),
     slipCount: sent + 1,
+    slipVerify: verify,
   };
   delete next.slipGroup; // a slip of its own: this bill no longer belongs to a multi-period slip
   await saveBills([next], { latest }); // both the newest copy and the per-period copy, so history agrees
@@ -104,12 +113,28 @@ module.exports = async (req, res) => {
     ownerId ? push(ownerId, [confirmBubble(next)]).catch((err) => console.error("owner push failed", err.message)) : null,
   ]);
 
-  return res.status(200).json({ ok: true, status: next.status, total: next.total, hasSlip: !!slipPath });
+  return res.status(200).json({ ok: true, status: next.status, total: next.total, hasSlip: !!slipPath, verify });
 };
 
+// One transaction can only pay for one thing: the first bill to claim a `transRef` keeps it.
+// SlipOK detects a reused slip too, but only within what its branch remembers — this key is ours.
+async function rememberRef(verify, room) {
+  if (!verify || verify.ok !== true || !verify.transRef) return verify;
+  const key = `slip-ref:${verify.transRef}`;
+  const seen = await store.get(key);
+  if (seen) {
+    return { ...verify, ok: false, reason: `สลิปนี้ถูกใช้ไปแล้ว (ห้อง ${seen.room || "?"})` };
+  }
+  await store.set(key, { room, at: new Date().toISOString() });
+  return verify;
+}
+
 // The advance path: one `prepay:<room>` record per room, replaced by each new slip.
-async function saveAdvance({ res, room, userId, note, slipPath, sent }) {
-  const prepay = { room, slipPath, slipNote: note || null, slipAt: new Date().toISOString(), slipCount: sent + 1, by: userId };
+async function saveAdvance({ res, room, userId, note, slipPath, sent, verify }) {
+  const prepay = {
+    room, slipPath, slipNote: note || null, slipAt: new Date().toISOString(), slipCount: sent + 1, by: userId,
+    slipVerify: verify || null,
+  };
   await store.set(`prepay:${room}`, prepay);
 
   // A replaced photo is deliberately NOT deleted: /api/run may have just copied that path onto a
@@ -127,7 +152,7 @@ async function saveAdvance({ res, room, userId, note, slipPath, sent }) {
     }
   }
 
-  return res.status(200).json({ ok: true, status: "advance", hasSlip: !!slipPath });
+  return res.status(200).json({ ok: true, status: "advance", hasSlip: !!slipPath, verify: verify || null });
 }
 
 // Delete a replaced photo only when no bill of the room still points to it. `holders` are the
@@ -191,6 +216,7 @@ async function saveGroup({ res, room, owner, userId, note, image, periods }) {
   // Without a new photo the group keeps one the bills already had (newest first).
   const oldSlips = [...new Set(found.map((b) => b.slipPath).filter(Boolean))];
   let slipPath = [...found].reverse().find((b) => b.slipPath)?.slipPath || null;
+  let shot = null;
   if (image) {
     const m = /^data:(image\/(jpeg|png|webp));base64,(.+)$/.exec(image);
     if (!m) return fail(res, 400, "VALIDATION", "รูปต้องเป็น JPEG/PNG/WEBP");
@@ -199,9 +225,14 @@ async function saveGroup({ res, room, owner, userId, note, image, periods }) {
     const ext = m[2] === "jpeg" ? "jpg" : m[2];
     slipPath = `slips/${room}-${Date.now()}.${ext}`;
     await store.putFile(slipPath, bytes, m[1]);
+    shot = { bytes, mime: m[1] };
   }
 
   const total = found.reduce((sum, b) => sum + Number(b.total || 0), 0);
+  // One transfer for several months: the slip must be for the sum, not for one month.
+  const verify = shot
+    ? await rememberRef(await verifySlip({ bytes: shot.bytes, mime: shot.mime, amount: total }), room)
+    : found.map((b) => b.slipVerify).find(Boolean) || null;
   const slipAt = new Date().toISOString();
   const next = found.map((b) => ({
     ...b,
@@ -211,6 +242,7 @@ async function saveGroup({ res, room, owner, userId, note, image, periods }) {
     slipAt,
     slipCount: (b.slipCount || 0) + 1,
     slipGroup: { periods, total },
+    slipVerify: verify,
   }));
   await saveBills(next, { latest }); // one room: the index and `bill:<room>` are written once for all periods
 
@@ -222,5 +254,5 @@ async function saveGroup({ res, room, owner, userId, note, image, periods }) {
       : null,
   ]);
 
-  return res.status(200).json({ ok: true, status: "pending", periods, total, hasSlip: !!slipPath });
+  return res.status(200).json({ ok: true, status: "pending", periods, total, hasSlip: !!slipPath, verify });
 }

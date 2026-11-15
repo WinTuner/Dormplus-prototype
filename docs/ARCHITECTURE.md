@@ -135,6 +135,7 @@ webhook ของ OA ยังชี้ที่ `line-app`
 | บิลต่อรอบ | `bill:<period>:<room>` + index `bills:<room>` (เก็บ ≤ 60 รอบ) | `kv/bill-<period>-<room>.json` |
 | บิลที่ถูกยกเลิก | `bill-void:<period>:<room>:<rev>` + index `bill-voids:<room>` (≤ 200 รายการ) | `kv/bill-void-<period>-<room>-<rev>.json` |
 | สลิปโอนล่วงหน้า (ยังไม่มีบิล) | `prepay:<room>` | `kv/prepay-<room>.json` |
+| เลขอ้างอิงสลิปที่ใช้ไปแล้ว | `slip-ref:<transRef>` | `kv/slip-ref-<transRef>.json` |
 | สลิปโอนล่วงหน้าของผู้เช่าเดิม | `prepay-old:<room>` (ใบล่าสุด) · `prepay-old:<room>:<slipAt>` (รายใบ) | `kv/prepay-old-<room>.json` |
 | เริ่มสัญญาเช่าปัจจุบันของห้อง | `tenancy:<room>` (`{ since: ISO }`) | `kv/tenancy-<room>.json` |
 | มิเตอร์ล่าสุด | `meter:<room>` | `kv/meter-<room>.json` |
@@ -508,8 +509,9 @@ pakdee-prototype/
 6. **webhook ฝั่ง backend ยังไม่ผูกช่องทาง** — endpoint มีและตรวจ signature แล้ว แต่ LINE อนุญาต
    webhook URL เดียวต่อช่องทาง ซึ่งยังเป็นของ `line-app` · สลับเมื่อไหร่บอทที่ใช้งานจริงจะดับ
    และยังไม่มี handler ที่ตอบผู้ใช้ (งานตอนนี้คือ `audit_log` 1 แถว)
-7. **ตรวจสลิปเป็น manual ทั้งสองฝั่ง** — `payments.verify_ok` เป็น `null` จนเจ้าของกดยืนยัน
-   และ `line-app/` ก็ให้เจ้าของกด postback ยืนยันเอง · ยังไม่มี SlipOK (`slip.verify` ยังเป็นงานค้าง)
+7. **ตรวจสลิป: `line-app` ใช้ SlipOK, `backend` ยัง manual** — `line-app` เรียก `_verify.js` ตอนแนบสลิป
+   (ยอด + บัญชีผู้รับ + สลิปซ้ำ) แล้วเก็บผลไว้บนบิล แต่ **ไม่ปิดบิลเอง** — เจ้าของยังกดยืนยัน ·
+   ฝั่ง `backend` `payments.verify_ok` ยังเป็น `null` จนเจ้าของยืนยัน (`slip.verify` ยังเป็นงานค้าง)
 8. **จำนวนห้องไม่ตรงกัน** — `line-app/` มาจาก env `ROOMS` (ค่าเริ่มต้น 12 ห้อง `201`–`212`)
    ส่วน `backend/` seed 42 ห้อง (`backend/app/seed.py`)
 9. **การทวงมีเจ้าของเดียวคือ `line-app/`** — `backend/vercel.json` ไม่มี `crons` แล้ว และ
