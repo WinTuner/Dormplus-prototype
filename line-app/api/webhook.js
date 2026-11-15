@@ -57,13 +57,16 @@ async function confirmGroup(event, room, rawPeriods, userId, baseUrl) {
 
   const paid = open.map((b) => paidCopy(b, userId));
   await saveBills(paid, { latest }); // one write per key, not one saveBill (and index rewrite) per period
+  // The card was minted with the old total; now that a period may have been voided, say what was
+  // actually settled so the owner knows if a refund is owed.
+  const settled = paid.reduce((n, b) => n + Number(b.total || 0), 0);
   // The receipts and the owner's answer go to different people; the reply must not wait for them.
   await Promise.all([
     sendReceipts(room, paid, userId, baseUrl),
     reply(event.replyToken, [
       {
         type: "text",
-        text: `ยืนยันห้อง ${room} รอบ ${paid.map((b) => b.period).join(", ")} แล้ว ✅` +
+        text: `ยืนยันห้อง ${room} รอบ ${paid.map((b) => b.period).join(", ")} แล้ว ✅ ยอดที่ปิด ${settled.toLocaleString("th-TH")} บาท` +
           (skipped.length ? ` · ข้าม ${skipped.join(", ")} (ไม่ได้รอยืนยันตามการ์ดนี้)` : ""),
       },
     ]),

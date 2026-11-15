@@ -205,7 +205,7 @@ python -m app.queue                        # ครั้งเดียวต�
 
 **ทางที่ใช้จริง: Vercel Cron (ฟรี ไม่ต้องมี host)**
 
-`backend/vercel.json` ตั้ง cron ไว้แล้ว: `GET /v1/cron/daily` ทุกวัน 02:00 UTC (09:00 ไทย)
+⚠️ **ปิด cron ของ backend ไว้** (`backend/vercel.json` ไม่มี `crons` แล้ว) เพราะ `line-app` เป็นตัวที่ส่งข้อความทวงจริงอยู่ — ถ้าเปิดทั้งคู่ ผู้เช่าที่ผูก LINE กับ backend จะได้เตือนสองชุด · endpoint ยังอยู่ ใช้ยิงมือ/ทดสอบได้ และเปิด cron กลับได้ถ้าย้ายการทวงมาฝั่งนี้ (แล้วปิดของ `line-app`)
 
 - Vercel ส่ง `Authorization: Bearer $CRON_SECRET` ให้เองถ้าตั้ง env `CRON_SECRET` ไว้บนโปรเจกต์
 - endpoint เดียวจบ: เลือกบิลที่เลยกำหนด → enqueue → `run_worker(wait=False)` ส่งจนคิวว่างแล้วจบ

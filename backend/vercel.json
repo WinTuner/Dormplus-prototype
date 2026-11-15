@@ -6,8 +6,5 @@
       "master": true,
       "preview-*": true
     }
-  },
-  "crons": [
-    { "path": "/v1/cron/daily", "schedule": "0 2 * * *" }
-  ]
+  }
 }

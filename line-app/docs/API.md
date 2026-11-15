@@ -198,7 +198,7 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 
 - **`receiptNo`:** เลขใบเสร็จ `R<yyyymm>-<room>` และต่อท้าย `-<rev>` เมื่อ `rev > 1` (เช่น `R202611-203`, `R202611-203-2`) — webhook เขียนตอนเจ้าของยืนยัน · เลขคำนวณจากบิลโดยตรง (ไม่ใช้ตัวนับกลาง เพราะ Blob ไม่มี transaction ตัวนับร่วมอาจแจกเลขซ้ำ; หนึ่งบิลต่อห้องต่อรอบจึงไม่ซ้ำ) · บิลที่ `paid` ก่อนมีฟีเจอร์นี้ไม่มีเลขเก็บไว้ แต่ API คำนวณให้ตอนอ่านด้วยสูตรเดียวกัน · บิลที่ยังไม่ `paid` ได้ `null` (เฉพาะ `history=1`; แบบ `period=`/ล่าสุดไม่มี field นี้เมื่อยังไม่ชำระ)
 - **ไม่ส่ง `confirmedBy` / `voidedBy` ให้ผู้เช่า:** สองฟิลด์นี้เป็น LINE userId ของเจ้าของหอ — ผู้เช่าได้บิลที่ตัดสองฟิลด์ออก (เจ้าของ/ผู้ช่วยได้ครบ)
-- **`voided=1` (เจ้าของ/ผู้ช่วยเท่านั้น):** `{ room, items: [bill, ...] }` — บิลที่ถูกยกเลิกแล้ว **ออกใหม่ทับ** (เก็บไว้ที่ `bill-void:<period>:<room>:<rev>` ตามรายการ `bill-voids:<room>` ซึ่ง `/api/run` เขียน) เรียงรอบใหม่→เก่า แล้ว `rev` มาก→น้อย · แต่ละรายการคือบิลตามที่เป็นตอนถูกยกเลิก (`voidReason`, `receiptNo`, สลิป ฯลฯ ไม่แก้) · `period=YYYY-MM` กรองเฉพาะรอบ · ผู้เช่า (แม้ห้องตัวเอง) → `403 FORBIDDEN` · รายการยังไม่ถูกออกใหม่ ไม่อยู่ในนี้ (ยังเป็นบิล `void` ปกติที่ `period=`) · ดัชนีเก็บล่าสุด 200 รายการ
+- **`voided=1` (เจ้าของ/ผู้ช่วยเท่านั้น):** `{ room, items: [bill, ...] }` — บิลที่ถูกยกเลิก **ทุกใบ** (เก็บตอนกดยกเลิก ไม่ต้องรอออกใหม่) ที่ `bill-void:<period>:<room>:<rev>` ตามรายการ `bill-voids:<room>` เรียงรอบใหม่→เก่า แล้ว `rev` มาก→น้อย · แต่ละรายการคือบิลตามที่เป็นตอนถูกยกเลิก (`voidReason`, `receiptNo`, `refundDue`, สลิป ฯลฯ ไม่แก้) · `period=YYYY-MM` กรองเฉพาะรอบ · ผู้เช่า (แม้ห้องตัวเอง) → `403 FORBIDDEN` · ดัชนีเก็บล่าสุด 200 รายการ
 - **`history=1`:** `{ room, items: [{ period, total, status, receiptNo, due, hasSlip }] }` — `status` เป็น `unpaid` / `pending` / `paid` / `void`
 - **บิลที่ถูกยกเลิก** (`status:"void"`) ยังถูกส่งกลับตามปกติ พร้อม `voidedAt`, `voidedBy`, `voidReason`, `statusBefore` (และ `receiptNo`, field สลิปเดิมที่เก็บไว้เป็นหลักฐาน) · `rev` = ครั้งที่ออกบิลของรอบนั้น (ไม่มี = 1) เพิ่มเมื่อออกบิลใหม่แทนบิลที่ `void` · `slipGroup` = `{ periods, total }` เมื่อสลิปนี้จ่ายหลายงวด (ดู §6)
 
@@ -216,9 +216,9 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 
 - **Auth:** Bearer idToken + `isOwner` (ผู้ช่วยดูอย่างเดียวและผู้เช่า → `403 FORBIDDEN`)
 - **Body:** `{ "action": "void", "room": "203", "period": "2026-11", "reason": "กรอกยอดผิด" }` — `reason` บังคับ 1–200 ตัวอักษร (ตัดช่องว่างหัวท้าย) · `period` รูป `YYYY-MM` ที่เดือน 01–12
-- **200:** `{ "ok": true, "room": "203", "period": "2026-11", "status": "void" }`
+- **200:** `{ "ok": true, "room": "203", "period": "2026-11", "status": "void" }` · ถ้าบิลนั้นจ่ายแล้ว เพิ่ม `"refund": <total>` = ยอดที่หอต้องคืนผู้เช่า
 - **Error:** `403 FORBIDDEN` → `400 VALIDATION` (action ไม่ใช่ `void`, ไม่มี room, period ผิดรูป, reason ว่าง/ยาวเกิน) → `404 NOT_FOUND` (room ไม่อยู่ใน `ROOMS`, หรือไม่มี `bill:<period>:<room>`) → `409 INVALID_STATE` (`void` อยู่แล้ว)
-- **เขียน Blob:** `bill:<period>:<room>` = บิลเดิม + `status:"void"`, `voidedAt` (ISO), `voidedBy` (userId เจ้าของ), `voidReason`, `statusBefore` (สถานะก่อนยกเลิก) ผ่าน `saveBill` — `bill:<room>` ตามไปด้วยเมื่อเป็นรอบล่าสุด · `receiptNo` และ field สลิปคงไว้เป็นหลักฐาน
+- **เขียน Blob:** `bill:<period>:<room>` = บิลเดิม + `status:"void"`, `voidedAt` (ISO), `voidedBy` (userId เจ้าของ), `voidReason`, `statusBefore` (สถานะก่อนยกเลิก) และ `refundDue` (ยอดที่ต้องคืน เมื่อยกเลิกบิลที่จ่ายแล้ว) ผ่าน `saveBill` — `bill:<room>` ตามไปด้วยเมื่อเป็นรอบล่าสุด · `receiptNo` และ field สลิปคงไว้เป็นหลักฐาน · **เก็บเข้าคลังทันที** ที่ `bill-void:<period>:<room>:<rev>` + `bill-voids:<room>` (idempotent — `/api/run` เก็บซ้ำได้)
 - **Side effect:** push ข้อความหาผู้เช่า `บิลห้อง <room> รอบ <period> ถูกยกเลิก — <reason>` เฉพาะเมื่อมีผู้เช่าผูกอยู่และบิลนั้นเป็นของสัญญาเช่าปัจจุบัน (push พังแค่ log)
 - **ผลต่อส่วนอื่น:** `/api/run` ออกบิลรอบที่ `void` ใหม่ได้ (`rev = เดิม + 1`; ออกบิล `unpaid` ซ้ำคง `rev` เดิม) · webhook ยืนยันบิล `void` → "บิลนี้ถูกยกเลิกแล้ว" ไม่เปลี่ยนอะไร · `/api/slip` ถือบิลล่าสุดที่ `void` เป็น "ไม่มีบิลที่ต้องจ่าย" (ทางโอนก่อนบิลออก) · แชท "บิล" ตอบข้อความยกเลิกแทนการ์ดจ่ายเงิน
 
@@ -355,7 +355,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 
 - **Auth:** header `Authorization: Bearer <CRON_SECRET>` เทียบแบบ constant-time (`sameSecret`) · ไม่ใช้ idToken
 - **Error:** `405 METHOD_NOT_ALLOWED` (ไม่ใช่ GET) → `503 NOT_CONFIGURED` (ไม่ได้ตั้ง `CRON_SECRET` หรือสั้นกว่า 16 ตัว) → `401 UNAUTHORIZED` (`bad cron secret`)
-- **200:** `{ "ok": true, "today": "2026-11-13", "sent": [{ "room": "203", "period": "2026-11", "kind": "before_3" }], "failed": 0 }` — `today` = วันที่เวลา Asia/Bangkok · `sent` เรียงตามห้อง/รอบ · `failed` = จำนวนข้อความที่ push ไม่สำเร็จหรือห้องที่ประมวลผลล้ม (ไม่ทำให้ request ล้ม)
+- **200:** `{ "ok": true, "today": "2026-11-13", "sent": [{ "room": "203", "period": "2026-11", "kind": "before_3" }], "failed": 0 }` — `today` = วันที่เวลา Asia/Bangkok · `sent` เรียงตามห้อง/รอบ · `failed` = จำนวนข้อความที่ push ไม่สำเร็จหรือห้องที่ประมวลผลล้ม (ไม่ทำให้ request ล้ม) · ถ้ามีรอบที่กำลังทำงานอยู่ (cron retry ซ้อน) จะตอบ `{ "ok": true, "skipped": "another run is in progress" }` โดยไม่ส่งอะไร
 - **ชนิดการเตือน (`kind`)** ตัดสินจากจำนวนวันถึง `due` ของบิลที่ยัง `unpaid` และมี `due` — เป็น "ช่วง" ไม่ใช่วันตรงตัว เพื่อให้ cron ที่พลาดไปวันหนึ่งส่งให้ในรอบถัดไป:
 
 | kind | เงื่อนไข |

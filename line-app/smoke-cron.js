@@ -80,6 +80,16 @@ const kinds = (r) => r.sent.map((s) => `${s.room}:${s.period}:${s.kind}`);
   assert.deepStrictEqual(r.body.sent, []);
   assert.strictEqual(r.body.failed, 0);
   assert.match(r.body.today, /^\d{4}-\d{2}-\d{2}$/);
+  assert.strictEqual(data.get("cron-lock"), null, "the run clears its lock when it finishes");
+
+  // A retry while the first run is still going is skipped instead of pushing everything twice.
+  data.set("cron-lock", { at: new Date().toISOString() });
+  r = await call({ authorization: `Bearer ${SECRET}` });
+  assert.deepStrictEqual([r.status, r.body.skipped], [200, "another run is in progress"]);
+  data.set("cron-lock", { at: new Date(Date.now() - 16 * 60 * 1000).toISOString() });
+  r = await call({ authorization: `Bearer ${SECRET}` });
+  assert.strictEqual(r.body.skipped, undefined, "a stale lock does not block the next run");
+  assert.strictEqual(data.get("cron-lock"), null, "and that run clears it too");
 
   // ---------------------------------------------------------------- each kind on the right day
   const cases = [
