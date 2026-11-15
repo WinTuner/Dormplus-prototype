@@ -202,9 +202,10 @@ UC-07 และ UC-08 เพิ่มเข้ามาหลังแผนภ�
 | TC-06-2 | สิทธิ์ดูข้อมูลรายรับ | มีผู้ช่วย ผู้เช่า | ผู้ช่วย · ผู้เช่า | 200 · 403 | ✅ `line-app/smoke-usecases.js › TC-06-2` |
 | TC-06-3 | รายรับงวดก่อนไม่อยู่ใน `/api/rooms` | 201 จ่ายแล้วเดือน ต.ค. · มีบิล พ.ย. unpaid | GET `/api/rooms` · แล้ว `/api/bill?room=201&period=2026-10` | `/api/rooms` เห็นแค่ พ.ย. · งวด ต.ค. อ่านได้จาก `/api/bill` (paid, 4,000) | ✅ `line-app/smoke-usecases.js › TC-06-3` |
 | TC-06-4 | หน้ารายงานแสดงตัวเลข ตรงกับข้อมูลจริง | LIFF จริง · มีบิลหลายสถานะ | เจ้าของเปิด "รายงานรายรับ" | ยอดรับ/รอตรวจ/ค้างตรงกับที่ผู้เช่าและเจ้าของทำจริง | 🖐 ทดสอบมือกับ LINE จริง |
-| TC-06-5 | รายรับรายเดือนย้อนหลังและเทียบเดือน | มีบิลหลายเดือน | เลือกช่วงเดือน | รวมต่อเดือนถูกต้อง รวมงวดที่ชำระข้ามเดือน (ตอนนี้ไม่มี API รวม) | ⏳ ยังไม่สร้าง |
+| TC-06-5 | รายรับรายเดือนย้อนหลังและเทียบเดือน | มีบิลหลายเดือน | `GET /v1/reports/summary?period=YYYY-MM` ต่อเดือน | ยอดต่อเดือนถูกต้อง (paid/pending/unpaid/billed) — **ยังไม่มีหน้าจอเทียบหลายเดือนใน LIFF** | ✅ `backend/tests/test_reports.py` |
 | TC-06-6 | แยกรายรับตามวันที่ชำระ (`paidAt`) ไม่ใช่ตามงวด | บิลงวด ต.ค. ชำระวันที่ 2 พ.ย. | ดูรายรับเดือน พ.ย. | ถูกนับตามนโยบายที่ตกลง (ยังไม่ได้ตัดสินใจ) | ⏳ ยังไม่สร้าง |
 | TC-06-7 | backend: summary ของงวด (paid/pending/unpaid/total) | — | `GET /v1/invoices?period=` | ผลรวมตรง | ✅ `backend/tests/test_billing.py::test_invoices_of_a_period_with_overdue_days_and_summary` |
+| TC-06-8 | backend: `GET /v1/reports/summary` (เงิน + จำนวนห้อง) | มีบิล paid/pending/unpaid ในงวด | เรียกด้วยเจ้าของ/ผู้เช่า/หออื่น | `billed = paid+pending+unpaid` ตรงกับ `/v1/invoices` · `rooms_total` = ทุกห้อง · `rooms_overdue` นับเฉพาะ unpaid ที่เลยกำหนด · ผู้เช่า 403 · หออื่นได้ 0 | ✅ `backend/tests/test_reports.py` (5 เทสต์) |
 
 ## UC-07 เพิ่ม/ถอนเจ้าของและผู้ช่วย
 
@@ -576,7 +577,8 @@ endpoint พร้อมและตรวจ signature จริง แต่ *
 | TC-19-2 | signature ผิด → 401 และไม่เขียนอะไร | ตั้ง secret แล้ว | POST ด้วย signature ของ secret อื่น | 401 · ไม่มีแถวใหม่ใน `audit_log` | ✅ `backend/tests/test_webhook.py::test_bad_signature_is_401_and_logs_nothing` |
 | TC-19-3 | หอที่ไม่ใช่ของ deployment → 404 แม้ signature ถูก | path `p_2` | POST พร้อม signature ที่ถูก | 404 · ไม่เขียน `audit_log` | ✅ `backend/tests/test_webhook.py::test_another_dorm_is_404_even_with_a_valid_signature` |
 | TC-19-4 | body ที่ไม่ใช่ JSON → 400 | signature ของ body นั้นถูกต้อง | POST body ขยะ | 400 · ไม่เขียน `audit_log` | ✅ `backend/tests/test_webhook.py::test_body_that_is_not_json_is_400` |
-| TC-19-5 | ยังไม่ตั้ง secret → 503 | `LINE_CHANNEL_SECRET` ว่าง | POST อะไรก็ได้ | 503 `NOT_CONFIGURED` | ✅ `backend/tests/test_webhook.py::test_missing_secret_is_503` |
+| TC-19-5 | ยังไม่ตั้ง secret → 503 | `LINE_CHANNEL_SECRET` ว่าง | POST อะไรก็ได้ | 503 `LINE_NOT_CONFIGURED` | ✅ `backend/tests/test_webhook.py::test_missing_secret_is_503` |
+| TC-19-6 | LINE ส่ง event เดิมซ้ำ (redelivery) → บันทึกครั้งเดียว | ตั้ง secret แล้ว | POST body เดิมสองครั้ง | 200 ทั้งสองครั้ง · `audit_log` มีแถวเดียว · event id อื่นยังถูกบันทึก | ✅ `backend/tests/test_webhook.py::test_a_redelivered_event_is_ignored` |
 
 ## สรุป
 
@@ -587,7 +589,7 @@ endpoint พร้อมและตรวจ signature จริง แต่ *
 | UC-03 | ออกบิล (คำนวณบิล · ส่งบิลทาง LINE) | 22 | 20 | 1 | 1 |
 | UC-04 | ยืนยันการชำระ (include ออกใบเสร็จ) | 16 | 14 | 1 | 1 |
 | UC-05 | ดูห้องค้างชำระ (ค้างกี่งวด · เกินกี่วัน) | 11 | 8 | 1 | 2 |
-| UC-06 | ดูรายรับ | 7 | 4 | 1 | 2 |
+| UC-06 | ดูรายรับ | 8 | 6 | 1 | 1 |
 | UC-07 | เพิ่ม/ถอนเจ้าของและผู้ช่วย | 16 | 14 | 1 | 1 |
 | UC-08 | เปลี่ยนผู้เช่า / หมุน QR ห้อง | 17 | 15 | 2 | 0 |
 | UC-09 | ผูกบัญชี LINE กับห้อง | 17 | 16 | 1 | 0 |
@@ -600,8 +602,8 @@ endpoint พร้อมและตรวจ signature จริง แต่ *
 | UC-16 | ทวงอัตโนมัติ (เลยกำหนด 1 / 5 / 10 วัน) | 24 | 20 | 2 | 2 |
 | UC-17 | แจ้งชำระก่อนบิลออก (โอนก่อน) | 26 | 20 | 4 | 2 |
 | UC-18 | ยกเลิกบิล (void) และออกบิลใหม่ | 13 | 11 | 1 | 1 |
-| UC-19 | รับ event จาก LINE (webhook ฝั่ง backend) | 5 | 5 | 0 | 0 |
-| **รวม** | | **263** | **218** | **23** | **22** |
+| UC-19 | รับ event จาก LINE (webhook ฝั่ง backend) | 6 | 6 | 0 | 0 |
+| **รวม** | | **265** | **221** | **23** | **21** |
 
 หมายเหตุ: คอลัมน์ ✅ รวมทั้ง test ใน `line-app/smoke-usecases.js` (156 ข้อ) และ test ที่มีอยู่แล้วใน `backend/tests/` ที่ผูกกับกรณีนั้น (บางแถวอ้างหลายฟังก์ชัน นับเป็น 1 TC) แถว ✅ ที่อ้าง pytest ไม่ได้ถูกรันโดยชุดนี้ — รันด้วย `cd backend && pytest -q`
 

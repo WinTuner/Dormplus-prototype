@@ -9,7 +9,7 @@ from app import errors
 from app.config import get_settings
 from app.db import get_engine
 from app.errors import ApiError
-from app.routes import auth, billing, cron, dunning, invites, me, properties, rooms, webhooks
+from app.routes import auth, billing, cron, dunning, invites, me, properties, reports, rooms, webhooks
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 LIFF_DIR = BACKEND_DIR / "liff"
@@ -35,6 +35,7 @@ def create_app() -> FastAPI:
     app.include_router(dunning.router)
     app.include_router(cron.router)
     app.include_router(invites.router)
+    app.include_router(reports.router)
     app.include_router(webhooks.router)
 
     @app.get("/healthz", tags=["ops"])

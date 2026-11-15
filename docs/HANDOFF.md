@@ -25,8 +25,8 @@
 
 ## 2. สิ่งที่ต้องสร้าง
 
-1. 🟡 FastAPI app ตาม `docs/API.md` (ทุก endpoint + error code)
-   — มีแล้ว: rooms, properties, readings, billing run (+ ส่งข้อความบิลเข้า LINE), invoices, invoice detail, slip, confirm, reject, `/me/invoices`, auth, webhook · **เหลือ `GET /reports/summary`** (มีในสัญญา ยังไม่มี route)
+1. ✅ FastAPI app ตาม `docs/API.md` (ทุก endpoint + error code)
+   — ครบทุกข้อในสัญญา: rooms, properties, readings, billing run (+ ส่งข้อความบิลเข้า LINE), invoices, invoice detail, reports summary, slip, confirm, reject, `/me/invoices`, auth, webhook (ตรวจ signature + กัน event ซ้ำ)
 2. ✅ Postgres ตาม `db/schema.sql` + migration (Alembic) — `backend/migrations/`
 3. 🟡 Queue + cron (Procrastinate) — โค้ดพร้อม (`app/queue.py` · `app/tasks.py` · `app/dunning.py` · `app/routes/cron.py`) · **`backend/vercel.json` ไม่มี `crons` แล้ว (ตั้งใจ)** เพราะ `line-app` เป็นเจ้าของการทวงรายวันอยู่ (`line-app/api/cron.js` + `_remind.js`, Vercel Cron `0 2 * * *`) — ถ้าเปิดทั้งคู่ผู้เช่าที่ผูกทั้งสองระบบจะได้เตือนสองชุด · endpoint `GET /v1/cron/daily` ยังใช้ยิงมือ/ทดสอบได้ (drain คิวใน invocation เดียวด้วย `run_worker(wait=False)`) · ถ้าจะย้ายการทวงมา backend: เปิด `crons` กลับ + ตั้ง `CRON_SECRET` + สร้างตารางด้วย `python -m app.queue` แล้วปิด cron ของ `line-app` (CLI `procrastinate schema --apply` ไม่รับ sync connector)
    - ✅ `dunning` — ตัวทวงรายวันเดินอยู่ที่ `line-app` แล้ว (1/3 วันก่อนครบกำหนด, วันครบกำหนด, 1/5/10 วันหลัง) · ฝั่ง backend เป็นโค้ดที่ยังไม่ถูกตั้งเวลา (ไม่มี `crons` โดยตั้งใจ)
@@ -34,7 +34,7 @@
    - ✅ `notify.invoice` — `app/notify.py` + `line.push_text` kind `invoice` + `message_log` (ผู้เช่าคนเดียวต่อห้องตามสูตร dunning)
    - ⬜ `slip.verify` — เรียก SlipOK แล้วอัปเดตสถานะ (ตอนนี้ `verify.ok` = `null` เจ้าของกดยืนยันเอง)
 4. ✅ Auth: LINE Login → ตรวจ idToken → session cookie → resolve `property_id` — เสร็จแล้ว · **RLS ใช้งานจริงแล้ว** (migration `0004`: force RLS + policy กรองด้วย `app.property_id` ที่ตั้งต่อ connection ใน `app/db.py`)
-5. ✅ Webhook LINE — `POST /v1/webhooks/line/:property_id` ตรวจ `X-Line-Signature` (HMAC ของ raw body) แล้วเขียน `audit_log` · **ยังไม่ผูกช่องทาง** (webhook ของ OA ชี้ที่ `line-app`) และยังไม่มี handler ที่ตอบผู้ใช้
+5. ✅ Webhook LINE — `POST /v1/webhooks/line/:property_id` ตรวจ `X-Line-Signature` (HMAC ของ raw body) แล้วเขียน `audit_log` · event ซ้ำถูกกันด้วย `webhookEventId` (ตาราง `line_events`, migration `0005`) · **ยังไม่ผูกช่องทาง** (webhook ของ OA ชี้ที่ `line-app`) และยังไม่มี handler ที่ตอบผู้ใช้
 
 ## 3. กติกาที่ห้ามพลาด
 

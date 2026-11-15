@@ -28,7 +28,7 @@
 | `LINE_CHANNEL_ID` | **จำเป็นถ้าใช้ LINE Login** | ไม่ใส่ก็ได้ | `""` | `POST /v1/auth/line` ตอบ `503 LINE_NOT_CONFIGURED` |
 | `LIFF_ID` | **จำเป็นถ้าใช้หน้า LIFF** | ไม่ใส่ก็ได้ | `""` | `GET /v1/liff-config` คืน `{"liff_id": ""}` → หน้า LIFF `liff.init()` ไม่ได้ |
 | `LINE_CHANNEL_ACCESS_TOKEN` | **จำเป็นถ้าต้องส่งข้อความ** | ไม่ใส่ก็ได้ | `""` | push ไม่Throw แต่คืน `"skipped: no LINE_CHANNEL_ACCESS_TOKEN"` แล้ว log `skipped` — ผู้ใช้ไม่ได้รับข้อความ |
-| `LINE_CHANNEL_SECRET` | **จำเป็นถ้าจะรับ webhook** | ไม่ใส่ก็ได้ | `""` | `POST /v1/webhooks/line/:property_id` ตอบ `503 NOT_CONFIGURED`; ค่าต้องเป็น channel secret ของ OA เดียวกับ access token |
+| `LINE_CHANNEL_SECRET` | **จำเป็นถ้าจะรับ webhook** | ไม่ใส่ก็ได้ | `""` | `POST /v1/webhooks/line/:property_id` ตอบ `503 LINE_NOT_CONFIGURED`; ค่าต้องเป็น channel secret ของ OA เดียวกับ access token |
 | `CRON_SECRET` | ไม่บังคับ (cron ของ backend ปิดอยู่) | ไม่ใส่ก็ได้ | `""` | endpoint `/v1/cron/daily` ยังอยู่แต่ตอบ 401 ทุกครั้ง จนกว่าจะตั้งค่านี้ — ใช้เมื่อยิงมือหรือเปิด cron กลับ (ดู §1.4) |
 | `DUNNING_TOKEN` | ทางเลือกแทน `CRON_SECRET` | — | — | ชื่อเก่าที่ยังรับผ่าน `AliasChoices`; ถ้าตั้งทั้งคู่ `CRON_SECRET` ชนะ · **alias นี้มีเฉพาะฝั่ง backend** `line-app` ไม่รับชื่อนี้ |
 | `PROPERTY_ID` | **จำเป็นต้องตรงข้อมูล** | `p_1` | `p_1` | ไม่ error แต่ทุก connection ถูกตั้ง `app.property_id` เป็นค่านี้ → RLS จะไม่เห็นแถวของหออื่นเลย และ cron จะเลือกบิลเฉพาะหอนี้ (ดู §1.6) |

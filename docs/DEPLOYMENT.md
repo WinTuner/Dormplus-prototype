@@ -114,9 +114,9 @@ vercel --prod
 ## 4. backend: ลำดับงานเมื่อแก้ schema (สำคัญที่สุด)
 
 `backend/migrations/versions/` คือ **schema of record** — `db/schema.sql` เป็น snapshot อ่านอย่างเดียว
-(อัปเดตถึง `0004` แล้ว แต่ตัวที่รันจริงคือ alembic)
+(อัปเดตถึง `0005` แล้ว แต่ตัวที่รันจริงคือ alembic)
 
-มี 4 revision: `0001` initial · `0002` `link_codes` · `0003` `auth_failures` · `0004` **RLS (`force row level security`)**
+มี 5 revision: `0001` initial · `0002` `link_codes` · `0003` `auth_failures` · `0004` **RLS (`force row level security`)** · `0005` `line_events` (กัน LINE ส่ง event ซ้ำ)
 
 เพราะ merge เข้า `master` = deploy ทันที **migration ต้องขึ้นก่อน merge ไม่ใช่หลัง** ไม่งั้นช่วงสั้น ๆ
 โค้ดใหม่จะวิ่งชน schema เก่า (500 ทั้งหน้า และ cron ก็ล้มด้วย)
