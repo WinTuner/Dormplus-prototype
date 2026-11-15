@@ -12,7 +12,7 @@ LINE OA ──webhook──▶ /api/webhook ──▶ Vercel Blob (kv/*.json, sl
 เจ้าของ ── /liff/bill.html ──▶ /api/rooms, /api/run, /api/qr, /api/owner
 ```
 
-> **deploy อัตโนมัติ:** push เข้า `master` ของ repo `WinTuner/domplus-prototype` → Vercel deploy โปรเจกต์ `line-app` (Root Directory = `line-app`) ขึ้น production ทันที
+> **deploy อัตโนมัติ:** push เข้า `master` ของ repo `WinTuner/Dormplus-prototype` → Vercel deploy โปรเจกต์ `line-app` (Root Directory = `line-app`) ขึ้น production ทันที
 
 ## 1. สิ่งที่ต้องมี
 

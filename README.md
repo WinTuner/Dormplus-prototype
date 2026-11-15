@@ -11,6 +11,7 @@ Repo นี้มีของจริง 2 ส่วน — เลือกอ�
 
 `line-app/` คือของที่ผู้เช่า/เจ้าของใช้จริง: จดมิเตอร์ → ออกบิล → การ์ดใน LINE → แนบสลิป → เจ้าของยืนยัน
 มี **QR ผูกห้อง** (ปริ้นแปะประตู), **QR เพิ่มเจ้าของ/ผู้ช่วย**, **ประวัติบิลย้อนหลัง** และ **rich menu แยกตามบทบาท**
+เพิ่มภายหลัง: **สลิปโอนก่อนบิลออก** (`prepay:<room>` ผูกกับบิลรอบถัดไปให้เอง) · **ใบเสร็จ** (`receiptNo`) · **ยกเลิกบิลพร้อมยอดที่ต้องคืน** (`refundDue`) · **สลิปเดียวจ่ายหลายรอบ** · **ทวงอัตโนมัติวันละครั้งผ่าน Vercel Cron** (`GET /api/cron`) · **ผู้เช่าใหม่ไม่เห็นบิลของผู้เช่าคนก่อน** (`tenancy:<room>` + `issuedAt`)
 
 ทั้งสองส่วนใช้สัญญา API เดียวกันเป็นเป้าหมาย: [`docs/API.md`](docs/API.md) · งานที่เหลือและเกณฑ์ "เสร็จ": [`docs/HANDOFF.md`](docs/HANDOFF.md)
 
@@ -18,7 +19,7 @@ Repo นี้มีของจริง 2 ส่วน — เลือกอ�
 line-app/     LINE OA → webhook → Flex bill card → LIFF (บิล/แนบสลิป) → postback ยืนยัน
 backend/      FastAPI + Postgres: ห้อง · มิเตอร์ · ออกบิล · สลิป · confirm/reject · LINE Login
 db/schema.sql Postgres DDL (migrations ของ backend มาจากไฟล์นี้)
-docs/         สัญญา API + handoff
+docs/         เอกสารทั้ง repo: API · สถาปัตยกรรม · config · deploy · test cases · handoff
 ```
 
 ## เริ่มใช้งาน LINE app (ของที่ deploy อยู่)
@@ -26,6 +27,8 @@ docs/         สัญญา API + handoff
 ```bash
 cd line-app
 node smoke.js && node smoke-handlers.js && node smoke-reads.js   # offline tests, ไม่ต้อง npm install
+node smoke-usecases.js   # 156 use case ที่ automate ได้ (ชุดเดียวกับ docs/TEST-CASES.md)
+node smoke-cron.js       # แจ้งเตือนรายวัน /api/cron + cron-lock
 ```
 
 ต้องมี LINE OA + LIFF + Vercel + Blob ก่อน — ทำตาม [`line-app/README.md`](line-app/README.md) ข้อ 2–7 (สร้าง OA → deploy → ตั้ง env → seed → LIFF → ทดสอบ)
@@ -35,6 +38,8 @@ node smoke.js && node smoke-handlers.js && node smoke-reads.js   # offline tests
 1. **ผูกผู้เช่า** — เจ้าของเปิด LIFF → เลือกห้อง → "QR ผู้เช่า" → ปริ้นแปะหน้าประตู
 2. **เพิ่มคนช่วย** — หน้าหลัก → "เพิ่มเจ้าของหอ (QR)" เลือก *เจ้าของหอ* หรือ *ผู้ช่วย (ดูอย่างเดียว)*
 3. **ออกรอบบิล** — จดมิเตอร์ทีละห้อง → "ออกบิลและส่งเข้า LINE" → เจ้าของยืนยันสลิปในการ์ดในแชท
+
+หลังเจ้าของยืนยัน ผู้เช่าเห็นใบเสร็จ (`receiptNo`) ในการ์ด · ผู้เช่าที่โอนก่อนบิลออกแนบสลิปไว้ได้ ระบบผูกให้รอบถัดไป · ออกบิลผิดให้ยกเลิก (void) แล้วออกใหม่ ระบบเก็บยอดที่ต้องคืน (`refundDue`) ไว้ให้
 
 รายละเอียด (env, rich menu, ปัญหาที่เคยเจอ) อยู่ใน [`line-app/README.md`](line-app/README.md) และ [`line-app/HANDOFF.md`](line-app/HANDOFF.md)
 
@@ -57,9 +62,9 @@ pytest
 
 | ส่วน | สถานะ |
 |---|---|
-| `line-app/` — ส่งบิลใน LINE · LIFF แนบสลิป · เจ้าของยืนยัน/จดมิเตอร์ | ✅ ใช้งานได้ (มีข้อจำกัดเรื่อง auth อ่านใน [`line-app/HANDOFF.md`](line-app/HANDOFF.md)) |
-| `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · สลิป · confirm/reject + ใบเสร็จ · LINE Login ผ่าน LIFF | 🟡 deploy แล้ว (Vercel + Neon) · 106 tests (CI รันครบพร้อม Postgres) · ยังไม่มีหน้า UI ฝั่งเจ้าของ |
-| RLS policy (กรอง `property_id` ที่ระดับ DB) | ⬜ ตอนนี้กรองในโค้ด |
+| `line-app/` — ส่งบิลใน LINE · LIFF แนบสลิป · เจ้าของยืนยัน/จดมิเตอร์ | ✅ ใช้งานได้ (ข้อจำกัดที่เหลือ: [`line-app/README.md`](line-app/README.md) หัวข้อ "ข้อจำกัดที่ยังเหลือ") |
+| `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · สลิป · confirm/reject + ใบเสร็จ · LINE Login ผ่าน LIFF | 🟡 deploy แล้ว (Vercel + Neon) · 111 tests (CI รันครบพร้อม Postgres) · ยังไม่มีหน้า UI ฝั่งเจ้าของ |
+| RLS policy (กรอง `property_id` ที่ระดับ DB) | ✅ migration `0004` — `force row level security` ทุกตารางที่ผูกหอ (ยกเว้น `auth_failures`) · production ต้องต่อด้วย role ที่ไม่ `BYPASSRLS` (เช่น `dormplus_app`) ไม่งั้น policy ไม่มีผล |
 | ส่งข้อความ LINE ฝั่ง backend | ✅ `app/line_push.py` + คิว `app/tasks.py` (ทวงค่าเช่า) · webhook รับ event ยัง ⬜ — LINE OA ชี้ที่ `line-app/` |
 | คิวงาน + ทวงอัตโนมัติ (Procrastinate) | ✅ `queue.py` · `dunning.py` (1/5/10 วัน) · `GET /v1/cron/daily` ให้ Vercel Cron เรียกวันละครั้งแล้ว drain คิวใน invocation เดียว |
 | ตรวจสลิปอัตโนมัติกับธนาคาร | ⬜ ประเมินแล้ว: ตัวฟรี (SlipVerify) ไม่น่าไว้ใจ → ถอยออก · รอเลือกเจ้าที่มีบริษัท/SLA (Checkslip · Check-Slip) |
@@ -67,6 +72,13 @@ pytest
 | QR ผูกผู้เช่ากับห้อง | ✅ `GET/POST /api/qr?room=` (เจ้าของสร้าง/หมุน) · ผู้เช่าสแกน → ผูกทันที |
 | หลายเจ้าของ + ผู้ช่วย (ดูอย่างเดียว) | ✅ QR จากเจ้าของเดิม · สิทธิ์ `owner` / `viewer` · `/api/me` คืน `role` |
 | ประวัติบิลย้อนหลัง | ✅ `bill:<period>:<room>` + หน้าดูย้อนหลังใน LIFF (เริ่มนับจากรอบที่ออกหลังฟีเจอร์นี้) |
+| สลิปโอนก่อนบิลออก | ✅ ไม่มีบิลที่เปิดอยู่ → เก็บที่ `prepay:<room>` · `/api/run` ผูกให้บิลรอบถัดไปแล้วขึ้น `pending` + push การ์ดยืนยันให้เจ้าของทันที |
+| ใบเสร็จ | ✅ `receiptNo` = `R<YYYYMM>-<room>` (ออกใหม่หลัง void ต่อท้าย `-<rev>`) · derive จากบิลเพราะ Blob ไม่มี transaction |
+| ยกเลิกบิล + เงินที่ต้องคืน | ✅ `POST /api/bill` (`action: "void"`, ต้องมีเหตุผล) · บิลที่ชำระแล้วเก็บ `refundDue` ไว้ให้เจ้าของคืน · ดูย้อนหลังด้วย `GET /api/bill?voided=1` |
+| สลิปเดียวจ่ายหลายรอบ | ✅ `POST /api/slip` รับ `periods: ["2026-10","2026-11"]` — ทุกรอบต้องยังเปิดอยู่ ได้ `pending` พร้อม `slipGroup` และเจ้าของได้การ์ดเดียว |
+| ทวงอัตโนมัติใน LINE | ✅ `GET /api/cron` ให้ Vercel Cron เรียก 09:00 เวลาไทย · เตือนก่อนครบกำหนด 1–3 วัน / วันครบกำหนด / เลย 1–4 · 5–9 · 10+ วัน · กันส่งซ้ำด้วย `reminded:<room>:<period>:<kind>:<rev>` |
+| ผู้เช่าใหม่ไม่เห็นบิลคนเก่า | ✅ เปลี่ยนผู้เช่าเขียน `tenancy:<room>` · บิลที่ `issuedAt` ก่อนวันนั้นถูกซ่อนจากผู้เช่า (เจ้าของ/ผู้ช่วยยังเห็น) |
+| เพดาน 12 Vercel functions | ✅ ใช้ครบ 12 พอดี (`api/*.js` ที่ไม่ขึ้นต้นด้วย `_`) — ฟีเจอร์ใหม่ต้องรวมเข้าไฟล์เดิม |
 | Rich menu 2 ชุด | ✅ เจ้าของ 6 ช่อง (2500×1686) · ผู้เช่า 3 ช่อง compact (2500×843) · สลับอัตโนมัติตามสิทธิ์ |
 
 ## กติกาที่ใส่ไว้ในระบบ
@@ -76,6 +88,11 @@ pytest
 - **ไม่คิดค่าปรับล่าช้า** — ใช้การแจ้งเตือนและสถานะค้างชำระแทน
 - ออกบิลซ้ำไม่ได้ (`UNIQUE(room_id, period)`)
 - ค่ามิเตอร์น้อยกว่าครั้งก่อน → ขึ้นคำเตือนก่อนบันทึก
+- บิลที่ชำระแล้วแก้ไม่ได้ — ต้องยกเลิก (void) แล้วออกใหม่เป็น `rev + 1` (ใบเสร็จได้เลขใหม่, ใบเดิมยังอยู่)
+- ยกเลิกบิลที่ชำระแล้ว → เก็บ `refundDue` ไว้ ระบบไม่เคลื่อนเงินเอง เจ้าของเป็นคนคืน
+- สลิปของผู้เช่าได้ไม่เกิน 5 ครั้ง/บิล และห่างกัน ≥ 30 วินาที (กัน quota ข้อความ LINE และกันที่เก็บเต็ม)
+- สลิปเดียวจ่ายหลายรอบได้ ถ้าทุกรอบยัง `unpaid`/`pending` — รอบที่ปิดแล้วทำให้คำขอถูกปฏิเสธ (`409`)
+- เปลี่ยนผู้เช่า → เขียน `tenancy:<room>` ผู้เช่าใหม่เห็นเฉพาะบิลที่ออกหลังวันนั้น
 
 ## Rich Menu ที่ออกแบบไว้
 
@@ -119,8 +136,8 @@ docs/API.md ← สัญญา v1 ที่ทั้งคู่ยึด (เ�
 | เก็บข้อมูล | Vercel Blob: `kv/*.json` + `slips/*` | Postgres (Neon) ตาม [`db/schema.sql`](db/schema.sql) |
 | ทางเข้า | LINE webhook · หน้า LIFF (`liff/bill.html`) | `/liff` ของ backend · curl · pytest |
 | auth | LINE idToken ทุก request (`api/_auth.js`) | cookie `dp_session` จาก LINE Login หรือ `X-Dev-*` ตอน dev |
-| ส่งข้อความ LINE | reply + push ในการ์ดบิล | push เตือนผ่านคิว (`app/line_push.py`) |
-| cron / คิว | ไม่มี | Vercel Cron → Procrastinate (หัวข้อถัดไป) |
+| ส่งข้อความ LINE | reply + push (การ์ดบิล/ยืนยัน) + push เตือนรายวันจาก `/api/cron` | push เตือนผ่านคิว (`app/line_push.py`) |
+| cron / คิว | Vercel Cron → `GET /api/cron` (ทวงค่าเช่ารายวัน) | Vercel Cron → Procrastinate (หัวข้อถัดไป) |
 | dependency | `@vercel/blob`, `qrcode-svg` | FastAPI · SQLAlchemy · Alembic · procrastinate |
 
 ## ทดสอบ (ไม่ต้องต่อเน็ต)
@@ -132,8 +149,12 @@ cd line-app
 node smoke.js           # signature ของ webhook + รูปร่าง Flex card
 node smoke-handlers.js  # dev gate, QR binding, rate limit, confirm, ออกบิล
 node smoke-reads.js     # concurrency ของ read, ลำดับ, history, สิทธิ์
-npm test                # รันทั้งสามตัวตามลำดับ
+node smoke-usecases.js  # 156 use case (receipt · void/refund · prepay · group slip · tenancy)
+node smoke-cron.js      # /api/cron: ชนิดการเตือน, dedup ต่อ rev, cron-lock, push ล้ม
+npm test                # รันสามตัวแรกตามลำดับ (usecases/cron ไม่อยู่ใน npm test แต่ CI รัน)
 ```
+
+`node smoke-usecases.js` คือชุดเดียวกับ [`docs/TEST-CASES.md`](docs/TEST-CASES.md) (249 เคสในเอกสาร, 156 เคสที่ automate ได้ — เคสที่เหลือเป็น manual/LINE e2e) และ CI รันทั้งห้าไฟล์
 
 **`backend/`** — ต้องมี Postgres ก่อน (test ที่ต้องใช้ DB จะถูกข้ามถ้าไม่ได้ตั้ง `TEST_DATABASE_URL`):
 
@@ -145,17 +166,36 @@ TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/domplus_
 
 ⚠️ ฐานข้อมูลใน `TEST_DATABASE_URL` **ถูกล้างทุกครั้งที่รัน** — ห้ามชี้ไปที่ Neon ตัวจริง
 
-CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml), workflow `ci`) รันทั้งสองชุดบน push เข้า `master` และทุก PR: job `line-app` ตรวจ syntax ทุก `api/*.js` + inline script ของ `liff/bill.html` แล้วรัน smoke ทั้งสาม · job `backend` ยก Postgres 16 ขึ้นมาแล้ว `pytest -q`
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml), workflow `ci`) รันทั้งสองชุดบน push เข้า `master` และทุก PR: job `line-app` ตรวจ syntax ทุก `api/*.js` + inline script ของ `liff/bill.html` แล้วรัน smoke ครบห้าไฟล์ (`smoke.js`, `smoke-handlers.js`, `smoke-reads.js`, `smoke-usecases.js`, `smoke-cron.js`) · job `backend` ยก Postgres 16 ขึ้นมาแล้ว `pytest -q`
 
-## Cron รายวัน + คิว (backend)
+## Cron รายวัน (line-app) — ทวงค่าเช่าใน LINE
 
-[`backend/vercel.json`](backend/vercel.json) ตั้ง Vercel Cron ไว้แล้ว:
+[`line-app/vercel.json`](line-app/vercel.json) ตั้ง Vercel Cron ไว้แล้ว:
 
 ```json
-{ "crons": [{ "path": "/v1/cron/daily", "schedule": "0 2 * * *" }] }
+{ "crons": [{ "path": "/api/cron", "schedule": "0 2 * * *" }] }
 ```
 
-02:00 UTC = 09:00 เวลาไทย · Vercel ยิง `GET` มาที่ `/v1/cron/daily` และใส่ `Authorization: Bearer $CRON_SECRET` ให้เองถ้าตั้ง env `CRON_SECRET` ไว้บนโปรเจกต์ (ชื่อเก่า `DUNNING_TOKEN` ก็รับ)
+02:00 UTC = 09:00 เวลาไทย · Vercel ยิง `GET /api/cron` พร้อม `Authorization: Bearer $CRON_SECRET` ให้เองถ้าตั้ง env นี้บนโปรเจกต์ (ต้องยาว ≥ 16 ตัว ไม่งั้นตอบ `503 NOT_CONFIGURED`)
+
+- เตือนผู้เช่าตาม **ช่วง** ไม่ใช่วันตรงตัว: ก่อนครบกำหนด 1–3 วัน · วันครบกำหนด · เลย 1–4 / 5–9 / 10+ วัน (เฉพาะบิล `unpaid` ที่มี `due` และเป็นของผู้เช่าปัจจุบัน)
+- กันส่งซ้ำด้วย `reminded:<room>:<period>:<kind>:<rev>` — บิลที่ void แล้วออกใหม่ (`rev + 1`) ถูกเตือนใหม่ได้ · push ล้ม = ไม่เขียน mark รอบถัดไปลองอีก
+- `cron-lock` (15 นาที) ลดโอกาส Vercel retry ซ้อนกัน แต่ Blob ไม่มี compare-and-set จึงไม่รับประกัน at-most-once
+- ถ้ามีห้องเลยกำหนด จะสรุปส่ง `OWNER_USER_ID` หนึ่งข้อความ
+
+```bash
+curl -H "Authorization: Bearer $CRON_SECRET" https://line-app-iota.vercel.app/api/cron
+```
+
+endpoint/auth/response เต็มอยู่ใน [`line-app/docs/API.md`](line-app/docs/API.md) ข้อ 9A · env ทั้งหมดอยู่ใน [`line-app/docs/CONFIGURATION.md`](line-app/docs/CONFIGURATION.md)
+
+## Cron รายวัน + คิว (backend — ไม่ได้ตั้งเวลา)
+
+⚠️ [`backend/vercel.json`](backend/vercel.json) **ไม่มี `crons` แล้ว** (เหลือแค่ `git.deploymentEnabled`) เพราะการทวงจริงย้ายไป `line-app` (§ก่อนหน้า) — เปิดทั้งคู่เมื่อไหร่ผู้เช่าที่ผูกทั้งสองระบบจะได้เตือนสองชุด · endpoint ยังอยู่และใช้ยิงมือ/ทดสอบได้ตามด้านล่าง
+
+ถ้าจะย้ายการทวงมาฝั่งนี้: ใส่ `crons` กลับ (`{ "path": "/v1/cron/daily", "schedule": "0 2 * * *" }`) แล้วปิด cron ของ `line-app`
+
+02:00 UTC = 09:00 เวลาไทย · Vercel ใส่ `Authorization: Bearer $CRON_SECRET` ให้เองถ้าตั้ง env `CRON_SECRET` ไว้บนโปรเจกต์ (ชื่อเก่า `DUNNING_TOKEN` ก็รับ)
 
 สิ่งที่ endpoint ทำใน invocation เดียว ([`backend/app/routes/cron.py`](backend/app/routes/cron.py)):
 
@@ -202,10 +242,15 @@ exit code 1 ถ้ามีข้อไหนตก — ใช้เป็น ga
 | [`line-app/docs/TESTING.md`](line-app/docs/TESTING.md) | smoke test เชิงลึก + manual matrix + LINE e2e |
 | [`line-app/docs/DEPLOYMENT.md`](line-app/docs/DEPLOYMENT.md) | deploy · rich menu · rollback |
 | [`docs/API.md`](docs/API.md) | สัญญา v1 (เป้าหมายของ backend) |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | ภาพรวมทั้ง repo — สองสแตก, ข้อมูล, auth, ที่เก็บ state |
+| [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | env ของทั้งสองฝั่ง + ค่า default |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | deploy ทั้งสองโปรเจกต์ Vercel · Neon · cron · rollback |
+| [`docs/TESTING.md`](docs/TESTING.md) | ชุดทดสอบ offline, pytest, manual matrix, CI |
+| [`docs/TEST-CASES.md`](docs/TEST-CASES.md) | 249 test case ใน 18 use case (เคสไหน automate, เคสไหน manual) |
 | [`docs/HANDOFF.md`](docs/HANDOFF.md) | งานที่เหลือ + เกณฑ์ "เสร็จ" |
 | [`backend/README.md`](backend/README.md) | endpoint · session · migration · test ของ backend |
 
-> เอกสารเชิงลึกชุด `ARCHITECTURE` / `CONFIGURATION` / `GETTING-STARTED` / `DEVELOPMENT` / `TESTING` / `DEPLOYMENT` อยู่ใต้ `line-app/docs/` และครอบเฉพาะครึ่ง LINE app — ฝั่ง backend สรุปไว้ใน `backend/README.md`
+> เอกสารเชิงลึกชุด `ARCHITECTURE` / `CONFIGURATION` / `GETTING-STARTED` / `DEVELOPMENT` / `TESTING` / `DEPLOYMENT` มีสองชุด: [`line-app/docs/`](line-app/docs/) ครอบเฉพาะครึ่ง LINE app และ [`docs/`](docs/) ครอบภาพรวมทั้ง repo รวม backend
 
 ## สิทธิ์การใช้งาน
 

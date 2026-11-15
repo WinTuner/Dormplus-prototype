@@ -24,8 +24,8 @@ Track B เพิ่ม: บัญชี LINE (Messaging API channel + LINE Logi
 ## 2. โคลนเรพ
 
 ```bash
-git clone https://github.com/WinTuner/domplus-prototype.git
-cd domplus-prototype
+git clone https://github.com/WinTuner/Dormplus-prototype.git
+cd Dormplus-prototype
 ```
 
 ทุกคำสั่งข้างล่างรันจาก root ของเรพ แล้ว `cd` เข้าโฟลเดอร์ครึ่งที่ต้องการ
@@ -51,6 +51,7 @@ SESSION_SECRET=<ค่าสุ่มยาว ๆ ของคุณ>
 
 - `DEV_AUTH=true` เปิดทางให้เลือก session ด้วย header `X-Dev-Property` / `X-Dev-Role` แทน LINE Login (`app/auth.py`) — **ห้ามเปิดบน server จริง** และระบบไม่สนใจค่านี้เมื่อ `VERCEL_ENV=production`
 - `SESSION_SECRET` ต้องไม่ใช่ค่า default (`dev-only-change-me`) เพราะ `app/session.py` จะ `raise RuntimeError` ทันทีที่ต้องเซ็น/ตรวจ cookie
+- `CRON_SECRET` และ `PROPERTY_ID` ปล่อยว่าง/`p_1` ไว้ได้ในเครื่อง — สองตัวนี้มีไว้สำหรับ `/v1/cron/daily` (งานทวงหนี้รายวันของครึ่ง backend) และการเลือกหอที่ deploy หนึ่งหอต่อหนึ่ง deployment ถ้า `CRON_SECRET` ว่าง endpoint นั้นจะตอบ `401 UNAUTHORIZED` เสมอ
 
 ```powershell
 docker compose up -d                 # Postgres 17 พอร์ต 5432 + ฐาน domplus และ domplus_test
@@ -74,25 +75,31 @@ curl.exe -s -H "X-Dev-Property: p_1" "http://127.0.0.1:8000/v1/rooms?period=2026
 
 ### 3.2 line-app: smoke suite ที่ไม่ต่อเน็ต
 
-ไม่ต้องมี env, ไม่ต้องมี Blob, ไม่ต้องมี LINE — และ **ไม่ต้อง `npm install` ก็รันได้** เพราะ suite แทน `_store` ด้วย Map ในหน่วยความจำและ stub `fetch` เอง
+ไม่ต้องมี env, ไม่ต้องมี Blob, ไม่ต้องมี LINE — และ **ไม่ต้อง `npm install` ก็รันได้** เพราะทุก suite แทน `_store` ด้วย Map ในหน่วยความจำ, stub `fetch` ของ LINE และ stub dependency เองผ่าน `require.cache` / `Module._load`
+
+มีห้าชุด แยกตามสิ่งที่ครอบ:
 
 ```bash
 cd line-app
-node smoke.js
-node smoke-handlers.js
-node smoke-reads.js
+node smoke.js              # signature + Flex card + auth guards (QR ต้องมี qrcode-svg)
+node smoke-handlers.js     # dev gate, QR binding, rate limit, payment, bill issuing, roles
+node smoke-reads.js        # bounded concurrency, ordering, legacy history
+node smoke-cron.js         # งานเตือนบิลค้างรายวัน (api/cron.js + api/_remind.js)
+node smoke-usecases.js     # 156 use case ตั้งแต่ต้นจนจบ (UC-01 … UC-18)
 ```
 
-ผลที่ต้องเห็น (ยืนยันบน Node v26.13.0) — บรรทัด QR ต้องมี `node_modules` (`qrcode-svg`) ถ้าไม่มีจะขึ้น `smoke: qrcode-svg not installed, QR check skipped` แทน:
+ผลที่ต้องเห็น (ยืนยันบน Node v26.13.0) — บรรทัด QR ต้องมี `node_modules` (`qrcode-svg`) ถ้าไม่มีจะขึ้น `smoke: qrcode-svg not installed, QR check skipped` แทน (ชุดอื่นไม่ต้องใช้ dependency เลย):
 
 ```text
 smoke OK — QR renders and scales
 smoke OK — signature + flex card + confirm card + auth guards
-handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, seed token
+handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token
 reads OK — bounded concurrency, ordering, legacy history, binding and auth
+cron OK — auth, 6 reminder windows, dedup, catch-up, skips, tenancy, retry, owner summary, one push per room
+156/156 use case tests passed
 ```
 
-`npm test` (`package.json` → `scripts.test`) รันทั้งสามตัวต่อกัน — ถ้าติดตั้ง dependency ไว้แล้วก็ใช้คำสั่งเดียวได้
+`npm test` (`package.json` → `scripts.test`) รันแค่ **สามชุดแรก** (`smoke.js && smoke-handlers.js && smoke-reads.js`) — `smoke-cron.js` และ `smoke-usecases.js` ต้องสั่งเองหรือพึ่ง CI ส่วน `smoke-usecases.js` ใช้เวลานานที่สุด (หลายนาที) และพิมพ์สรุปเป็น `<passed>/<total> use case tests passed` โดย exit code 0 เมื่อผ่านครบ
 
 > `line-app/docs/GETTING-STARTED.md` เขียนไว้ว่า `package.json` "ไม่มี scripts" — ตอนนี้มี `scripts.test` แล้ว เอกสารนั้นล้าสมัยในจุดนี้
 
@@ -104,10 +111,10 @@ reads OK — bounded concurrency, ordering, legacy history, binding and auth
 ```powershell
 cd backend
 .\.venv\Scripts\python.exe -m pytest -q
-# 20 passed, 86 skipped
+# 20 passed, 91 skipped  (collect ได้ 111 test)
 ```
 
-test ที่ต้องใช้ฐานข้อมูลจะถูก **skip** เมื่อไม่ได้ตั้ง `TEST_DATABASE_URL` (ดู `tests/conftest.py`) ถ้าอยากรันครบ:
+test ที่ต้องใช้ฐานข้อมูลจะถูก **skip** เมื่อไม่ได้ตั้ง `TEST_DATABASE_URL` (ดู `tests/conftest.py`) ถ้าอยากรันครบ 111 ตัว:
 
 ```powershell
 $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/domplus_test"
@@ -116,6 +123,8 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 
 ฐานข้อมูลที่ชี้ไป **ถูกล้างทุกครั้งที่รัน test** (downgrade → upgrade → truncate) ห้ามชี้ไปที่ฐานจริง ไม่ว่า Neon หรือ Supabase
 `domplus_test` ถูกสร้างโดย `backend/docker/init-test-db.sql` ตอนที่ volume ถูกสร้างครั้งแรกเท่านั้น
+
+`tests/test_rls.py` ต้องสร้าง role ชั่วคราว (`rls_probe`) เพื่อทดสอบ policy ของ migration `0004` — role ที่ใช้ต่อใน test ต้องมีสิทธิ์ `CREATEROLE`/superuser ซึ่ง `postgres` ของ Docker มีให้ (role ของ production อย่าง `dormplus_app` ไม่มี จึงรันชุดนี้กับ production ไม่ได้)
 
 ## 4. Track B — LINE app ตัวจริง
 
@@ -139,17 +148,24 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 4. ตรวจคำขอแรกที่ไม่ต้องใช้ credential: `curl.exe -s https://<โดเมนของคุณ>/api/config` ต้องได้ `200`
 5. ตั้ง webhook URL เป็น `https://<โดเมนของคุณ>/api/webhook` แล้วกด Verify ใน LINE Developers
 6. (ถ้าต้องการ rich menu) `LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js` จาก `line-app/` — รูป default คือ `docs/richmenu-owner.png` และ `docs/richmenu-tenant.png` (มีอยู่จริง) แล้วเก็บ id ที่พิมพ์ออกมาเป็น `RICHMENU_OWNER_ID` / `RICHMENU_TENANT_ID`
+7. ตั้ง `CRON_SECRET` (สุ่ม ≥ 16 ตัวอักษร เช่น `openssl rand -hex 24`) บน Production แล้ว Redeploy — `vercel.json` ตั้ง `crons: [{ "path": "/api/cron", "schedule": "0 2 * * *" }]` ไว้แล้ว (02:00 UTC = 09:00 เวลาไทย) Vercel จะแนบ `Authorization: Bearer <CRON_SECRET>` ให้เองและเรียกเฉพาะ Production · ไม่ตั้ง/สั้นกว่า 16 = `503 NOT_CONFIGURED` (ไม่มีการเตือน แต่ระบบอื่นทำงานปกติ) · สั่งรันมือ: `curl -H "Authorization: Bearer <CRON_SECRET>" https://<โดเมนของคุณ>/api/cron`
+
+<!-- VERIFY: การที่ Vercel แนบ header ให้เองและการรันเฉพาะ Production deployment ยืนยันจาก repo ไม่ได้ (โค้ดอ่าน CRON_SECRET ใน api/cron.js เท่านั้น) — ดู line-app/docs/DEPLOYMENT.md ข้อ 5A -->
 
 <!-- VERIFY: โดเมน production ที่ทีมใช้อยู่ (https://line-app-iota.vercel.app ตาม README) ยืนยันจาก Vercel ไม่ได้ -->
 
 ครึ่ง backend บน production ใช้ Vercel + Neon (project `line-backend`, root directory = `backend`) — ขั้นตอนและรายการ env อยู่ที่ [`backend/README.md`](../backend/README.md) หัวข้อ "Deploy บน Vercel" ไม่ทำซ้ำที่นี่
+
+**กับดักที่ทำให้ข้อมูลรั่วหรือหายเงียบ ๆ บน production:** RLS ของ migration `0004` ทำงานก็ต่อเมื่อ role ใน `DATABASE_URL` **ไม่มี `BYPASSRLS`** — `neondb_owner` ของ Neon มีค่านี้ (policy ทั้งหมดถูกข้าม = เห็นทุกหอ) จึงต้องใช้ role `dormplus_app` ตรวจด้วย `select rolbypassrls from pg_roles where rolname = current_user` ส่วน alembic ยังรันด้วย owner ได้ตามปกติ · ฝั่ง `line-app` มี cron อีกงาน (`GET /api/cron` ตามข้อ 7) และฝั่ง backend มี `GET /v1/cron/daily` (ต้องมี `CRON_SECRET` ใน env ของโปรเจกต์ backend ด้วย ไม่ใช่แค่ฝั่ง line-app)
 
 ## 5. ปัญหาที่เจอบ่อย
 
 | อาการ | สาเหตุ | ทางแก้ |
 |---|---|---|
 | `docker compose up -d` → `failed to connect to the docker API ... dockerDesktopLinuxEngine` | Docker Desktop ยังไม่เปิด (เจอจริงตอนเขียนเอกสารนี้) | เปิด Docker Desktop แล้วรอจนขึ้น Running |
-| `pytest` ได้ `86 skipped` | ไม่ได้ตั้ง `TEST_DATABASE_URL` — เป็นพฤติกรรมปกติ | ตั้ง `TEST_DATABASE_URL` ชี้ `domplus_test` ตามข้อ 3.3 |
+| `pytest` ได้ `20 passed, 91 skipped` | ไม่ได้ตั้ง `TEST_DATABASE_URL` — เป็นพฤติกรรมปกติ (เก็บได้ 111 test แต่ **91 ตัวต้องมี Postgres**; อีก 20 ตัวรันได้เปล่า ๆ) | ตั้ง `TEST_DATABASE_URL` ชี้ `domplus_test` ตามข้อ 3.3 |
+| `GET /api/cron` ได้ `503 NOT_CONFIGURED` | ไม่ได้ตั้ง `CRON_SECRET` บนโปรเจกต์ หรือค่าสั้นกว่า 16 ตัวอักษร | ตั้งค่าใหม่แล้ว Redeploy (Vercel แนบ header ให้เอง) — รันมือด้วย `curl -H "Authorization: Bearer <CRON_SECRET>" ...` |
+| ข้อมูลข้ามหอโผล่ หรือ query ตรง ๆ ได้ `0` แถว | role ที่ต่อมี `BYPASSRLS` (เช่น `neondb_owner` ของ Neon) หรือ `app.property_id` ไม่ถูกตั้งบน connection | ใช้ role ที่ไม่มี `BYPASSRLS` (`dormplus_app`) — `app/db.py` เป็นคนตั้ง `app.property_id` ให้ทุก connection |
 | `alembic upgrade head` → `connection refused` หรือต่อผิดฐาน | รันจากโฟลเดอร์อื่น (`.env` ไม่ถูกโหลด) หรือ `DATABASE_URL` ผิด | `cd backend` ก่อน แล้วเช็ก `DATABASE_URL` ใน `.env` |
 | `/v1/rooms` ตอบ `401 UNAUTHORIZED` | `DEV_AUTH=false` (ค่า default) จึงไม่มี session | ตั้ง `DEV_AUTH=true` **ในเครื่อง** แล้วรีสตาร์ต uvicorn |
 | เรียก `/v1/rooms` ได้ `[]` หรือไม่มีบิล | ยังไม่รัน `python -m app.seed` หรือส่ง `period` ไม่ตรงกับที่ seed ไว้ | รัน seed แล้วใช้ `?period=2026-10` (บิลค้างที่ seed อยู่รอบ 2026-08/09/10) |
@@ -166,9 +182,10 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 | [`CONFIGURATION.md`](./CONFIGURATION.md) | ต้องรู้ว่า env ตัวไหนจำเป็น มี default อะไร |
 | [`API.md`](./API.md) | ต้องยิง endpoint ของ backend เอง (auth, error code, ตัวอย่าง request) |
 | [`HANDOFF.md`](./HANDOFF.md) | จะรับงานต่อ — มีกับดักที่เจอมาแล้วและงานที่ยังเหลือ |
+| [`TESTING.md`](./TESTING.md) | อยากรู้ว่า smoke ทั้งห้าชุดและ pytest แต่ละชุดครอบอะไร |
 | [`backend/README.md`](../backend/README.md) | endpoint ทั้งหมด, dev headers, deploy Vercel + Neon, Procrastinate/cron |
 | [`line-app/docs/GETTING-STARTED.md`](../line-app/docs/GETTING-STARTED.md) | ต้องพา LINE app ขึ้น Vercel จริงตั้งแต่ต้น |
 | [`line-app/docs/TESTING.md`](../line-app/docs/TESTING.md) | อยากรู้ว่า smoke แต่ละตัวครอบอะไร และอะไรต้องทดสอบมือ |
 | [`line-app/docs/DEPLOYMENT.md`](../line-app/docs/DEPLOYMENT.md) | ต้อง deploy หรือ rollback ครึ่ง `line-app` |
 
-CI ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) รันสิ่งที่ทำได้แบบไม่ต้องมี credential: `npm ci` + `node --check` ทุก handler + smoke ทั้งสามชุด + ตรวจว่า inline script ของ `liff/bill.html` parse ผ่าน และ job `backend` รัน `pytest -q` บน Postgres 16 ใน service container
+CI ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml)) รันสิ่งที่ทำได้แบบไม่ต้องมี credential: `npm ci` + `node --check` ทุก handler + smoke **ทั้งห้าชุด** (รวม `smoke-cron.js` และ `smoke-usecases.js` ที่ `npm test` ไม่ได้รัน) + ตรวจว่า inline script ของ `liff/bill.html` parse ผ่าน และ job `backend` รัน `pytest -q` บน Postgres 16 ใน service container พร้อม `TEST_DATABASE_URL` ชี้ `domplus_test`
