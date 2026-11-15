@@ -65,6 +65,10 @@
 | `ROOMS` | ไม่บังคับ | เช่น `101,102,103` (ค่าเริ่มต้น `201…212`) |
 | `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` | ไม่บังคับ | เริ่มต้น 3500 / 25 / 7 |
 | `BILL_PERIOD` / `BILL_DUE` | ไม่บังคับ | ค่าเริ่มต้นของรอบบิล |
+| `CRON_SECRET` | ✅ สำหรับทวงรายวัน | ≥ 16 ตัว · `/api/cron` ตอบ 503 ถ้าไม่ตั้ง |
+| `ALLOW_SEED_BYPASS` | ไม่บังคับ | `true` เฉพาะ `vercel dev`/preview — production ไม่สนใจ |
+| `RICHMENU_OWNER_ID` / `RICHMENU_TENANT_ID` | ไม่บังคับ | id ของ rich menu (ตั้งแล้วสลับเมนูตามบทบาท) |
+| `SLIPOK_API_KEY` / `SLIPOK_BRANCH_ID` | ไม่บังคับ | ตรวจสลิปผ่าน SlipOK · branch ต้องผูกบัญชีรับเงินของหอ · ไม่ตั้ง = `verify.ok = null` |
 
 **ต้องมีใน LINE Developers (channel `DormPlus LIFF`)**
 - LIFF app → endpoint `https://<โดเมน>/liff/bill.html`, size **Tall**

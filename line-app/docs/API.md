@@ -242,13 +242,21 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 - **200:**
 
 ```json
-{ "ok": true, "status": "pending", "total": 3796, "hasSlip": true }
+{ "ok": true, "status": "pending", "total": 3796, "hasSlip": true,
+  "verify": { "provider": "slipok", "ok": true, "amount": 3796, "transRef": "010092101507665143",
+              "paidAt": "2026-11-10T03:15:07.000Z", "bank": "006" } }
 ```
+
+`verify` = ผลตรวจสลิป (มีทุกกรณี; `ok` เป็น `true` / `false` / `null`):
+- `true` — ผู้ให้บริการยืนยันยอดตรง + บัญชีผู้รับเป็นของหอ + สลิปไม่ซ้ำ · **บิลยังเป็น `pending`** เจ้าของกดยืนยันเอง
+- `false` — `reason` บอกเหตุ: ยอดไม่ตรง · บัญชีผู้รับไม่ใช่ของหอ · สลิปซ้ำ (ของผู้ให้บริการหรือ `slip-ref:<transRef>` ของเรา)
+- `null` — **ตรวจไม่ได้** (ไม่ได้ตั้ง `SLIPOK_API_KEY`/`SLIPOK_BRANCH_ID`, ผู้ให้บริการล่ม, หรืออ่านสลิปไม่ได้) — ไม่ใช่ "ปลอม"
+- ไม่มีรูปใหม่ (ส่งแค่มือ/หมายเหตุ) → คงผลเดิมของสลิปนั้น
 
 ทางโอนก่อนบิลออก (ไม่มี `total` เพราะยังไม่มีบิล):
 
 ```json
-{ "ok": true, "status": "advance", "hasSlip": true }
+{ "ok": true, "status": "advance", "hasSlip": true, "verify": { "provider": "slipok", "ok": null, "reason": "not_configured" } }
 ```
 
 - **200 แบบหลายงวด (`periods`):**

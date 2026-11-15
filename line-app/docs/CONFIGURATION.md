@@ -2,7 +2,7 @@
 
 # การตั้งค่า (CONFIGURATION)
 
-เอกสารนี้อธิบายทุกค่าที่ระบบอ่านจาก `process.env` โดยไล่จากโค้ดจริงใน `api/*.js` ไม่มีการเดา รายการนี้คือ **ทั้งหมด** ของตัวแปรที่โค้ดอ่าน (18 ตัว รวม `VERCEL_ENV` ที่ Vercel ฉีดให้) บวกกับตัวแปรที่ `@vercel/blob` อ่านเอง
+เอกสารนี้อธิบายทุกค่าที่ระบบอ่านจาก `process.env` โดยไล่จากโค้ดจริงใน `api/*.js` ไม่มีการเดา รายการนี้คือ **ทั้งหมด** ของตัวแปรที่โค้ดอ่าน (20 ตัว รวม `VERCEL_ENV` ที่ Vercel ฉีดให้) บวกกับตัวแปรที่ `@vercel/blob` อ่านเอง
 
 > หมายเหตุ: `liff/bill.html` **ไม่อ่าน `process.env` เลย** หน้าเว็บได้ LIFF ID มาจาก `GET /api/config` ตอน runtime (`liff/bill.html` บรรทัด 56) ดังนั้นค่าที่หน้าเว็บเห็นคือค่าที่ฝั่ง server ส่งไปเท่านั้น
 
@@ -17,6 +17,8 @@
 | `CRON_SECRET` | ✅ สำหรับแจ้งเตือนบิลค้าง | — | `api/cron.js` | `/api/cron` ตอบ `503 NOT_CONFIGURED` (ว่างหรือสั้นกว่า 16 ตัว) → ไม่มีการเตือนใด ๆ ส่วนระบบอื่นทำงานปกติ |
 | `SEED_TOKEN` | ✅ | — | `api/dev.js`, `api/dev.js`, `api/_auth.js` | `/api/dev` และ bypass `x-seed-token` ใช้ไม่ได้ (ต้องยาว ≥ 16 ตัว) · บน production ทั้งสองอย่างปิดอยู่แล้วไม่ว่าตั้งค่าอะไร |
 | `RICHMENU_OWNER_ID` | ไม่บังคับ | — | `api/me.js`, `api/owner.js` | ไม่ตั้ง = เจ้าของไม่ถูกสลับ rich menu (ระบบยังทำงานปกติ) |
+| `SLIPOK_API_KEY` | ไม่บังคับ (ต้องมีคู่กับตัวถัดไป) | — | `api/_verify.js` | ไม่ตั้ง = ไม่ตรวจสลิป (`verify.ok = null`) ทุกอย่างทำงานเหมือนเดิม |
+| `SLIPOK_BRANCH_ID` | ไม่บังคับ (ต้องมีคู่กับตัวบน) | — | `api/_verify.js` | ไม่ตั้ง = ไม่ตรวจสลิป · branch ต้องผูกบัญชีรับเงินของหอไว้ ไม่งั้นสลิปโอนเข้าบัญชีอื่นจะผ่าน |
 | `RICHMENU_TENANT_ID` | ไม่บังคับ | — | `api/qr.js` | ไม่ตั้ง = ผู้เช่าไม่ถูกสลับ rich menu ตอนผูกห้อง |
 | `ALLOW_SEED_BYPASS` | ไม่บังคับ | — (ปิด) | `api/_auth.js` | ไม่มีผลบน production เว้นแต่ตั้งเป็น `true` — ใช้เปิด bypass บนเครื่องที่ไม่ได้รันบน Vercel |
 | `PUBLIC_BASE_URL` | ไม่บังคับ | `` `https://${req.headers.host}` `` | `api/run.js`, `api/dev.js`, `api/webhook.js` | ใช้ host ของ request แทน (บน Vercel ปกติใช้ได้) |

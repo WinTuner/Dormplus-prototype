@@ -1162,6 +1162,15 @@ function ownerReview(tab) {
   const overdue = O.rooms.filter((r) => isOverdue(r.bill));
   const unpaidLater = O.rooms.filter((r) => r.bill?.status === "unpaid" && !isOverdue(r.bill));
 
+  // What SlipOK said about the photo, if anything. Silence when it was never configured; "ตรวจไม่ได้"
+  // must never look like "สลิปปลอม".
+  const verifyLine = (v) => {
+    if (!v || v.reason === "not_configured") return "";
+    if (v.ok === true) return `<div class="pill ok" style="margin-top:8px">ตรวจแล้ว${v.amount != null ? ` · ${fmt(v.amount)} บาท` : ""}</div>`;
+    if (v.ok === false) return `<div class="pill bad" style="margin-top:8px">${esc(v.reason || "ตรวจไม่ผ่าน")}</div>`;
+    return `<div class="pill warn" style="margin-top:8px">${esc(v.reason || "ยังไม่ได้ตรวจ")}</div>`;
+  };
+
   const pendingCard = (r) => `
     <div class="card">
       <div class="slip">
@@ -1170,6 +1179,7 @@ function ownerReview(tab) {
           <b>ห้อง ${esc(r.room)}</b>
           <div class="m">ยอดบิล ${fmt(r.bill.total)} บาท${r.bill.slipAt ? " · แจ้ง " + timeTh(r.bill.slipAt) : ""}</div>
           <div class="m">รอบบิล ${periodTh(r.bill.period)}</div>
+          ${verifyLine(r.bill.slipVerify)}
         </div>
       </div>
       ${r.bill.slipPath ? `<button class="btn" style="margin-top:12px" data-open="${esc(r.room)}">ดูสลิป</button>` : ""}

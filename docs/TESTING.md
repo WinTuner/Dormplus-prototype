@@ -23,7 +23,7 @@ repo นี้แยกเป็นสองครึ่งที่ deploy แ�
 
 > ไม่มี Jest/Vitest/Playwright และไม่มี coverage tool ใน repo นี้ — ทุกอย่างข้างบนคือทั้งหมดที่มี
 
-**catalogue ของเคสคือ [`docs/TEST-CASES.md`](TEST-CASES.md)**: 263 เคสใน 19 use case โดยแบ่งเป็น ✅ 212 เคสที่ automation แตะ, 🖐 23 เคสที่ต้องทำมือกับ LINE/LIFF จริง และ ⏳ 28 เคสที่ **ยังไม่สร้างฟีเจอร์** (จึงยังไม่มี test) — ใน 212 เคสนั้น 156 เคสมี id ของตัวเองใน `smoke-usecases.js`, 47 เคสชี้ไปที่ backend pytest และอีก 9 เคสชี้ไปเคสที่ automate ไว้แล้วใน UC อื่น (หรือ `smoke-cron.js`)
+**catalogue ของเคสคือ [`docs/TEST-CASES.md`](TEST-CASES.md)**: 263 เคสใน 19 use case โดยแบ่งเป็น ✅ 218 เคสที่ automation แตะ, 🖐 23 เคสที่ต้องทำมือกับ LINE/LIFF จริง และ ⏳ 22 เคสที่ **ยังไม่สร้างฟีเจอร์** (จึงยังไม่มี test) — ใน 218 เคสนั้น 156 เคสมี id ของตัวเองใน `smoke-usecases.js`, 47 เคสชี้ไปที่ backend pytest, 9 เคสชี้ไปเคสที่ automate ไว้แล้วใน UC อื่น และ 6 เคสอ้าง `smoke-handlers.js` (ตรวจสลิปผ่าน SlipOK)
 
 ---
 
@@ -287,8 +287,9 @@ cd ..\backend; $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@lo
 | ✅ automated — id ของตัวเองใน `smoke-usecases.js` | 156 | `line-app/smoke-usecases.js` |
 | ✅ automated — ชี้ไป backend pytest | 47 | `backend/tests/*.py` |
 | ✅ automated — ชี้ไปเคสที่ automate แล้วใน UC อื่น (หรือ `smoke-cron.js`) | 9 | `smoke-usecases.js` / `smoke-cron.js` |
+| ✅ automated — ตรวจสลิปผ่าน SlipOK (`smoke-handlers.js`, stub provider) | 6 | `line-app/smoke-handlers.js` |
 | 🖐 manual | 23 | คนกดกับ LINE OA + LIFF จริง (ข้อ 7) |
-| ⏳ ยังไม่สร้าง | 28 | ยังไม่มีฟีเจอร์ จึงยังไม่มี test |
+| ⏳ ยังไม่สร้าง | 22 | ยังไม่มีฟีเจอร์ จึงยังไม่มี test |
 | **รวม** | **263** | |
 
 ตัวเลข 198 ไม่ได้แปลว่าโค้ดทุกบรรทัดถูกตรวจ — เคสหนึ่งอาจ assert หลายอย่างหรือแค่ทางเดียวของ handler
