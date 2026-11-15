@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import Connection, Engine, text
 
-from app.auth import Session, owner_session, tenant_session
+from app.auth import Session, current_session, owner_session, tenant_session
 from app.clock import PERIOD_PATTERN, period_of, today
 from app.db import get_engine
 from app.errors import ApiError
@@ -50,6 +50,31 @@ class InvoicesOut(BaseModel):
     period: str
     items: list[InvoiceRow]
     summary: InvoiceSummary
+
+
+class InvoiceItemOut(BaseModel):
+    label: str
+    qty: int
+    unit_price: int
+    amount: int
+
+
+class PaymentOut(BaseModel):
+    amount: int
+    slip_key: str | None
+    verify_ok: bool | None
+    verified_at: datetime | None
+
+
+class InvoiceDetailOut(BaseModel):
+    id: str
+    period: str
+    room_no: str
+    items: list[InvoiceItemOut]
+    total: int
+    status: Status
+    due_date: date
+    payment: PaymentOut | None
 
 
 class SlipIn(BaseModel):
@@ -228,6 +253,52 @@ def list_invoices(
         items=[InvoiceRow(id=r.id, room_no=r.room_no, total=r.total, status=r.status, due_date=r.due_date,
                           days_overdue=days_overdue(r.status, r.due_date)) for r in rows],
         summary=InvoiceSummary(total=paid + pending + unpaid, paid=paid, pending=pending, unpaid=unpaid),
+    )
+
+
+INVOICE_DETAIL_SQL = text("""
+    select i.id, i.period, i.total, i.status, i.due_date, r.room_no
+    from invoices i join rooms r on r.id = i.room_id
+    where i.id = :id and r.property_id = :property_id
+      and (cast(:room_id as text) is null or i.room_id = :room_id)
+""")
+
+
+@router.get("/invoices/{invoice_id}", response_model=InvoiceDetailOut)
+def get_invoice(
+    invoice_id: str,
+    session: Session = Depends(current_session),
+    engine: Engine = Depends(get_engine),
+) -> InvoiceDetailOut:
+    """One bill with its line items and latest payment.
+
+    An owner sees any bill of their dorm; a tenant sees only their own room's. Anything else is
+    404 rather than 403, so the caller cannot learn that the bill exists (docs/API.md).
+    """
+    room_id = session.room_id if session.role == "tenant" else None
+    with engine.connect() as conn:
+        row = conn.execute(
+            INVOICE_DETAIL_SQL,
+            {"id": invoice_id, "property_id": session.property_id, "room_id": room_id},
+        ).first()
+        if row is None:
+            raise ApiError(404, "NOT_FOUND", "ไม่พบบิลนี้")
+        items = conn.execute(
+            text("select label, qty, unit_price, amount from invoice_items "
+                 "where invoice_id = :id order by id"),
+            {"id": invoice_id},
+        ).all()
+        payment = conn.execute(
+            text("select amount, slip_key, verify_ok, verified_at from payments "
+                 "where invoice_id = :id order by created_at desc, id desc limit 1"),
+            {"id": invoice_id},
+        ).first()
+
+    return InvoiceDetailOut(
+        id=row.id, period=row.period, room_no=row.room_no, total=row.total, status=row.status,
+        due_date=row.due_date,
+        items=[InvoiceItemOut(**item._mapping) for item in items],
+        payment=PaymentOut(**payment._mapping) if payment is not None else None,
     )
 
 

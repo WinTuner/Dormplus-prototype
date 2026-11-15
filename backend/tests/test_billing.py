@@ -14,6 +14,7 @@ from app.routes import billing
 OWNER_P1 = Session(user_id="u_owner1", role="owner", property_id="p_1")
 OWNER_P2 = Session(user_id="u_owner2", role="owner", property_id="p_2")
 TENANT_P1 = Session(user_id="u_tenant", role="tenant", property_id="p_1")
+TENANT_R201 = Session(user_id="u_t201", role="tenant", property_id="p_1", room_id="r_201")
 BILL_DAY = date(2026, 11, 4)  # the prototype's demo "today"; due date = +5 days = 2026-11-09
 
 
@@ -224,3 +225,50 @@ def test_unknown_status_is_rejected(client_for, seeded):
     res = client_for(seeded, OWNER_P1, BILL_DAY).get("/v1/invoices?status=refunded")
     assert res.status_code == 422
     assert res.json()["error"]["code"] == "VALIDATION"
+
+
+# --- GET /v1/invoices/:id -------------------------------------------------------------------------
+
+def test_owner_reads_any_invoice_of_the_dorm(client_for, seeded):
+    run(client_for(seeded, OWNER_P1, BILL_DAY))
+    r = client_for(seeded, OWNER_P1, BILL_DAY).get("/v1/invoices/inv_201_2026-11")
+    assert r.status_code == 200
+    body = r.json()
+    assert (body["id"], body["room_no"], body["total"]) == ("inv_201_2026-11", "201", 3562)
+    assert (body["status"], body["due_date"], body["period"]) == ("unpaid", "2026-11-09", "2026-11")
+    assert [i["label"] for i in body["items"]] == ["ค่าเช่า", "ค่าน้ำ", "ค่าไฟ"]
+    assert body["items"][1] == {"label": "ค่าน้ำ", "qty": 5, "unit_price": 25, "amount": 125}
+    assert body["payment"] is None
+
+
+def test_tenant_reads_own_room_invoice_only(client_for, seeded):
+    run(client_for(seeded, OWNER_P1, BILL_DAY))
+    tenant = client_for(seeded, TENANT_R201, BILL_DAY)
+    assert tenant.get("/v1/invoices/inv_201_2026-11").status_code == 200
+    assert tenant.get("/v1/invoices/inv_202_2026-11").status_code == 404
+
+
+def test_payment_appears_after_the_slip(client_for, seeded):
+    run(client_for(seeded, OWNER_P1, BILL_DAY))
+    tenant = client_for(seeded, TENANT_R201, BILL_DAY)
+    assert tenant.post("/v1/invoices/inv_201_2026-11/slip", json={}).status_code == 200
+    body = tenant.get("/v1/invoices/inv_201_2026-11").json()
+    assert body["status"] == "pending"
+    assert body["payment"]["amount"] == 3562
+    assert body["payment"]["verify_ok"] is None
+
+
+def test_invoice_of_another_dorm_is_404(client_for, seeded):
+    with seeded.begin() as conn:
+        conn.execute(text("select set_config('app.property_id', 'p_2', true)"))
+        conn.execute(text("insert into properties (id, name) values ('p_2', 'หอพักอีกแห่ง')"))
+        conn.execute(text("insert into rooms (id, property_id, room_no, rent) "
+                          "values ('r_p2_101', 'p_2', '101', 2800)"))
+        conn.execute(text("insert into invoices (id, room_id, period, rent, total, due_date, status) "
+                          "values ('inv_p2_101_2026-10', 'r_p2_101', '2026-10', 2800, 2800, "
+                          "date '2026-10-09', 'unpaid')"))
+    assert client_for(seeded, OWNER_P1, BILL_DAY).get("/v1/invoices/inv_p2_101_2026-10").status_code == 404
+
+
+def test_unknown_invoice_is_404(client_for, seeded):
+    assert client_for(seeded, OWNER_P1, BILL_DAY).get("/v1/invoices/inv_nope").status_code == 404
