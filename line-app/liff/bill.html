@@ -78,9 +78,11 @@
 
   .field{display:flex;flex-direction:column;gap:8px}
   .field label{font-size:12px;color:var(--muted)}
+  /* stacked fields inside one card need air between them; the card itself only pads the edges */
+  .card .field + .field,.card .hint + .field,.card .field + .hint{margin-top:12px}
   .in{display:flex;align-items:center;gap:8px}
-  .in input{flex:1;background:var(--card);border:1px solid var(--line2);color:var(--text);border-radius:10px;padding:12px;font-family:inherit;font-size:16px;width:100%}
-  .in input:disabled{opacity:.6}
+  .in input,.field>input{flex:1;background:var(--card);border:1px solid var(--line2);color:var(--text);border-radius:10px;padding:12px;font-family:inherit;font-size:16px;width:100%}
+  .in input:disabled,.field>input:disabled{opacity:.6}
   .prev{display:flex;gap:24px;margin-top:8px}
   .prev b{font-size:18px;font-weight:600}
 
@@ -990,7 +992,7 @@ function ownerInvite() {
               (m, i) => `<div class="row">
                 <span><b>${esc(m.name || "(ไม่ทราบชื่อ)")}</b>${m.you ? ` <span class="m">· คุณ</span>` : ""}
                   <div class="m">${roleTh(m)}${m.addedAt ? ` · เพิ่มเมื่อ ${timeTh(m.addedAt)}` : ""}</div></span>
-                ${r.root && !m.root && m.userId ? `<button class="btn" data-revoke="${i}" style="width:auto;padding:6px 12px">ถอนสิทธิ์</button>` : ""}
+                ${r.root && !m.root && m.userId ? `<button class="btn sm" data-revoke="${i}">ถอนสิทธิ์</button>` : ""}
               </div>`
             )
             .join("")
