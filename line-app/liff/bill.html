@@ -196,7 +196,15 @@ async function boot() {
     ROOT = !!me.root;
     // Owners and read-only helpers both use the owner screens; /api/me says which one this is.
     const staff = MYROLE === "owner" || MYROLE === "viewer";
+    // LINE opens the LIFF endpoint with our query string wrapped into ?liff.state=… , so a plain
+    // `?bind=CODE` scan arrives as `?liff.state=%3Fbind%3DCODE`. Read both, or every QR scan lands
+    // on the "ยังไม่ได้ผูกห้อง" screen and the bind never happens.
     const params = new URLSearchParams(location.search);
+    const wrapped = params.get("liff.state");
+    if (wrapped) {
+      const inner = wrapped.includes("?") ? wrapped.slice(wrapped.indexOf("?") + 1) : wrapped;
+      for (const [k, v] of new URLSearchParams(inner)) if (!params.has(k)) params.set(k, v);
+    }
     const tab = params.get("tab") || "";
     const room = me.room || params.get("room");
     // A receipt link carries ?receipt=<period> (LIFF may drop the #fragment on login); rebuild the route from it.
