@@ -327,8 +327,8 @@ function friendCard() {
   </div>`;
 }
 
-// Call after the screen's HTML is in the DOM.
-function wireFriend() {
+// Call after the screen's HTML is in the DOM. `redraw` re-renders whichever screen hosts the card.
+function wireFriend(redraw = renderTenant) {
   const add = $("addFriend");
   if (add) add.onclick = async () => {
     try {
@@ -338,12 +338,12 @@ function wireFriend() {
     }
     // The subwindow closed: re-read the flag so the card goes away if they did tap add.
     await checkFriend();
-    renderTenant();
+    redraw();
   };
   const re = $("recheckFriend");
   if (re) re.onclick = async () => {
     toast((await checkFriend()) === true ? "เพิ่มเพื่อนแล้ว" : "ยังไม่ได้เพิ่มเป็นเพื่อน", FRIEND !== true);
-    renderTenant();
+    redraw();
   };
 }
 
@@ -1056,13 +1056,27 @@ async function acceptBind(code, me) {
       r = await bind(true);
     }
     history.replaceState(null, "", location.pathname);
-    toast(r.previous && r.previous !== r.room ? `ย้ายจากห้อง ${r.previous} มาห้อง ${r.room} แล้ว` : `ผูกกับห้อง ${r.room} แล้ว`);
+    const msg = r.previous && r.previous !== r.room ? `ย้ายจากห้อง ${r.previous} มาห้อง ${r.room} แล้ว` : `ผูกกับห้อง ${r.room} แล้ว`;
+    // LINE will not add the OA for us, so ask on a screen of its own the moment the bind lands.
+    await checkFriend();
+    if (FRIEND === false) return bindDone(r.room, msg);
+    toast(msg);
     return startTenant(r.room);
   } catch (e) {
     return notice("ผูกไม่สำเร็จ", e.message, staff ? "ไปหน้าหลัก" : "ลองใหม่", () =>
       staff ? startOwner("home") : fail("สแกน QR หน้าห้องอีกครั้ง")
     );
   }
+}
+
+// The bind worked but this account is not a friend of the OA: bills and receipts would never arrive
+// in chat, so the add-friend button gets its own screen while the tenant is still paying attention.
+function bindDone(room, msg) {
+  header(`ห้อง ${room}`, "ผูกห้องแล้ว");
+  view.innerHTML = `<div class="card"><div class="m">${esc(msg)}</div></div>${friendCard()}`;
+  bottom(`<button class="btn primary" id="toBill">ไปหน้าบิลของฉัน</button>`);
+  $("toBill").onclick = () => startTenant(room);
+  wireFriend(() => bindDone(room, msg));
 }
 
 function ownerRooms() {
