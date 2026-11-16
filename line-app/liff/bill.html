@@ -348,6 +348,15 @@ function statusPill(status) {
   return `<span class="pill bad">ยังไม่ชำระ</span>`;
 }
 
+// What SlipOK said about the photo, if anything. Silence when it was never configured; "ตรวจไม่ได้"
+// must never look like "สลิปปลอม".
+function verifyLine(v) {
+  if (!v || v.reason === "not_configured") return "";
+  if (v.ok === true) return `<div class="pill ok" style="margin-top:8px">ตรวจแล้ว${v.amount != null ? ` · ${fmt(v.amount)} บาท` : ""}</div>`;
+  if (v.ok === false) return `<div class="pill bad" style="margin-top:8px">${esc(v.reason || "ตรวจไม่ผ่าน")}</div>`;
+  return `<div class="pill warn" style="margin-top:8px">${esc(v.reason || "ยังไม่ได้ตรวจ")}</div>`;
+}
+
 function tenantInvoice() {
   const b = T.bill;
   header(`ห้อง ${b.room} · รอบบิล ${periodTh(b.period)}`, `ใบแจ้งหนี้ ${monthTh(b.period)}`);
@@ -994,6 +1003,7 @@ function ownerEntry(roomNo) {
       <div class="in"><input id="inE" type="number" min="0" step="1" inputmode="numeric" value="${esc(val("elec"))}" placeholder="0" ${locked ? "disabled" : ""}><span class="unit">หน่วย</span></div>
     </div>
     ${r.advance ? `<div class="card"><div class="m">ผู้เช่าโอนล่วงหน้าแล้ว ${esc(timeTh(r.advance.slipAt))} — จะติดไปกับบิลที่ออกรอบนี้</div>
+      ${verifyLine(r.advance.verify)}
       ${r.advance.hasSlip ? `<button class="btn" id="advSlip" style="margin-top:10px">ดูสลิป</button>` : ""}</div>` : ""}
     <div class="card rows" id="calc"></div>
     <div class="hint warnText" id="hint"></div>
@@ -1167,15 +1177,6 @@ function ownerReview(tab) {
   const pending = O.rooms.filter((r) => r.bill?.status === "pending");
   const overdue = O.rooms.filter((r) => isOverdue(r.bill));
   const unpaidLater = O.rooms.filter((r) => r.bill?.status === "unpaid" && !isOverdue(r.bill));
-
-  // What SlipOK said about the photo, if anything. Silence when it was never configured; "ตรวจไม่ได้"
-  // must never look like "สลิปปลอม".
-  const verifyLine = (v) => {
-    if (!v || v.reason === "not_configured") return "";
-    if (v.ok === true) return `<div class="pill ok" style="margin-top:8px">ตรวจแล้ว${v.amount != null ? ` · ${fmt(v.amount)} บาท` : ""}</div>`;
-    if (v.ok === false) return `<div class="pill bad" style="margin-top:8px">${esc(v.reason || "ตรวจไม่ผ่าน")}</div>`;
-    return `<div class="pill warn" style="margin-top:8px">${esc(v.reason || "ยังไม่ได้ตรวจ")}</div>`;
-  };
 
   const pendingCard = (r) => `
     <div class="card">

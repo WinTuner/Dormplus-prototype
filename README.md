@@ -11,9 +11,9 @@ Repo นี้มีของจริง 2 ส่วน — เลือกอ�
 
 `line-app/` คือของที่ผู้เช่า/เจ้าของใช้จริง: จดมิเตอร์ → ออกบิล → การ์ดใน LINE → แนบสลิป → เจ้าของยืนยัน
 มี **QR ผูกห้อง** (ปริ้นแปะประตู), **QR เพิ่มเจ้าของ/ผู้ช่วย**, **ประวัติบิลย้อนหลัง** และ **rich menu แยกตามบทบาท**
-เพิ่มภายหลัง: **สลิปโอนก่อนบิลออก** (`prepay:<room>` ผูกกับบิลรอบถัดไปให้เอง) · **ใบเสร็จ** (`receiptNo`) · **ยกเลิกบิลพร้อมยอดที่ต้องคืน** (`refundDue`) · **สลิปเดียวจ่ายหลายรอบ** · **ทวงอัตโนมัติวันละครั้งผ่าน Vercel Cron** (`GET /api/cron`) · **ผู้เช่าใหม่ไม่เห็นบิลของผู้เช่าคนก่อน** (`tenancy:<room>` + `issuedAt`)
+เพิ่มภายหลัง: **สลิปโอนก่อนบิลออก** (`prepay:<room>` ผูกกับบิลรอบถัดไปให้เอง) · **ใบเสร็จ** (`receiptNo`) · **ยกเลิกบิลพร้อมยอดที่ต้องคืน** (`refundDue`) · **สลิปเดียวจ่ายหลายรอบ** · **ทวงอัตโนมัติวันละครั้งผ่าน Vercel Cron** (`GET /api/cron`) · **ผู้เช่าใหม่ไม่เห็นบิลของผู้เช่าคนก่อน** (`tenancy:<room>` + `issuedAt`) · **ตรวจสลิปอัตโนมัติผ่าน SlipOK** (`api/_verify.js` — ยอด · บัญชีผู้รับ · สลิปซ้ำ; เปิดเมื่อตั้ง `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID`) · **แก้ไขราคาห้องรายห้อง** (`POST /api/rooms` — มีผลกับบิลที่ออกหลังจากนั้น)
 
-ทั้งสองส่วนใช้สัญญา API เดียวกันเป็นเป้าหมาย: [`docs/API.md`](docs/API.md) · งานที่เหลือและเกณฑ์ "เสร็จ": [`docs/HANDOFF.md`](docs/HANDOFF.md)
+ทั้งสองส่วนใช้สัญญา API เดียวกัน: [`docs/API.md`](docs/API.md) — ทุก endpoint ในสัญญาทำครบแล้ว (ตัวสุดท้ายคือ `GET /v1/reports/summary`) · งานที่เหลือและเกณฑ์ "เสร็จ": [`docs/HANDOFF.md`](docs/HANDOFF.md)
 
 ```text
 line-app/     LINE OA → webhook → Flex bill card → LIFF (บิล/แนบสลิป) → postback ยืนยัน
@@ -41,6 +41,8 @@ node smoke-cron.js       # แจ้งเตือนรายวัน /api/cr
 
 หลังเจ้าของยืนยัน ผู้เช่าเห็นใบเสร็จ (`receiptNo`) ในการ์ด · ผู้เช่าที่โอนก่อนบิลออกแนบสลิปไว้ได้ ระบบผูกให้รอบถัดไป · ออกบิลผิดให้ยกเลิก (void) แล้วออกใหม่ ระบบเก็บยอดที่ต้องคืน (`refundDue`) ไว้ให้
 
+ราคาห้องแก้ได้จากปุ่ม **"แก้ไขราคาห้อง"** (ค่าเช่า/ค่าน้ำ/ค่าไฟ รายห้อง) — มีผลกับบิลที่ออกหลังจากนั้น บิลที่ออกไปแล้วแก้ไม่ได้
+
 รายละเอียด (env, rich menu, ปัญหาที่เคยเจอ) อยู่ใน [`line-app/README.md`](line-app/README.md) และ [`line-app/HANDOFF.md`](line-app/HANDOFF.md)
 
 ## เริ่มพัฒนา backend
@@ -63,11 +65,15 @@ pytest
 | ส่วน | สถานะ |
 |---|---|
 | `line-app/` — ส่งบิลใน LINE · LIFF แนบสลิป · เจ้าของยืนยัน/จดมิเตอร์ | ✅ ใช้งานได้ (ข้อจำกัดที่เหลือ: [`line-app/README.md`](line-app/README.md) หัวข้อ "ข้อจำกัดที่ยังเหลือ") |
-| `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · สลิป · confirm/reject + ใบเสร็จ · LINE Login ผ่าน LIFF | 🟡 deploy แล้ว (Vercel + Neon) · 131 tests (CI รันครบพร้อม Postgres) · ยังไม่มีหน้า UI ฝั่งเจ้าของ |
+| `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · สลิป · confirm/reject + ใบเสร็จ · LINE Login ผ่าน LIFF | 🟡 deploy แล้ว (Vercel + Neon) · 142 tests (14 ไฟล์; ไม่มี Postgres = 23 ผ่าน / 119 ข้าม · CI รันครบพร้อม Postgres) · ยังไม่มีหน้า UI ฝั่งเจ้าของ |
+| สรุปรายรับรายงวด (`GET /v1/reports/summary?period=`, เจ้าของ) | ✅ billed/paid/pending/unpaid + `rooms_total`/`rooms_paid`/`rooms_overdue` · `billed` = paid + pending + unpaid (ไม่นับบิล void) · ไม่ใส่ `period` = เดือนปัจจุบัน — เป็น endpoint สุดท้ายที่ค้างในสัญญา |
 | RLS policy (กรอง `property_id` ที่ระดับ DB) | ✅ migration `0004` — `force row level security` ทุกตารางที่ผูกหอ (ยกเว้น `auth_failures`) · production ต้องต่อด้วย role ที่ไม่ `BYPASSRLS` (เช่น `dormplus_app`) ไม่งั้น policy ไม่มีผล |
 | ส่งข้อความ LINE ฝั่ง backend | ✅ `app/line_push.py` + คิว `app/tasks.py` (ทวงค่าเช่า + ส่งบิลเมื่อออกบิล) · webhook รับ event มีแล้ว (`POST /v1/webhooks/line/:property_id`, ตรวจ signature) แต่ OA ยังชี้ที่ `line-app/` |
+| Webhook ซ้ำ (LINE retry) | ✅ ตาราง `line_events` (migration `0005`, forced RLS, `on conflict do nothing`) — `webhookEventId` เดิมที่ส่งซ้ำเขียน `audit_log` แค่แถวเดียว · ไม่ได้ตั้ง `LINE_CHANNEL_SECRET` → `503 LINE_NOT_CONFIGURED` |
 | คิวงาน + ทวงอัตโนมัติ (Procrastinate) | ✅ `queue.py` · `dunning.py` (1/5/10 วัน) · `GET /v1/cron/daily` ให้ Vercel Cron เรียกวันละครั้งแล้ว drain คิวใน invocation เดียว |
-| ตรวจสลิปอัตโนมัติกับธนาคาร | ✅ `line-app` ต่อ SlipOK (ตั้ง env คู่ `SLIPOK_*` ถึงจะทำงาน) — ยอด/บัญชีผู้รับ/สลิปซ้ำ · ยังไม่ auto-confirm: เจ้าของกดยืนยันเหมือนเดิม · ฝั่ง `backend` ยัง manual |
+| ตรวจสลิปอัตโนมัติกับธนาคาร | ✅ `line-app` ต่อ SlipOK (`api/_verify.js`, เรียกจาก `api/slip.js`) — ยอดไม่ตรง (`1013`) · บัญชีผู้รับไม่ใช่ของหอ (`1014`) · สลิปซ้ำ (`1012`); ผลอยู่บน `bill.slipVerify` เป็น `ok:true|false|null` โดย `ok:null` = **ตรวจไม่ได้** ไม่ใช่ของปลอม · เปิดเมื่อตั้ง env `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` ครบทั้งคู่ · ยังไม่ auto-confirm: เจ้าของกดยืนยันเหมือนเดิม · ฝั่ง `backend` `slip.verify` ยัง manual |
+| สลิปใบเดียวจ่ายสองบิลไม่ได้ | ✅ Blob key `slip-ref:<transRef>` จำว่า transRef นั้นถูกใช้กับห้องไหนแล้ว (ของเราเอง ไม่พึ่งหน่วยความจำของผู้ให้บริการ) |
+| แก้ไขราคาห้อง | ✅ `POST /api/rooms` (เจ้าของเท่านั้น · รับ `rent` / `waterRate` / `elecRate` เป็นจำนวนเต็ม) + ปุ่ม "แก้ไขราคาห้อง" ใน LIFF · เก็บที่ `room:<room>` · ราคาใหม่มีผลกับบิลที่ออกหลังจากนั้น บิลที่ออกแล้วต้อง void แล้วออกใหม่ |
 | หน้าจอเจ้าของของ backend (Thai web UI) | ⬜ `line-app/` มีหน้าจดมิเตอร์ของเจ้าของแล้ว |
 | QR ผูกผู้เช่ากับห้อง | ✅ `GET/POST /api/qr?room=` (เจ้าของสร้าง/หมุน) · ผู้เช่าสแกน → ผูกทันที |
 | หลายเจ้าของ + ผู้ช่วย (ดูอย่างเดียว) | ✅ QR จากเจ้าของเดิม · สิทธิ์ `owner` / `viewer` · `/api/me` คืน `role` |
@@ -93,6 +99,8 @@ pytest
 - สลิปของผู้เช่าได้ไม่เกิน 5 ครั้ง/บิล และห่างกัน ≥ 30 วินาที (กัน quota ข้อความ LINE และกันที่เก็บเต็ม)
 - สลิปเดียวจ่ายหลายรอบได้ ถ้าทุกรอบยัง `unpaid`/`pending` — รอบที่ปิดแล้วทำให้คำขอถูกปฏิเสธ (`409`)
 - เปลี่ยนผู้เช่า → เขียน `tenancy:<room>` ผู้เช่าใหม่เห็นเฉพาะบิลที่ออกหลังวันนั้น
+- ราคาห้อง (ค่าเช่า/ค่าน้ำ/ค่าไฟ) แก้รายห้องได้ — **บิลที่ออกแล้วใช้ราคาเดิมเสมอ** ต้อง void แล้วออกใหม่ถ้าจะแก้ยอด
+- สลิปที่ตรวจผ่านผูกกับ `transRef` ผ่าน `slip-ref:<transRef>` — ใบเดิมเอาไปจ่ายบิลที่สองไม่ได้ · `verify.ok: null` = ตรวจไม่ได้ (ผู้ให้บริการล่ม/สลิปใหม่อ่านไม่ได้) ไม่ใช่สลิปปลอม และไม่บล็อกการแนบสลิป
 
 ## Rich Menu ที่ออกแบบไว้
 
@@ -154,7 +162,7 @@ node smoke-cron.js      # /api/cron: ชนิดการเตือน, dedup
 npm test                # รันสามตัวแรกตามลำดับ (usecases/cron ไม่อยู่ใน npm test แต่ CI รัน)
 ```
 
-`node smoke-usecases.js` คือชุดเดียวกับ [`docs/TEST-CASES.md`](docs/TEST-CASES.md) (263 เคสในเอกสาร, 156 เคสที่ automate ได้ — เคสที่เหลือเป็น manual/LINE e2e หรือ pytest ฝั่ง backend) และ CI รันทั้งห้าไฟล์
+`node smoke-usecases.js` คือชุดเดียวกับ [`docs/TEST-CASES.md`](docs/TEST-CASES.md) (265 เคสใน 19 use case: 222 automate ✅ / 23 manual 🖐 / 20 ยังไม่สร้าง ⏳ — เคสที่ automate ได้ใน `line-app` มี 156 เคส ที่เหลือเป็น manual/LINE e2e หรือ pytest ฝั่ง backend) และ CI รันทั้งห้าไฟล์
 
 **`backend/`** — ต้องมี Postgres ก่อน (test ที่ต้องใช้ DB จะถูกข้ามถ้าไม่ได้ตั้ง `TEST_DATABASE_URL`):
 
@@ -241,12 +249,12 @@ exit code 1 ถ้ามีข้อไหนตก — ใช้เป็น ga
 | [`line-app/docs/DEVELOPMENT.md`](line-app/docs/DEVELOPMENT.md) | เพิ่ม handler/endpoint · convention · branch/PR |
 | [`line-app/docs/TESTING.md`](line-app/docs/TESTING.md) | smoke test เชิงลึก + manual matrix + LINE e2e |
 | [`line-app/docs/DEPLOYMENT.md`](line-app/docs/DEPLOYMENT.md) | deploy · rich menu · rollback |
-| [`docs/API.md`](docs/API.md) | สัญญา v1 (เป้าหมายของ backend) |
+| [`docs/API.md`](docs/API.md) | สัญญา v1 — ทุก endpoint ทำใน backend แล้ว (สลิปยังตรวจ manual ฝั่งนี้) |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | ภาพรวมทั้ง repo — สองสแตก, ข้อมูล, auth, ที่เก็บ state |
 | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | env ของทั้งสองฝั่ง + ค่า default |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | deploy ทั้งสองโปรเจกต์ Vercel · Neon · cron · rollback |
 | [`docs/TESTING.md`](docs/TESTING.md) | ชุดทดสอบ offline, pytest, manual matrix, CI |
-| [`docs/TEST-CASES.md`](docs/TEST-CASES.md) | 263 test case ใน 19 use case (เคสไหน automate, เคสไหน manual) |
+| [`docs/TEST-CASES.md`](docs/TEST-CASES.md) | 265 test case ใน 19 use case (222 automate / 23 manual / 20 ยังไม่สร้าง) |
 | [`docs/HANDOFF.md`](docs/HANDOFF.md) | งานที่เหลือ + เกณฑ์ "เสร็จ" |
 | [`backend/README.md`](backend/README.md) | endpoint · session · migration · test ของ backend |
 

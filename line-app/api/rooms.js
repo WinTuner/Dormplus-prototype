@@ -36,7 +36,9 @@ module.exports = async (req, res) => {
     // Only whether a tenant is bound: the screens never needed the tenant's LINE userId, and a
     // read-only helper should not collect them. `tenant` stays (as a boolean) for older pages.
     // A slip sent before this month's bill; the owner sees it waiting before issuing the bill.
-    const advance = prepay ? { slipAt: prepay.slipAt, hasSlip: !!prepay.slipPath } : null;
+    const advance = prepay
+      ? { slipAt: prepay.slipAt, hasSlip: !!prepay.slipPath, verify: prepay.slipVerify || null }
+      : null;
     return { room, config, meter, bill, linked: !!tenant, tenant: !!tenant, advance };
   });
 

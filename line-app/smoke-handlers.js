@@ -1287,6 +1287,15 @@ const { saveBill } = require("./api/_bills");
   );
   assert.strictEqual(data.get("bill:2026-11:210").status, "pending", "a verified group still waits for the owner");
 
+  // An advance slip (no bill yet) keeps its verification, and the owner's room list shows it.
+  resetV();
+  data.delete("bill:210"); data.delete("bill:2026-11:210");
+  slipok = okSlip;
+  await call(slip, { body: { image: png }, user: "Udave" });
+  r = await call(rooms, { method: "GET", user: "Uowner" });
+  const adv = r.body.rooms.find((x) => x.room === "210").advance;
+  assert.deepStrictEqual([adv?.hasSlip, adv?.verify?.ok], [true, true], "the owner sees a verified advance slip");
+
   // The real SlipOK error body has no `success: false` — it is { code, message, data }. Treating
   // that as a success would mark an unreadable slip as verified. (Shape taken from a live call.)
   resetV();
