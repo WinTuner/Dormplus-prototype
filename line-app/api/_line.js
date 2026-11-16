@@ -13,19 +13,38 @@ function verify(rawBody, signature) {
   return expected.length === given.length && crypto.timingSafeEqual(expected, given);
 }
 
-async function call(path, body) {
+// LINE wants the retry key to be a UUID. A fixed string such as "receipt:201:Uabc:2026-11:1" is
+// hashed into one, so the same event always maps to the same key and two racing requests collide.
+function retryKeyOf(text) {
+  const h = Buffer.from(crypto.createHash("sha256").update(String(text)).digest()).subarray(0, 16);
+  h[6] = (h[6] & 0x0f) | 0x40; // version 4
+  h[8] = (h[8] & 0x3f) | 0x80; // RFC 4122 variant
+  const x = h.toString("hex");
+  return `${x.slice(0, 8)}-${x.slice(8, 12)}-${x.slice(12, 16)}-${x.slice(16, 20)}-${x.slice(20)}`;
+}
+
+async function call(path, body, { retryKey } = {}) {
   const res = await fetch(`https://api.line.me/v2/bot/${path}`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
+    headers: {
+      Authorization: `Bearer ${TOKEN}`,
+      "Content-Type": "application/json",
+      ...(retryKey ? { "X-Line-Retry-Key": retryKeyOf(retryKey) } : {}),
+    },
     body: JSON.stringify(body),
   });
+  // With a retry key, 409 means LINE already accepted this exact push in the last 24h: the tenant
+  // has the message, so a racing second request must count as done, not as a failure to retry.
+  if (retryKey && res.status === 409) return { duplicate: true };
   if (!res.ok) throw new Error(`line ${path} ${res.status}: ${await res.text()}`);
   return res.status === 200 ? res.json().catch(() => ({})) : {};
 }
 
 const reply = (replyToken, messages) => call("message/reply", { replyToken, messages });
 
-const push = (to, messages) => call("message/push", { to, messages });
+// `retryKey` makes the push idempotent: Blob has no compare-and-set, so two concurrent requests can
+// both decide to send the same card, and LINE drops the second one.
+const push = (to, messages, { retryKey } = {}) => call("message/push", { to, messages }, { retryKey });
 
 // Per-user rich menu: the owner sees the meter menu, tenants see the bill menu.
 async function linkRichMenu(userId, richMenuId) {
@@ -114,6 +133,16 @@ function billBubble(bill, baseUrl) {
 // the whole group: the periods and the summed total, and a postback that names all of them.
 function confirmBubble(bill) {
   const money = (n) => Number(n || 0).toLocaleString("th-TH");
+  // What the owner must still do about the AMOUNT on the slip. Over/short is known from the bill's
+  // amount fields; with no amount read (SlipOK off, unverifiable) nothing was compared, and the
+  // card must say so instead of looking like a clean check.
+  const amountNote = (() => {
+    if (bill.overpaid > 0) return { text: `ยอดในสลิปเกินบิล ${money(bill.overpaid)} บาท — ต้องคืนผู้เช่า`, color: "#F59E0B" };
+    if (bill.shortBy > 0) return { text: `ยอดในสลิปขาด ${money(bill.shortBy)} บาท`, color: "#EF4444" };
+    if (!bill.slipPath || bill.slipVerify?.ok === true || bill.slipAmount != null) return null;
+    if (bill.slipVerify?.ok === false && bill.slipVerify.reason) return { text: bill.slipVerify.reason, color: "#EF4444" };
+    return { text: "ยังไม่ได้ตรวจยอดในสลิป — เทียบยอดเงินเข้าเอง", color: "#F59E0B" };
+  })();
   const group = bill.slipGroup?.periods?.length > 1 ? bill.slipGroup : null;
   const total = group ? group.total : bill.total;
   const postback = group
@@ -134,6 +163,11 @@ function confirmBubble(bill) {
           { type: "text", text: `ห้อง ${bill.room} แจ้งชำระ${group ? ` ${group.periods.length} งวด` : ""}`, weight: "bold", size: "md" },
           { type: "text", text: `${money(total)} บาท`, weight: "bold", size: "xxl", color: "#4FD8D2" },
           { type: "text", text: group ? `รอบ ${group.periods.join(", ")}` : `รอบ ${bill.period}`, size: "xs", color: "#8B9AAB", wrap: true },
+          // No photo means nothing to look at: the owner must check the bank account before confirming.
+          ...(bill.slipPath
+            ? []
+            : [{ type: "text", text: "ไม่มีรูปสลิป — ตรวจยอดเงินเข้าเองก่อนยืนยัน", size: "xs", color: "#F59E0B", wrap: true }]),
+          ...(amountNote ? [{ type: "text", text: amountNote.text, size: "xs", color: amountNote.color, wrap: true }] : []),
         ],
       },
       footer: {
@@ -226,4 +260,4 @@ function receiptBubble(bill, baseUrl) {
   };
 }
 
-module.exports = { verify, reply, push, linkRichMenu, unlinkRichMenu, displayName, billBubble, confirmBubble, receiptBubble, LIFF_ID };
+module.exports = { verify, reply, push, retryKeyOf, linkRichMenu, unlinkRichMenu, displayName, billBubble, confirmBubble, receiptBubble, LIFF_ID };

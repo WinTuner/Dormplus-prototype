@@ -169,10 +169,11 @@ stateDiagram-v2
 | `room:<room>` | `kv/room-<room>.json` | `{ rent, waterRate, elecRate }` | `seed`, `rooms` (`POST` — merge เฉพาะฟิลด์ที่ส่งมา) | `_rooms.configFor` |
 | `tenancy:<room>` | `kv/tenancy-<room>.json` | `{ since: ISO }` — สัญญาเช่าปัจจุบันของห้องเริ่มเมื่อ `since` | `qr` (เปลี่ยนผู้เช่า / ผู้เช่าย้ายออกด้วย `confirmMove`) | `bill`, `slip`, `slip-image`, `webhook` |
 | `prepay-old:<room>:<slipAt>` | `kv/prepay-old-<room>-<slipAt>.json` | prepay ของผู้เช่าเดิม (รูปแบบเดียวกับ `prepay`; ไฟล์รูปเก็บไว้) | `qr` (ตอนเขียน `tenancy`) | ไม่มีที่อ่าน — เจ้าของตรวจสอบ/คืนเงินเอง |
-| `prepay:<room>` | `kv/prepay-<room>.json` | `{ room, slipPath, slipNote, slipAt, slipCount, by, slipVerify }` หรือ `null` | `slip` (ทางโอนก่อนบิลออก), `run` (ตั้ง `null` หลังผูกกับบิล) | `slip`, `bill`, `slip-image`, `rooms`, `run` |
+| `prepay:<room>` | `kv/prepay-<room>.json` | `{ room, slipPath, slipNote, slipAt, slipCount, by, byStaff?, slipVerify }` หรือ `null` (`byStaff:true` = เจ้าของบันทึก ผูกเข้าบิลได้เสมอ) | `slip` (ทางโอนก่อนบิลออก), `run` (ตั้ง `null` หลังผูกกับบิล) | `slip`, `bill`, `slip-image`, `rooms`, `run` |
 | `bill:<period>:<room>` / `bills:<room>` | `kv/bill-<period>-<room>.json` / `kv/bills-<room>.json` | บิลต่อรอบ (สำเนาที่เป็นหลัก) / index รอบ (ใหม่→เก่า สูงสุด 60) | `saveBills()` ใน `_bills.js` (ผ่าน `run`, `slip`, `webhook`, `bill` void) | `bill`, `slip`, `webhook`, `run`, `_remind` |
-| `bill-void:<period>:<room>:<rev>` | `kv/bill-void-<period>-<room>-<rev>.json` | บิลที่ถูก `void` ตามที่เป็นตอนยกเลิก (ไม่แก้) — เก็บ **ตอนกดยกเลิก** และ `run` เก็บซ้ำได้ (idempotent) | `bill` (void), `run` (`archiveVoid`) | `bill` (`?voided=1`) |
+| `bill-void:<period>:<room>:<rev>` | `kv/bill-void-<period>-<room>-<rev>.json` | บิลที่ถูก `void` ตามที่เป็นตอนยกเลิก (ไม่แก้) — เก็บ **ตอนกดยกเลิก** และ `run` เก็บซ้ำได้ (idempotent) · `refundedAt`/`refundedBy`/`refundNote` เพิ่มเมื่อเจ้าของกด "คืนเงินแล้ว" | `bill` (void, `action:"refunded"`), `run` (`archiveVoid`) | `bill` (`?voided=1`, `?voided=1&refunds=1`) |
 | `bill-voids:<room>` | `kv/bill-voids-<room>.json` | `["<period>:<rev>", …]` รายการที่ archive ไว้ (ล่าสุด 200) | `bill` (void), `run` (`archiveVoid`) | `bill` (`?voided=1`) |
+| `overpaid:<room>` | `kv/overpaid-<room>.json` | `["<period>:<rev>", …]` บิลที่จ่ายเกินและต้องคืนผู้เช่า (ล่าสุด 200 ไม่ซ้ำ) — บิลนั้นมี `refundDue` + `refundReason:"overpaid"`; `refundedAt`/`refundedBy`/`refundNote` ตั้งตอนเจ้าของกด "คืนเงินแล้ว" | `webhook` (เจ้าของยืนยันสลิปที่จ่ายเกิน, `tagOverpaid`) | `bill` (รายการคืนเงิน) |
 | `slip-ref:<transRef>` | `kv/slip-ref-<transRef>.json` | `{ room, at }` — สลิปใบนี้ถูกใช้กับห้องไหนแล้ว (กันสลิปใบเดียวจ่ายสองบิล) · ไม่มี TTL และไม่เคยถูกลบ | `slip` (หลังตรวจผ่าน, ก่อนเขียนบิล) | `slip` (ก่อนบันทึกผลตรวจ) |
 | `limit:<scope>:<userId>` | `kv/limit-<scope>-<userId>.json` | `{ count, until }` — จำนวนครั้งที่แลกรหัสผิดในหน้าต่าง 1 ชม. (`scope` = `bind` จาก `qr.js`, `owner` จาก `owner.js`) | `_limit.recordFailure` | `_limit.blocked` |
 | `reminded:<room>:<period>:<kind>:<rev>` | `kv/reminded-<room>-<period>-<kind>-<rev>.json` | ISO เวลาที่ส่งเตือนชนิดนั้นของบิล rev นั้น (`before_3` / `due_0` / `after_1` / `after_5` / `after_10`) — ไว้กันส่งซ้ำ · บิลที่ยกเลิกแล้วออกใหม่ (rev ใหม่) เตือนได้อีกครั้ง; คีย์รุ่นเก่าที่ไม่มี `rev` ยังถูกอ่านด้วย | `_remind` (หลัง push สำเร็จ) | `_remind` |
@@ -203,6 +204,7 @@ bill object ที่ `run.js` สร้าง: `{ room, period, rent, water, el
 | `api/dev.js` | `POST` ยิงการ์ดบิลหาคนเดียว (header `x-seed-token`) | เครื่องมือทดสอบ · production ตอบ 404 |
 | `api/cron.js` | `GET` งานเตือนบิลค้างรายวัน (Vercel Cron) | ตรวจ `Authorization: Bearer <CRON_SECRET>`; เรียก `_remind.runReminders()` |
 | `api/_remind.js` | ตัดสินชนิดเตือน (`kindFor`), อ่านบิลที่ยัง `unpaid`, push ต่อห้อง, เขียน `reminded:` | ไม่ใช่ endpoint; รับ `today` เพื่อให้เทสต์เลือกวันได้ |
+| `api/_ledger.js` | `bangkokToday()`, `bangkokMonth()`, `dayNumber()`/`daysBetween()`, `OLDER_PERIODS`, `recentBills()`/`billsInPeriods()`, `overdueOf()` | ไม่ใช่ endpoint; ใช้โดย `bill` (`?overdue=1`, `?income=`), `cron` (วันที่ไทย) และ `_remind.js` (หน้าต่างบิลเดียวกับรายการค้างชำระ) — คำนวณฝั่งเซิร์ฟเวอร์ ไม่พึ่งนาฬิกาเครื่องผู้ใช้ |
 | `api/_bills.js` | `saveBills()`/`saveBill()`, `archiveVoid()`, `tenancyOf`/`visibleToTenant`, `receiptNoOf`, `PERIOD` | เขียนสำเนาต่อรอบ + index + `bill:<room>` ครั้งเดียวต่อกลุ่ม; ผู้เรียกที่เพิ่งอ่าน `bill:<room>` ส่ง `{ latest }` ได้ จะได้ไม่อ่านซ้ำ |
 | `api/config.js` | `GET` คืน `{ liffId }` | public โดยตั้งใจ |
 | `liff/bill.html` | หน้าเดียว 2 บทบาท + ตัวเรียก API ทั้งหมด | ไม่มี build; inline CSS/JS; ใช้ LIFF SDK จาก CDN · ตอนบูตเรียก `liff.getFriendship()` และขึ้นการ์ดชวนเพิ่มเพื่อนถ้ายังไม่ follow (LINE ไม่อนุญาตให้แอปเพิ่มเพื่อนเอง — ได้แค่เรียก `liff.requestFriendship()` ให้ผู้ใช้กด) |
@@ -232,6 +234,7 @@ line-app/
 │  ├─ _async.js         # helper ที่ขึ้นต้นด้วย _ (ไม่ได้ออกแบบให้เรียกเป็น endpoint)
 │  ├─ _auth.js
 │  ├─ _bills.js
+│  ├─ _ledger.js
 │  ├─ _limit.js
 │  ├─ _line.js
 │  ├─ _qr.js

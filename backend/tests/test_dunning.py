@@ -34,6 +34,11 @@ def set_line(engine, tenant_id: str, user_id: str) -> None:
         conn.execute(text("update tenants set line_user_id = :u where id = :id"), {"u": user_id, "id": tenant_id})
 
 
+def set_moved_out(engine, tenant_id: str, day: date) -> None:
+    with engine.begin() as conn:
+        conn.execute(text("update tenants set moved_out = :d where id = :id"), {"d": day, "id": tenant_id})
+
+
 def test_reminder_kind_matches_the_days_late():
     assert reminder_kind(1) == "reminder_1"
     assert reminder_kind(5) == "reminder_5"
@@ -220,3 +225,40 @@ def test_queue_reminders_hands_each_row_to_the_worker(seeded, monkeypatch):
     assert calls[0]["to_user_id"] == "U_201"
     assert calls[0]["kind"] == "reminder_1"
     assert "3,930" in calls[0]["body"]
+
+
+def test_a_tenant_who_moved_out_is_not_reminded(seeded):
+    # One LINE tenant per room: moved out yesterday, moved out today, moves out tomorrow.
+    add_invoice(seeded, "inv_out_yesterday", "r_201", date(2026, 11, 19))
+    set_line(seeded, "t_201", "U_201")
+    set_moved_out(seeded, "t_201", TODAY - timedelta(days=1))
+
+    add_invoice(seeded, "inv_out_today", "r_202", date(2026, 11, 19))
+    set_line(seeded, "t_202", "U_202")
+    set_moved_out(seeded, "t_202", TODAY)  # moved_out == today already counts as moved out
+
+    add_invoice(seeded, "inv_out_tomorrow", "r_303", date(2026, 11, 19))
+    set_line(seeded, "t_303", "U_303")
+    set_moved_out(seeded, "t_303", TODAY + timedelta(days=1))  # still living there today
+
+    ids = [r["id"] for r in dunning.due_for_reminder(seeded, "p_1", TODAY)]
+
+    assert ids == ["inv_out_tomorrow"]
+
+
+def test_the_latest_tenant_with_line_is_used(seeded):
+    add_invoice(seeded, "inv_room_201", "r_201", date(2026, 11, 19))
+    add_invoice(seeded, "inv_room_202", "r_202", date(2026, 11, 19))
+    with seeded.begin() as conn:
+        # r_201: two current tenants with LINE ids; the later move-in is the one reminded.
+        conn.execute(text("update tenants set line_user_id = 'U_201_OLD', moved_in = date '2026-01-01' where id = 't_201'"))
+        conn.execute(text("insert into tenants (id, room_id, name, line_user_id, moved_in) "
+                          "values ('t_201_new', 'r_201', 'new tenant', 'U_201_NEW', date '2026-11-01')"))
+        # r_202: the newer tenant has no LINE id, so the older tenant with LINE is reminded.
+        conn.execute(text("update tenants set line_user_id = 'U_202_OLD', moved_in = date '2026-01-01' where id = 't_202'"))
+        conn.execute(text("insert into tenants (id, room_id, name, line_user_id, moved_in) "
+                          "values ('t_202_new', 'r_202', 'new tenant', null, date '2026-11-10')"))
+
+    rows = {r["id"]: r["line_user_id"] for r in dunning.due_for_reminder(seeded, "p_1", TODAY)}
+
+    assert rows == {"inv_room_201": "U_201_NEW", "inv_room_202": "U_202_OLD"}

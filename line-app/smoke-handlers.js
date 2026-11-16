@@ -385,7 +385,7 @@ const { saveBill } = require("./api/_bills");
   assert.strictEqual(r.status, 200);
   const firstPhoto = data.get("bill:209").slipPath;
   assert.ok(files.has(firstPhoto));
-  r = await call(slip, { body: {}, user: "Ucarol" });
+  r = await call(slip, { body: { image: png }, user: "Ucarol" });
   assert.deepStrictEqual([r.status, r.body.error.code], [429, "SLIP_TOO_SOON"], "one slip per 30 seconds");
 
   backdate();
@@ -398,11 +398,11 @@ const { saveBill } = require("./api/_bills");
 
   for (let i = 0; i < 3; i++) {
     backdate();
-    assert.strictEqual((await call(slip, { body: {}, user: "Ucarol" })).status, 200);
+    assert.strictEqual((await call(slip, { body: { image: png }, user: "Ucarol" })).status, 200);
   }
   backdate();
   const pushesBefore = pushed.length;
-  r = await call(slip, { body: {}, user: "Ucarol" });
+  r = await call(slip, { body: { image: png }, user: "Ucarol" });
   assert.deepStrictEqual([r.status, r.body.error.code], [429, "SLIP_LIMIT"], "five slips per bill");
   assert.strictEqual(pushed.length, pushesBefore, "a refused slip costs the dorm no LINE message");
 
@@ -465,7 +465,7 @@ const { saveBill } = require("./api/_bills");
   assert.strictEqual(ownerTexts().pop(), "ห้อง 201 แจ้งโอนก่อนบิลออก · ระบบจะผูกสลิปนี้กับบิลรอบถัดไปให้เอง", "no note, no dash");
 
   data.set("prepay:201", { ...data.get("prepay:201"), slipCount: 5, slipAt: new Date(Date.now() - 60000).toISOString() });
-  r = await call(slip, { body: {}, user: "Udave" });
+  r = await call(slip, { body: { image: png }, user: "Udave" });
   assert.deepStrictEqual([r.status, r.body.error.code], [429, "SLIP_LIMIT"], "five advance slips per room");
   data.set("prepay:201", { ...data.get("prepay:201"), slipCount: 2 });
 
@@ -515,8 +515,8 @@ const { saveBill } = require("./api/_bills");
   // 202 has no bill at all: advance too, and the 404 still carries the advance.
   r = await call(bill, { method: "GET", query: {}, user: "Ueve" });
   assert.deepStrictEqual([r.status, r.body.error.advance], [404, null]);
-  r = await call(slip, { body: { note: "ค่าห้อง" }, user: "Ueve" });
-  assert.deepStrictEqual([r.status, r.body.status, r.body.hasSlip], [200, "advance", false], "no bill yet: advance as well");
+  r = await call(slip, { body: { note: "ค่าห้อง", image: png }, user: "Ueve" });
+  assert.deepStrictEqual([r.status, r.body.status, r.body.hasSlip], [200, "advance", true], "no bill yet: advance as well");
   assert.strictEqual(data.get("bill:202") ?? null, null, "and no bill is invented");
   r = await call(bill, { method: "GET", query: {}, user: "Ueve" });
   assert.strictEqual(r.status, 404);
@@ -863,7 +863,7 @@ const { saveBill } = require("./api/_bills");
     await saveBill(mk("206", "2026-05", "void", { issuedAt: longAgo }));
     const sep = data.get("bill:2026-09:206");
     const nov = data.get("bill:2026-11:206");
-    const sendPeriods = (periods, extra = {}, user = "Uhank") => call(slip, { user, body: { periods, ...extra } });
+    const sendPeriods = (periods, extra = {}, user = "Uhank") => call(slip, { user, body: { image: png, periods, ...extra } });
     const snapshot = () => JSON.stringify([...data.entries()].filter(([k]) => k.endsWith(":206")));
     const before = snapshot();
 
@@ -1507,7 +1507,7 @@ const { saveBill } = require("./api/_bills");
   assert.strictEqual((await call(bill, { body: { action: "reject", room: "212", period: "2026-11", reason: "x" }, user: "UtenantA" })).status, 403, "a tenant cannot reject");
 
   // The tenant sends a new slip after the rejection, and it is pending again.
-  r = await call(slip, { body: { room: "212", note: "ส่งใหม่" }, user: "UtenantA" });
+  r = await call(slip, { body: { room: "212", note: "ส่งใหม่", image: "data:image/png;base64,iVBORw0KGgo=" }, user: "UtenantA" });
   assert.deepStrictEqual([r.status, data.get("bill:2026-11:212").status], [200, "pending"], "a new slip is accepted");
 
   data.delete("bill:212"); data.delete("bill:2026-11:212"); data.delete("user-room:UtenantA"); data.delete("room-user:212");

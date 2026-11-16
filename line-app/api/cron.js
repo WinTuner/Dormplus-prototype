@@ -3,14 +3,12 @@
 const { sameSecret } = require("./_auth");
 const { runReminders } = require("./_remind");
 const store = require("./_store");
+const { bangkokToday } = require("./_ledger");
 
 const MIN_SECRET_LENGTH = 16;
 const LOCK_KEY = "cron-lock";
 const LOCK_MS = 15 * 60 * 1000; // longer than a full run, short enough that a crashed run does not block tomorrow
 const fail = (res, status, code, message) => res.status(status).json({ error: { code, message } });
-
-// YYYY-MM-DD on the dorm's wall clock, not the server's UTC one.
-const bangkokToday = () => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok" }).format(new Date());
 
 module.exports = async (req, res) => {
   if (req.method !== "GET") return fail(res, 405, "METHOD_NOT_ALLOWED", "GET only");
