@@ -454,7 +454,7 @@ function tenantInvoice() {
       ${b.status === "paid" && b.receiptNo ? `<div class="m" style="margin-top:8px">ใบเสร็จเลขที่ ${esc(b.receiptNo)}</div>
         <button class="btn" id="rcptBtn" style="margin-top:10px">ดูใบเสร็จ</button>` : ""}
     </div>
-    ${b.status === "void" ? "" : b.pay ? `<div class="card">
+    ${b.status === "paid" || b.status === "void" ? "" : b.pay ? `<div class="card">
       <div class="m">สแกนจ่ายผ่านพร้อมเพย์</div>
       <div class="qr" style="margin-top:10px">${b.pay.qr}</div>
       <div class="m" style="text-align:center;margin-top:8px">${fmt(b.total)} บาท</div>
@@ -844,25 +844,32 @@ async function ownerSettings() {
       <div class="hint">เว้นว่าง = ไม่กำหนดวันครบกำหนด (บิลจะไม่มีกำหนด)</div>
     </div>
     <div class="card">
-      <div class="field"><label for="sPay">พร้อมเพย์ (เบอร์มือถือ / เลขบัตรประชาชน)</label>
+      <div class="field"><label for="sPay">พร้อมเพย์ (เบอร์มือถือ 10 หลัก / บัตรประชาชน 13 หลัก / e-Wallet 15 หลัก)</label>
         <input id="sPay" inputmode="numeric" maxlength="20" value="${esc(dorm.promptpay || "")}" placeholder="เช่น 0812345678">
       </div>
-      <div class="hint">ใส่แล้วบิลของผู้เช่าจะมี QR พร้อมเพย์ตามยอดให้สแกน · เว้นว่าง = ไม่แสดง QR</div>
+      <div class="hint">เลขบัญชีธนาคารใช้ไม่ได้ · ใส่แล้วบิลที่ยังไม่ชำระจะมี QR ตามยอดให้สแกนทันที · เว้นว่าง = ไม่แสดง QR</div>
+      <div class="err" id="dormErr" style="margin-top:8px" hidden></div>
     </div>
     <div class="card">
       <button class="btn" id="saveDorm">บันทึก</button>
-      <div class="hint" style="margin-top:8px">มีผลกับบิลที่ออกหลังจากนี้ — บิลที่ออกแล้วไม่เปลี่ยน</div>
+      <div class="hint" style="margin-top:8px">ค่าเช่า/ค่าน้ำ/ค่าไฟ ใช้กับบิลที่ออกหลังจากนี้ · QR พร้อมเพย์ขึ้นกับบิลที่ยังไม่ชำระทันที</div>
     </div>`;
 
   $("saveDorm").onclick = async () => {
     const num = (id) => ($(id).value.trim() === "" ? null : Number($(id).value));
     const body = { dorm: { name: $("sName").value.trim() || null, rent: num("sRent"), waterRate: num("sWater"), elecRate: num("sElec"), dueDay: num("sDue"), promptpay: $("sPay").value.trim() || null } };
+    const box = $("dormErr");
+    box.hidden = true;
     try {
       await api("/api/rooms", { method: "POST", body: JSON.stringify(body) });
       toast("บันทึกการตั้งค่าหอแล้ว");
       await loadOwner();
       go("home");
     } catch (e) {
+      // Keep the reason on screen: a toast alone is gone before the owner looks back at the field,
+      // and the form then reads as "saved" when nothing was written.
+      box.textContent = e.message;
+      box.hidden = false;
       toast(e.message, true);
     }
   };
@@ -1245,6 +1252,8 @@ function ownerEntry(roomNo) {
         : (r.linked ?? r.tenant)
           ? `<div class="m">ผูก LINE แล้ว แต่ยังไม่มีชื่อ (ผู้ใช้ปิดการเข้าถึงโปรไฟล์)</div>`
           : `<div class="m">ยังไม่มีผู้เช่าผูกห้องนี้</div>`}
+      ${MYROLE !== "viewer" && (r.linked ?? r.tenant) ? `<button class="btn" id="endTenantBtn" style="margin-top:10px">ยกเลิกผู้เช่า (ย้ายออก)</button>
+        <div class="hint" style="margin-top:6px">ถอดทุกบัญชีของห้องนี้ออก และสร้าง QR ใหม่ให้ผู้เช่าคนถัดไป · บิลที่ค้างยังอยู่ให้เก็บเงิน</div>` : ""}
     </div>
     <div class="card">
       <div class="m">ให้ผู้เช่าผูกห้องนี้ด้วย QR</div>
@@ -1264,6 +1273,7 @@ function ownerEntry(roomNo) {
   if ($("voidBtn")) $("voidBtn").onclick = () => voidBill(r.room, r.bill);
   if ($("refundBtn")) $("refundBtn").onclick = () => markRefunded(r.room, r.bill, $("refundBtn"));
   if ($("advSlip")) $("advSlip").onclick = () => showSlip(r.room, true);
+  if ($("endTenantBtn")) $("endTenantBtn").onclick = () => removeTenant(r.room);
 
   const units = () => ({ water: Number($("inW").value || 0), elec: Number($("inE").value || 0) });
   const calc = () => {
@@ -1522,6 +1532,29 @@ async function markRefunded(room, bill, btn) {
     await api("/api/bill", { method: "POST", body: JSON.stringify({ action: "refunded", room, period: bill.period, rev: bill.rev || 1 }) });
     toast(`บันทึกว่าคืนเงินห้อง ${room} แล้ว`);
     await loadOwner();
+  } catch (e) {
+    toast(e.message, true);
+    if (btn) btn.disabled = false;
+  }
+}
+
+// The tenant moved out. It is the same call as the QR screen's "เปลี่ยนผู้เช่า": unbind the primary
+// and every roommate, rotate the door QR, and start a new tenancy. Unpaid bills stay on the record.
+async function removeTenant(room) {
+  const ok = confirm(
+    `ยกเลิกผู้เช่าห้อง ${room}?\n\n· ผู้เช่าทุกคน (หลัก + สมาชิก) จะหลุดจากห้องนี้\n` +
+    `· QR หน้าห้องเดิมใช้ไม่ได้ — ต้องปริ้นใหม่\n` +
+    `· บิลที่ค้างยังอยู่ เจ้าของหอต้องเก็บเงินเอง`
+  );
+  if (!ok) return;
+  const btn = $("endTenantBtn");
+  if (btn) btn.disabled = true;
+  try {
+    const r = await api(`/api/qr?room=${encodeURIComponent(room)}`, { method: "POST" });
+    toast((r.unbound ? `ยกเลิกผู้เช่าห้อง ${room} แล้ว` : `ห้อง ${room} ยังไม่มีผู้เช่า`) +
+      (r.prepayArchived ? " · มีสลิปโอนล่วงหน้าค้าง — ตรวจสอบ/คืนเงินเอง" : ""));
+    await loadOwner();
+    ownerEntry(room);
   } catch (e) {
     toast(e.message, true);
     if (btn) btn.disabled = false;
