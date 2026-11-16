@@ -2,11 +2,11 @@
 
 # เริ่มต้นใช้งาน (GETTING-STARTED)
 
-เรพนี้มีสองครึ่งที่แยกกัน deploy และแยกกันรัน: `backend/` (FastAPI + Postgres) และ `line-app/` (Vercel serverless + Vercel Blob + LINE)
+เรพนี้มีสองครึ่งที่แยกกัน deploy และแยกกันรัน: `backend/` (FastAPI + Postgres) และ `line-app/` (Vercel serverless + Vercel Blob หรือ Cloudflare R2 + LINE)
 เอกสารนี้พาไปถึง "ของที่รันได้จริง" สั้นที่สุดในสองเส้นทาง
 
 - **Track A — local-only:** ไม่ต้องมี LINE ไม่ต้องมี Vercel · backend บน Docker Postgres + smoke suite ของ `line-app` ที่ไม่ต่อเน็ต
-- **Track B — LINE app ตัวจริง:** ต้องมี LINE OA / LIFF / Vercel project / Blob store ก่อน — รายละเอียดเชิงลึกอยู่ที่ [`line-app/docs/GETTING-STARTED.md`](../line-app/docs/GETTING-STARTED.md) ไม่ทำซ้ำที่นี่
+- **Track B — LINE app ตัวจริง:** ต้องมี LINE OA / LIFF / Vercel project / ที่เก็บข้อมูล (Blob หรือ R2) ก่อน — รายละเอียดเชิงลึกอยู่ที่ [`line-app/docs/GETTING-STARTED.md`](../line-app/docs/GETTING-STARTED.md) ไม่ทำซ้ำที่นี่
 
 อ่านภาพรวมระบบที่ [`ARCHITECTURE.md`](./ARCHITECTURE.md) และตัวแปรทั้งหมดที่ [`CONFIGURATION.md`](./CONFIGURATION.md)
 
@@ -17,15 +17,15 @@
 | Python | `>=3.11` (`pyproject.toml` → `requires-python`) | `backend/` | `python --version` |
 | Docker Desktop (หรือ Postgres 17 ตัวไหนก็ได้) | — | `backend/docker-compose.yml` | `docker --version` + ต้องเปิด daemon อยู่ |
 | Node.js | `>=20` (`line-app/package.json` → `engines.node`) | `line-app/` smoke suite | `node -v` |
-| npm | มากับ Node | `line-app/` (เฉพาะตอน deploy) | `npm -v` |
+| npm | มากับ Node | `line-app/` — `npm ci` ก่อนรัน smoke (มี `package-lock.json`) | `npm -v` |
 
-Track B เพิ่ม: บัญชี LINE (Messaging API channel + LINE Login channel/LIFF), บัญชี Vercel + Vercel Blob store — ดูข้อ 4
+Track B เพิ่ม: บัญชี LINE (Messaging API channel + LINE Login channel/LIFF), บัญชี Vercel, และที่เก็บข้อมูลหนึ่งอย่าง (Vercel Blob store หรือ Cloudflare R2 bucket) — ดูข้อ 4
 
 ## 2. โคลนเรพ
 
 ```bash
-git clone https://github.com/WinTuner/Dormplus-prototype.git
-cd Dormplus-prototype
+git clone https://github.com/WinTuner/domplus-prototype.git
+cd domplus-prototype
 ```
 
 ทุกคำสั่งข้างล่างรันจาก root ของเรพ แล้ว `cd` เข้าโฟลเดอร์ครึ่งที่ต้องการ
@@ -42,15 +42,17 @@ pip install -e ".[dev]"
 Copy-Item .env.example .env          # bash: cp .env.example .env
 ```
 
-เปิด `backend/.env` แล้วแก้สองบรรทัดนี้ (ค่าอื่นปล่อยไว้ได้):
+เปิด `backend/.env` แล้วแก้สามบรรทัดนี้ (ค่าอื่นปล่อยไว้ได้):
 
 ```dotenv
 DEV_AUTH=true
 SESSION_SECRET=<ค่าสุ่มยาว ๆ ของคุณ>
+OWNER_ACCESS_CODE=<รหัสหอที่คุณตั้งเอง>
 ```
 
 - `DEV_AUTH=true` เปิดทางให้เลือก session ด้วย header `X-Dev-Property` / `X-Dev-Role` แทน LINE Login (`app/auth.py`) — **ห้ามเปิดบน server จริง** และระบบไม่สนใจค่านี้เมื่อ `VERCEL_ENV=production`
 - `SESSION_SECRET` ต้องไม่ใช่ค่า default (`dev-only-change-me`) เพราะ `app/session.py` จะ `raise RuntimeError` ทันทีที่ต้องเซ็น/ตรวจ cookie
+- `OWNER_ACCESS_CODE` คือรหัสหอสำหรับหน้าเจ้าของหอที่ `/owner` (ดูด้านล่าง) — deployment หนึ่งตัวดูแลหอเดียว จึงเป็นรหัสเดียวที่ใช้ร่วมกัน ไม่มีบัญชีผู้ใช้แยกรายคน · ค่าเริ่มต้นใน `.env.example` เป็นค่าว่าง = หน้า `/owner` ล็อกอินไม่ได้ (`503 OWNER_LOGIN_OFF`)
 - `CRON_SECRET` และ `PROPERTY_ID` ปล่อยว่าง/`p_1` ไว้ได้ในเครื่อง — สองตัวนี้มีไว้สำหรับ `/v1/cron/daily` (งานทวงหนี้รายวันของครึ่ง backend) และการเลือกหอที่ deploy หนึ่งหอต่อหนึ่ง deployment ถ้า `CRON_SECRET` ว่าง endpoint นั้นจะตอบ `401 UNAUTHORIZED` เสมอ
 - `LINE_CHANNEL_SECRET` มีไว้ตรวจ `X-Line-Signature` ของ `POST /v1/webhooks/line/:property_id` — ว่างแล้ว endpoint นั้นตอบ `503 LINE_NOT_CONFIGURED` (webhook ของ OA ยังชี้ที่ `line-app` จึงไม่กระทบของที่ใช้งานจริง)
 
@@ -60,6 +62,8 @@ alembic upgrade head                 # ต้องรันจาก backend/ �
 python -m app.seed                   # พิมพ์: seeded p_1: 42 rooms
 uvicorn app.main:app --reload        # http://127.0.0.1:8000
 ```
+
+**หน้าเจ้าของหอที่ `/owner`** — เปิด `http://127.0.0.1:8000/owner` (เด้งไป `/owner/` ให้เอง) แล้วใส่รหัสหอจาก `OWNER_ACCESS_CODE` (หน้าเดียว 4 แท็บ: มิเตอร์ · บิล · สลิป · รายงาน) เบื้องหลังคือ `POST /v1/auth/owner` ด้วย `{ "code": "..." }` ซึ่งตอบ cookie `dp_session` (`role=owner`) — **ไม่ใช้ LINE Login** และ deployment หนึ่งตัว = หนึ่งหอ จึงเป็นรหัสเดียวที่ใช้ร่วมกัน · รหัสผิดเกิน 10 ครั้ง/ชั่วโมงจาก IP เดียวได้ `429 TOO_MANY_ATTEMPTS` (`app/attempts.py`) · `OWNER_ACCESS_CODE` ว่าง = ล็อกอินไม่ได้ (`503 OWNER_LOGIN_OFF`) แต่ endpoint อื่นยังทำงานปกติด้วย `DEV_AUTH`/LINE Login
 
 ตรวจว่าขึ้นจริง (อีกหน้าต่างหนึ่ง):
 
@@ -77,13 +81,14 @@ curl.exe -s -H "X-Dev-Property: p_1" "http://127.0.0.1:8000/v1/rooms?period=2026
 
 ### 3.2 line-app: smoke suite ที่ไม่ต่อเน็ต
 
-ไม่ต้องมี env, ไม่ต้องมี Blob, ไม่ต้องมี LINE — และ **ไม่ต้อง `npm install` ก็รันได้** เพราะทุก suite แทน `_store` ด้วย Map ในหน่วยความจำ, stub `fetch` ของ LINE และ stub dependency เองผ่าน `require.cache` / `Module._load`
+ไม่ต้องมี env, ไม่ต้องมี Blob/R2, ไม่ต้องมี LINE — แต่ต้องลง dependency ครั้งเดียวก่อน: `npm ci` (dependency มีสามตัว: `@vercel/blob`, `aws4fetch`, `qrcode-svg` · มี `package-lock.json`) เพราะ `api/_store.js` `require("@vercel/blob")` ตั้งแต่ตอน import และ `api/_store-r2.js` ดึง `aws4fetch` — โคลนใหม่ที่ยังไม่ลงจะพังด้วย `Cannot find module` ตั้งแต่ชุดแรก ตัว suite เองแทน `_store` ด้วย Map ในหน่วยความจำ, stub `fetch` ของ LINE และ stub dependency ผ่าน `require.cache` / `Module._load` จึงไม่แตะเน็ตหรือ storage จริงเลย
 
 มีห้าชุด แยกตามสิ่งที่ครอบ:
 
 ```bash
 cd line-app
-node smoke.js              # signature + Flex card + auth guards (QR ต้องมี qrcode-svg)
+npm ci                     # ครั้งเดียวหลังโคลน (เว้นได้ก็ต่อเมื่อ node_modules พร้อมแล้ว)
+node smoke.js              # signature + Flex card + auth guards + QR (ต้องมี qrcode-svg)
 node smoke-handlers.js     # dev gate, QR binding, rate limit, payment, bill issuing, roles
 node smoke-reads.js        # bounded concurrency, ordering, legacy history
 node smoke-cron.js         # งานเตือนบิลค้างรายวัน (api/cron.js + api/_remind.js)
@@ -92,7 +97,7 @@ node smoke-usecases.js     # 168 use case ตั้งแต่ต้นจน�
 
 ชุด use case คือ subset อัตโนมัติของ [`TEST-CASES.md`](./TEST-CASES.md) ซึ่งแตกครบ **269 case ใน 19 UC** (244 ✅ automated · 25 🖐 ต้องกดมือกับ LINE จริง · 0 ⏳ ยังไม่มี test) — **168** ตัวที่รันในไฟล์นี้คือส่วนที่ `line-app` ทดสอบได้โดยไม่ต้องมี LINE จริง (อีก 6 เคสของ UC-19 เป็น webhook ฝั่ง backend จึงอยู่ใน pytest) ส่วนที่เหลืออยู่ในตารางพร้อมเหตุผลว่าทำไมยังอัตโนมัติไม่ได้
 
-ผลที่ต้องเห็น (ยืนยันบน Node v26.13.0) — บรรทัด QR ต้องมี `node_modules` (`qrcode-svg`) ถ้าไม่มีจะขึ้น `smoke: qrcode-svg not installed, QR check skipped` แทน (ชุดอื่นไม่ต้องใช้ dependency เลย):
+ผลที่ต้องเห็น (ยืนยันบน Node v26.13.0 หลัง `npm ci`) — ทุกชุดพิมพ์ `... OK` ของตัวเอง ปิดท้ายด้วย `168/168 use case tests passed` และ exit code 0:
 
 ```text
 smoke OK — QR renders and scales
@@ -105,7 +110,9 @@ cron OK — auth, 6 reminder windows, dedup, catch-up, skips, tenancy, retry, ow
 
 `npm test` (`package.json` → `scripts.test`) รันแค่ **สามชุดแรก** (`smoke.js && smoke-handlers.js && smoke-reads.js`) — `smoke-cron.js` และ `smoke-usecases.js` ต้องสั่งเองหรือพึ่ง CI · `smoke-usecases.js` เป็นชุดใหญ่ที่สุดแต่ยังรันจบในราวหนึ่งวินาทีในเครื่องนี้ (ทุกชุด offline ล้วน ไม่แตะเน็ต/DB — มีแค่ `setTimeout` 1–5 ms ในเทสต์ไม่กี่จุดเพื่อจำลองลำดับเวลา) และพิมพ์สรุปเป็น `<passed>/<total> use case tests passed` โดย exit code 0 เมื่อผ่านครบ
 
-**ข้อจำกัดที่ต้องรู้:** `line-app/` **ไม่มีขั้นตอน build และไม่มี `npm run dev`/`npm start`** — `package.json` มีแค่ `scripts.test`, dependency สองตัว และ `engines.node` ในเครื่องจึงทดสอบได้แค่ตรรกะที่ไม่แตะ I/O (signature, รูปการ์ด, handler ที่ stub แล้ว) หน้า `liff/bill.html` เรียก `/api/*` แบบ path สัมพัทธ์ จึงต้องถูกเสิร์ฟจาก origin เดียวกับ API
+**ข้อจำกัดที่ต้องรู้:** `line-app/` **ไม่มีขั้นตอน build และไม่มี `npm run dev`/`npm start`** — `package.json` มีแค่ `scripts.test`, dependency สามตัว และ `engines.node` ในเครื่องจึงทดสอบได้แค่ตรรกะที่ไม่แตะ I/O (signature, รูปการ์ด, handler ที่ stub แล้ว) หน้า `liff/bill.html` เรียก `/api/*` แบบ path สัมพัทธ์ จึงต้องถูกเสิร์ฟจาก origin เดียวกับ API
+
+**ที่เก็บข้อมูล (Blob หรือ R2):** ค่าเริ่มต้นคือ **Vercel Blob** — ต้องมี Blob store ผูกกับโปรเจกต์และ `@vercel/blob` อ่าน token จาก env ของ Vercel เอง · ตั้ง `R2_BUCKET` **พร้อม** `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` ครบทั้งสี่ตัวแล้ว `api/_store.js` จะสลับไป **Cloudflare R2** (S3 API ผ่าน `aws4fetch`) แทน — ขาดตัวใดตัวหนึ่ง = throw ตอนสร้าง store · **Track A ไม่ต้องมีทั้งสองอย่าง** เพราะ smoke ทุกชุดแทน `_store` ด้วย Map ในหน่วยความจำ (ฉะนั้นในเครื่องไม่ต้องมี credential ของ storage เลย)
 
 ถ้าอยากได้ HTTP จริงบนเครื่อง (สองทางนี้อยู่นอก Track A เพราะต้องมีบัญชี Vercel แล้ว):
 - `vercel dev` (Vercel CLI) เสิร์ฟ `api/*.js` + `liff/bill.html` ที่ `http://localhost:3000` และเปิด dev bypass (`x-seed-token`) ให้ — ต้อง `vercel link` และมี env ของโปรเจกต์ก่อน
@@ -120,10 +127,10 @@ cron OK — auth, 6 reminder windows, dedup, catch-up, skips, tenancy, retry, ow
 ```powershell
 cd backend
 .\.venv\Scripts\python.exe -m pytest -q
-# 23 passed, 121 skipped  (collect ได้ 144 test จาก 14 ไฟล์)
+# 25 passed, 125 skipped  (collect ได้ 150 test จาก 15 ไฟล์)
 ```
 
-test ที่ต้องใช้ฐานข้อมูลจะถูก **skip** เมื่อไม่ได้ตั้ง `TEST_DATABASE_URL` (ดู `tests/conftest.py`) ถ้าอยากรันครบ 144 ตัว:
+test ที่ต้องใช้ฐานข้อมูลจะถูก **skip** เมื่อไม่ได้ตั้ง `TEST_DATABASE_URL` (ดู `tests/conftest.py`) ถ้าอยากรันครบ 150 ตัว:
 
 > `backend/.env.example` มี `TEST_DATABASE_URL` อยู่แล้ว แต่ `tests/conftest.py` อ่านจาก **environment variable เท่านั้น** (`os.environ`) — ใส่ใน `.env` แล้วยัง skip เหมือนเดิม ต้อง `export`/`$env:` ก่อนเรียก pytest
 
@@ -146,14 +153,14 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 | LINE Official Account + Messaging API channel | `LINE_CHANNEL_SECRET` (ตรวจ webhook signature), `LINE_CHANNEL_ACCESS_TOKEN` (ตอบ/ส่งการ์ด) | LINE Developers Console |
 | LINE Login channel + LIFF app | `LIFF_ID` ให้หน้า `liff/bill.html` เรียก `liff.init()` | LINE Developers Console |
 | Vercel project ที่ชี้ root directory = `line-app` | ทุก `/api/*` เป็น serverless function | Vercel dashboard |
-| Vercel Blob store ที่ผูกกับโปรเจกต์ | ข้อมูลบิล/สลิปทั้งหมดอยู่ใน Blob (`kv/*.json`, `slips/*`) | Vercel dashboard / CLI |
+| Vercel Blob store ที่ผูกกับโปรเจกต์ (หรือ Cloudflare R2 bucket) | ข้อมูลบิล/สลิปทั้งหมด (`kv/*.json`, `slips/*`) — Blob คือค่าเริ่มต้น, R2 ใช้เมื่อตั้ง `R2_BUCKET` + credential ครบ | Vercel dashboard / CLI · Cloudflare dashboard |
 | Postgres จริง (Neon หรือเทียบเท่า) สำหรับ `backend/` | ครึ่ง backend ไม่ใช้ Blob | backend/README.md |
 
 <!-- VERIFY: การสร้าง Messaging API channel / LINE Login channel / LIFF app / Blob store ทั้งหมดทำบน dashboard (LINE Developers Console, Vercel) ซึ่งยืนยันจาก repo ไม่ได้ — ทำตามขั้นตอนใน line-app/README.md ข้อ 2–6 -->
 
 ลำดับย่อ (รายละเอียดทุกขั้นอยู่ที่ [`line-app/docs/GETTING-STARTED.md`](../line-app/docs/GETTING-STARTED.md) และ [`line-app/README.md`](../line-app/README.md)):
 
-1. `cd line-app && npm install` — dependency มี 2 ตัว: `@vercel/blob` และ `qrcode-svg` · **ไม่มีขั้นตอน build** (`npm run build` ไม่มีใน `package.json`) — ใช้ `vercel dev` บนเครื่องหรือ deploy ตรงขึ้น Vercel (smoke suite ทำงานได้แม้ไม่ติดตั้ง — QR check จะถูกข้าม)
+1. `cd line-app && npm ci` — dependency มี 3 ตัว: `@vercel/blob`, `aws4fetch`, `qrcode-svg` (`npm ci` ใช้ `package-lock.json`; ถ้าใช้ `npm install` ก็ได้ผลเท่ากัน) · **ไม่มีขั้นตอน build** (`npm run build` ไม่มีใน `package.json`) — ใช้ `vercel dev` บนเครื่องหรือ deploy ตรงขึ้น Vercel · smoke suite รันได้หลัง `npm ci` เท่านั้น (ก่อนลงจะพัง `Cannot find module` ตั้งแต่ `smoke.js`)
 2. `vercel link` แล้ว `vercel --prod` — <!-- VERIFY: ต้องมี Vercel CLI และสิทธิ์เข้าถึงโปรเจกต์ line-app ของทีม ซึ่งขึ้นกับบัญชีของคุณ ไม่ได้อยู่ใน repo -->
 3. ใส่ env บน Vercel (ทั้ง Production และ Preview แล้ว Redeploy — Vercel ผูก env กับ deployment; บางไฟล์อ่านตอน module load, `cron.js` อ่าน `CRON_SECRET` ต่อ request) รายการเต็มที่ [`CONFIGURATION.md`](./CONFIGURATION.md)
 4. ตรวจคำขอแรกที่ไม่ต้องใช้ credential: `curl.exe -s https://<โดเมนของคุณ>/api/config` ต้องได้ `200` (ก่อนตั้ง `LIFF_ID` จะได้ `{"liffId":null}`)
@@ -168,7 +175,7 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 
 <!-- VERIFY: โดเมน production ที่ทีมใช้อยู่ (https://line-app-iota.vercel.app ตาม README) ยืนยันจาก Vercel ไม่ได้ -->
 
-ครึ่ง backend บน production ใช้ Vercel + Neon (project `line-backend`, root directory = `backend`) — ขั้นตอนและรายการ env อยู่ที่ [`backend/README.md`](../backend/README.md) หัวข้อ "Deploy บน Vercel" ไม่ทำซ้ำที่นี่
+ครึ่ง backend บน production ใช้ Vercel + Neon (project `line-backend`, root directory = `backend`) — ขั้นตอนและรายการ env อยู่ที่ [`backend/README.md`](../backend/README.md) หัวข้อ "Deploy บน Vercel" ไม่ทำซ้ำที่นี่ · อย่าลืมตั้ง `OWNER_ACCESS_CODE` บนโปรเจกต์ backend ด้วย ไม่งั้นหน้า `/owner` บน production จะล็อกอินไม่ได้ (`503 OWNER_LOGIN_OFF`) และตั้ง `CRON_SECRET` ถ้าจะใช้ `GET /v1/cron/daily`
 
 **กับดักที่ทำให้ข้อมูลรั่วหรือหายเงียบ ๆ บน production:** RLS ของ migration `0004` ทำงานก็ต่อเมื่อ role ใน `DATABASE_URL` **ไม่มี `BYPASSRLS`** — `neondb_owner` ของ Neon มีค่านี้ (policy ทั้งหมดถูกข้าม = เห็นทุกหอ) จึงต้องใช้ role `dormplus_app` ตรวจด้วย `select rolbypassrls from pg_roles where rolname = current_user` ส่วน alembic ยังรันด้วย owner ได้ตามปกติ · ฝั่ง `line-app` มี cron อีกงาน (`GET /api/cron` ตามข้อ 7) และฝั่ง backend มี `GET /v1/cron/daily` (ต้องมี `CRON_SECRET` ใน env ของโปรเจกต์ backend ด้วย ไม่ใช่แค่ฝั่ง line-app)
 
@@ -177,7 +184,10 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 | อาการ | สาเหตุ | ทางแก้ |
 |---|---|---|
 | `docker compose up -d` → `failed to connect to the docker API ... dockerDesktopLinuxEngine` | Docker Desktop ยังไม่เปิด (เจอจริงตอนเขียนเอกสารนี้) | เปิด Docker Desktop แล้วรอจนขึ้น Running |
-| `pytest` ได้ `23 passed, 121 skipped` | ไม่ได้ตั้ง `TEST_DATABASE_URL` — เป็นพฤติกรรมปกติ (collect ได้ 144 test แต่ **121 ตัวต้องมี Postgres**; อีก 23 ตัวรันได้เปล่า ๆ) | ตั้ง `TEST_DATABASE_URL` ชี้ `domplus_test` ตามข้อ 3.3 |
+| `pytest` ได้ `25 passed, 125 skipped` | ไม่ได้ตั้ง `TEST_DATABASE_URL` — เป็นพฤติกรรมปกติ (collect ได้ 150 test แต่ **125 ตัวต้องมี Postgres**; อีก 25 ตัวรันได้เปล่า ๆ) | ตั้ง `TEST_DATABASE_URL` ชี้ `domplus_test` ตามข้อ 3.3 |
+| `node smoke.js` → `Cannot find module '@vercel/blob'` หรือ `'aws4fetch'` | ยังไม่ได้ลง dependency (หา `node_modules` ไม่เจอ) | `cd line-app && npm ci` แล้วรันใหม่ |
+| หน้า `/owner` ล็อกอินไม่ได้ ตอบ `503 OWNER_LOGIN_OFF` | `OWNER_ACCESS_CODE` ว่าง (ค่า default ใน `.env.example`) | ใส่รหัสหอใน `.env` แล้วรีสตาร์ต uvicorn (บน Vercel: ใส่ env แล้ว Redeploy) |
+| ล็อกอิน `/owner` ผิดรหัสหลายครั้งแล้วได้ `429 TOO_MANY_ATTEMPTS` | กันเดารหัส: ผิดเกิน 10 ครั้ง/ชั่วโมงต่อ IP (`app/attempts.py`) | รอให้พ้นหน้าต่าง 1 ชั่วโมง แล้วใช้รหัสให้ถูก |
 | `GET /api/cron` ได้ `503 NOT_CONFIGURED` | ไม่ได้ตั้ง `CRON_SECRET` บนโปรเจกต์ หรือค่าสั้นกว่า 16 ตัวอักษร | ตั้งค่าใหม่แล้ว Redeploy (Vercel แนบ header ให้เอง) — รันมือด้วย `curl -H "Authorization: Bearer <CRON_SECRET>" ...` |
 | ข้อมูลข้ามหอโผล่ หรือ query ตรง ๆ ได้ `0` แถว | role ที่ต่อมี `BYPASSRLS` (เช่น `neondb_owner` ของ Neon) หรือ `app.property_id` ไม่ถูกตั้งบน connection | ใช้ role ที่ไม่มี `BYPASSRLS` (`dormplus_app`) — `app/db.py` เป็นคนตั้ง `app.property_id` ให้ทุก connection |
 | `alembic upgrade head` → `connection refused` หรือต่อผิดฐาน | รันจากโฟลเดอร์อื่น (`.env` ไม่ถูกโหลด) หรือ `DATABASE_URL` ผิด | `cd backend` ก่อน แล้วเช็ก `DATABASE_URL` ใน `.env` |
@@ -188,7 +198,7 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 | `RuntimeError: SESSION_SECRET ... default` | ยังใช้ค่า `dev-only-change-me` จาก `.env.example` | เปลี่ยนเป็นค่าสุ่มยาว ๆ |
 | ตั้ง `$env:VAR=...` แล้วไม่ติด / `VAR=value pytest` ใช้ไม่ได้ | PowerShell ไม่รองรับ prefix แบบ bash | ใช้ `$env:VAR="..."` แล้วค่อยเรียกคำสั่ง หรือ `$env:VAR="..."; pytest` |
 | เข้า LIFF บน `http://127.0.0.1` แล้ว cookie ไม่ติด | `COOKIE_SECURE=true` (ค่า default) — cookie Secure ไม่ถูกส่งผ่าน http | ตั้ง `COOKIE_SECURE=false` เฉพาะเครื่องตัวเอง |
-| `line-app` เรียก API แล้วได้ `500` บน Vercel | Blob ยังไม่เชื่อม หรือยังไม่ Redeploy หลังใส่ env | ผูก Blob store แล้ว Redeploy (รายละเอียดใน `line-app/docs/GETTING-STARTED.md` ข้อ 7) |
+| `line-app` เรียก API แล้วได้ `500` บน Vercel | ที่เก็บข้อมูลยังไม่เชื่อม — Blob store ยังไม่ผูก (`No blob credentials found`) หรือตั้ง `R2_BUCKET` แต่ขาด credential อีกสามตัว (`R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY`) — หรือยังไม่ Redeploy หลังใส่ env | ผูก Blob store หรือใส่ `R2_*` ครบทั้งสี่ตัว แล้ว Redeploy (รายละเอียดใน `line-app/docs/GETTING-STARTED.md` ข้อ 7) |
 
 ## 6. ขั้นต่อไป
 

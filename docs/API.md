@@ -297,17 +297,19 @@ unpaid ──แนบสลิป──▶ pending ──เจ้าของ�
 
 ## ตัวอย่าง curl (`backend/` บนเครื่อง)
 
-ทุกอย่างรันกับ `uvicorn app.main:app` ที่พอร์ต 8000 (ดู [`backend/README.md`](../backend/README.md)) · ต้องมี `DEV_AUTH=true` และส่ง header `X-Dev-Property` · บน PowerShell ใช้ `curl.exe` และ escape `"` แทน `'`
+ทุกอย่างรันกับ `uvicorn app.main:app` ที่พอร์ต 8000 (ดู [`backend/README.md`](../backend/README.md)) · ต้องมี `DEV_AUTH=true` และส่ง header `X-Dev-Property` ทุกคำขอ (ไม่งั้น `401 UNAUTHORIZED`) · บน PowerShell ใช้ `curl.exe` และ escape `"` แทน `'`
+· ตัวอย่างข้างล่างใช้ตัวแปร `$AUTH` เพื่อไม่ต้องพิมพ์ header ซ้ำ — ถ้าไม่ส่ง `X-Dev-Role` ระบบถือเป็น `owner`
 
 
 ```bash
 BASE=http://127.0.0.1:8000
+AUTH='-H "X-Dev-Property: p_1" -H "X-Dev-Role: owner"'
 ```
 
 ### `GET /v1/rooms`
 
 ```bash
-curl -s "$BASE/v1/rooms?period=2026-11"
+curl -s $AUTH "$BASE/v1/rooms?period=2026-11"
 ```
 
 ```json
@@ -322,7 +324,7 @@ curl -s "$BASE/v1/rooms?period=2026-11"
 ### `PUT /v1/rooms/:id/reading`
 
 ```bash
-curl -s -X PUT "$BASE/v1/rooms/r_201/reading" \
+curl -s $AUTH -X PUT "$BASE/v1/rooms/r_201/reading" \
   -H "Content-Type: application/json" \
   -d '{"period":"2026-11","water_now":140,"elec_now":600}'
 ```
@@ -334,7 +336,7 @@ curl -s -X PUT "$BASE/v1/rooms/r_201/reading" \
 ### `POST /v1/billing/run`
 
 ```bash
-curl -s -X POST "$BASE/v1/billing/run" \
+curl -s $AUTH -X POST "$BASE/v1/billing/run" \
   -H "Content-Type: application/json" \
   -d '{"period":"2026-11"}'
 ```
@@ -350,7 +352,7 @@ curl -s -X POST "$BASE/v1/billing/run" \
 ### `GET /v1/invoices`
 
 ```bash
-curl -s "$BASE/v1/invoices?status=unpaid"
+curl -s $AUTH "$BASE/v1/invoices?status=unpaid"
 ```
 
 ```json
@@ -362,7 +364,7 @@ curl -s "$BASE/v1/invoices?status=unpaid"
 ### `GET /v1/invoices/:id`
 
 ```bash
-curl -s "$BASE/v1/invoices/inv_201_2026-11"        # เจ้าของ: บิลไหนของหอก็ได้
+curl -s $AUTH "$BASE/v1/invoices/inv_201_2026-11"        # เจ้าของ: บิลไหนของหอก็ได้
 ```
 
 ```json
@@ -377,7 +379,7 @@ curl -s "$BASE/v1/invoices/inv_201_2026-11"        # เจ้าของ: บ�
 ### `GET /v1/properties/:id`
 
 ```bash
-curl -s "$BASE/v1/properties/p_1"
+curl -s $AUTH "$BASE/v1/properties/p_1"
 ```
 
 ```json
@@ -408,7 +410,7 @@ public — ให้หน้า LIFF เอา `liff_id` ไป `liff.init()`
 `slip_url` ไม่บังคับ (ยังไม่มีระบบอัปโหลดรูปใน prototype นี้)
 
 ```bash
-curl -s -X POST "$BASE/v1/invoices/inv_202_2026-11/slip" \
+curl -s $AUTH -X POST "$BASE/v1/invoices/inv_202_2026-11/slip" \
   -H "Content-Type: application/json" \
   -d '{"slip_url":"s3://slips/202-1109.jpg"}'
 ```
@@ -422,7 +424,7 @@ curl -s -X POST "$BASE/v1/invoices/inv_202_2026-11/slip" \
 เจ้าของหอของหอนั้น · `pending` → `paid` + ออกเลขใบเสร็จ (`REC-<period>-NNNN`)
 
 ```bash
-curl -s -X POST "$BASE/v1/invoices/inv_202_2026-11/confirm" \
+curl -s $AUTH -X POST "$BASE/v1/invoices/inv_202_2026-11/confirm" \
   -H "Content-Type: application/json" \
   -d '{}'
 ```
@@ -436,7 +438,7 @@ curl -s -X POST "$BASE/v1/invoices/inv_202_2026-11/confirm" \
 เจ้าของหอของหอนั้น · `pending` → `unpaid` พร้อมเหตุผล (ลง `audit_log`)
 
 ```bash
-curl -s -X POST "$BASE/v1/invoices/inv_202_2026-11/reject" \
+curl -s $AUTH -X POST "$BASE/v1/invoices/inv_202_2026-11/reject" \
   -H "Content-Type: application/json" \
   -d '{"reason":"ยอดในสลิปไม่ตรง"}'
 ```
@@ -448,7 +450,7 @@ curl -s -X POST "$BASE/v1/invoices/inv_202_2026-11/reject" \
 ### `GET /v1/reports/summary`
 
 ```bash
-curl -s "$BASE/v1/reports/summary?period=2026-11"
+curl -s $AUTH "$BASE/v1/reports/summary?period=2026-11"
 ```
 
 ```json
@@ -482,7 +484,7 @@ curl -s -H "Authorization: Bearer $CRON_SECRET" "$BASE/v1/cron/daily"
 สั่ง enqueue อย่างเดียว (ไม่ส่ง) — ใช้ยิงมือ หรือ owner session ก็ได้
 
 ```bash
-curl -s -X POST -H "Authorization: Bearer $CRON_SECRET" "$BASE/v1/dunning/run"
+curl -s $AUTH -X POST -H "Authorization: Bearer $CRON_SECRET" "$BASE/v1/dunning/run"
 ```
 
 ```json
