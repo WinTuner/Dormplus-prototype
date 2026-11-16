@@ -783,7 +783,7 @@ function ownerHome() {
   view.querySelectorAll("[data-go]").forEach((el) => (el.onclick = () => go(el.dataset.go)));
   $("settings").onclick = () => go("settings");
 
-  // Refunds still owed for cancelled paid bills. Loaded after the screen is up so home is not
+  // Refunds still owed: cancelled paid bills ("void") and overpaid paid bills ("overpaid"). Loaded after the screen is up so home is not
   // slowed down; a failure just leaves the notice out.
   api("/api/bill?voided=1&refunds=1").then((out) => {
     const box = $("refundBox");
@@ -791,14 +791,14 @@ function ownerHome() {
     box.innerHTML = `<div class="card">
       <div class="m">ต้องคืนเงินผู้เช่า ${out.count} รายการ · รวม ${fmt(out.total)} บาท</div>
       <div class="rows" style="margin-top:8px">${out.items
-        .map((v, i) => `<div class="row"><button class="btn sm" data-go="entry/${encodeURIComponent(v.room)}">ห้อง ${esc(v.room)} · ${periodTh(v.period)} · ${fmt(v.refundDue)} บาท</button>
+        .map((v, i) => `<div class="row"><button class="btn sm" data-go="entry/${encodeURIComponent(v.room)}">ห้อง ${esc(v.room)} · ${periodTh(v.period)} · ${v.kind === "overpaid" ? "โอนเกิน" : "ยกเลิกบิล"} · ${fmt(v.refundDue)} บาท</button>
           ${MYROLE !== "viewer" ? `<button class="btn sm" data-refund="${i}">คืนเงินแล้ว</button>` : ""}</div>`)
         .join("")}</div></div>`;
     box.querySelectorAll("[data-go]").forEach((el) => (el.onclick = () => go(el.dataset.go)));
-    // Works after a re-issue too: the record comes from the void archive, not from the latest bill.
+    // Works after a re-issue too: a void comes from the void archive, not from the latest bill.
     box.querySelectorAll("[data-refund]").forEach((el) => {
       const v = out.items[Number(el.dataset.refund)];
-      el.onclick = () => markRefunded(v.room, v, el);
+      el.onclick = () => markRefunded(v.room, v, el, v.kind === "overpaid" ? "overpaid" : "void");
     });
   }).catch(() => {});
 }
@@ -1238,6 +1238,12 @@ function ownerEntry(roomNo) {
           : `<div class="m" style="margin-top:6px"><span class="pill bad">ต้องคืนเงิน ${fmt(r.bill.refundDue)} บาท</span></div>
              ${MYROLE !== "viewer" ? `<button class="btn" id="refundBtn" style="margin-top:8px">คืนเงินแล้ว</button>` : ""}`)
         : ""}
+      ${r.bill.status === "paid" && r.bill.refundReason === "overpaid" && r.bill.refundDue
+        ? (r.bill.refundedAt
+          ? `<div class="m" style="margin-top:6px"><span class="pill ok">คืนเงินแล้ว ${esc(bangkokDateTh(r.bill.refundedAt))}</span> ${fmt(r.bill.refundDue)} บาท</div>`
+          : `<div class="m" style="margin-top:6px"><span class="pill bad">ต้องคืนเงินที่โอนเกิน ${fmt(r.bill.refundDue)} บาท</span></div>
+             ${MYROLE !== "viewer" ? `<button class="btn" id="overpaidBtn" style="margin-top:8px">คืนเงินแล้ว</button>` : ""}`)
+        : ""}
       ${r.bill.receiptNo ? `<div class="m" style="margin-top:6px">ใบเสร็จเลขที่ ${esc(r.bill.receiptNo)}</div>` : ""}
       <div class="stack" style="margin-top:10px">
         ${r.bill.receiptNo || r.bill.status === "paid" ? `<button class="btn" id="rcptBtn">ดูใบเสร็จ</button>` : ""}
@@ -1271,7 +1277,8 @@ function ownerEntry(roomNo) {
   if ($("priceBtn")) $("priceBtn").onclick = () => editRoom(r.room, c);
   if ($("rcptBtn")) $("rcptBtn").onclick = () => go(`receipt/${r.bill.period}/${encodeURIComponent(r.room)}`);
   if ($("voidBtn")) $("voidBtn").onclick = () => voidBill(r.room, r.bill);
-  if ($("refundBtn")) $("refundBtn").onclick = () => markRefunded(r.room, r.bill, $("refundBtn"));
+  if ($("refundBtn")) $("refundBtn").onclick = () => markRefunded(r.room, r.bill, $("refundBtn"), "void");
+  if ($("overpaidBtn")) $("overpaidBtn").onclick = () => markRefunded(r.room, r.bill, $("overpaidBtn"), "overpaid");
   if ($("advSlip")) $("advSlip").onclick = () => showSlip(r.room, true);
   if ($("endTenantBtn")) $("endTenantBtn").onclick = () => removeTenant(r.room);
 
@@ -1523,13 +1530,14 @@ async function voidBill(room, bill) {
   }
 }
 
-// Owner: record that the money of a cancelled paid bill went back to the tenant. The app does not
-// move money; this only closes the "ต้องคืนเงิน" reminder, so confirm first.
-async function markRefunded(room, bill, btn) {
+// Owner: record that refund money went back to the tenant: a cancelled paid bill ("void") or the
+// extra of an overpaid one ("overpaid"). The app does not move money; this only closes the
+// "ต้องคืนเงิน" reminder, so confirm first.
+async function markRefunded(room, bill, btn, kind = "void") {
   if (!confirm(`ยืนยันว่าคืนเงิน ${fmt(bill.refundDue)} บาท ให้ห้อง ${room} แล้ว?\nบันทึกแล้วแก้กลับไม่ได้`)) return;
   if (btn) btn.disabled = true;
   try {
-    await api("/api/bill", { method: "POST", body: JSON.stringify({ action: "refunded", room, period: bill.period, rev: bill.rev || 1 }) });
+    await api("/api/bill", { method: "POST", body: JSON.stringify({ action: "refunded", kind, room, period: bill.period, rev: bill.rev || 1 }) });
     toast(`บันทึกว่าคืนเงินห้อง ${room} แล้ว`);
     await loadOwner();
   } catch (e) {

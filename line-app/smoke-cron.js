@@ -29,10 +29,18 @@ Module._load = function (request, ...rest) {
 
 let pushed = [];
 let failPushTo = null; // userId whose pushes fail
+const retryKeys = new Set(); // X-Line-Retry-Key values LINE has accepted
+let dropped = 0; // pushes LINE answered 409 (a duplicate within 24h)
 global.fetch = async (url, opts = {}) => {
   if (String(url).includes("/message/push")) {
     const body = JSON.parse(opts.body);
     if (failPushTo && body.to === failPushTo) return { ok: false, status: 500, text: async () => "boom", json: async () => ({}) };
+    // Like LINE: a push whose retry key was already accepted is answered 409 and not delivered.
+    const key = opts.headers && opts.headers["X-Line-Retry-Key"];
+    if (key) {
+      if (retryKeys.has(key)) { dropped++; return { ok: false, status: 409, text: async () => "conflict", json: async () => ({}) }; }
+      retryKeys.add(key);
+    }
     pushed.push(body);
   }
   return { ok: true, status: 200, json: async () => ({}), text: async () => "{}" };
@@ -57,7 +65,7 @@ const bill = (room, period, extra = {}) => ({
   room, period, total: 3796, rent: 3500, water: 100, elec: 196, due: "2026-11-16", status: "unpaid",
   issuedAt: "2026-11-01T00:00:00.000Z", ...extra,
 });
-const reset = () => { data.clear(); pushed = []; failPushTo = null; };
+const reset = () => { data.clear(); pushed = []; failPushTo = null; retryKeys.clear(); dropped = 0; };
 const tenant = (room, user = `U${room}`) => data.set(`room-user:${room}`, user);
 const texts = () => pushed.map((p) => p.messages[0].altText || p.messages[0].text);
 const kinds = (r) => r.sent.map((s) => `${s.room}:${s.period}:${s.kind}`);
@@ -275,6 +283,32 @@ const kinds = (r) => r.sent.map((s) => `${s.room}:${s.period}:${s.kind}`);
   await saveBill(bill("203", "2026-11", { due: null }));
   r = await runReminders({ today: "2026-11-30" });
   assert.deepStrictEqual([r.sent, pushed.length], [[], 0]);
+
+  // The retry key names what the card says. The same bill re-issued with the same rev but a new
+  // total, on the same day, is a different message: LINE must not drop it as a duplicate.
+  reset(); tenant("203");
+  await saveBill(bill("203", "2026-11", { rev: 1, total: 3796 }));
+  r = await runReminders({ today: "2026-11-13" });
+  assert.deepStrictEqual(kinds(r), ["203:2026-11:before_3"]);
+  data.delete("reminded:203:2026-11:before_3:1"); // as if the mark were lost, so only the key can stop a repeat
+  r = await runReminders({ today: "2026-11-13" });
+  assert.deepStrictEqual([kinds(r), dropped], [[], 1], "an identical card is dropped by the retry key and not counted");
+  await saveBill(bill("203", "2026-11", { rev: 1, total: 3900 }));
+  data.delete("reminded:203:2026-11:before_3:1");
+  r = await runReminders({ today: "2026-11-13" });
+  assert.deepStrictEqual([kinds(r), dropped, pushed.filter((p) => p.to === "U203").length], [["203:2026-11:before_3"], 1, 2], "a new total is a new message and is delivered");
+  data.delete("reminded:203:2026-11:before_3:1");
+  await saveBill(bill("203", "2026-11", { rev: 1, total: 3900, due: "2026-11-15" }));
+  r = await runReminders({ today: "2026-11-13" });
+  assert.deepStrictEqual([kinds(r), pushed.filter((p) => p.to === "U203").length], [["203:2026-11:before_3"], 3], "a new due date is a new message too");
+
+  // The owner summary is keyed by its text: a different summary on the same day is not dropped.
+  reset(); tenant("203"); tenant("205");
+  await saveBill(bill("203", "2026-11"));
+  await runReminders({ today: "2026-11-17" });
+  await saveBill(bill("205", "2026-11"));
+  await runReminders({ today: "2026-11-17" });
+  assert.deepStrictEqual(pushed.filter((p) => p.to === "Uowner").map((p) => p.messages[0].text.match(/\(([^)]*)\)/)[1]), ["203", "205"], "the second summary differs, so it is delivered");
 
   // ---------------------------------------------------------------- through the handler
   reset(); tenant("203");

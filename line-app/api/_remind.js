@@ -4,19 +4,11 @@ const { push } = require("./_line");
 const { ROOMS } = require("./_rooms");
 const { mapLimit } = require("./_async");
 const { tenancyOf, visibleToTenant } = require("./_bills");
+const { recentBills, dayNumber } = require("./_ledger");
 
 const ROOMS_AT_ONCE = 4;
 const PUSH_MAX_MESSAGES = 5; // LINE accepts at most 5 messages in one push
-// The index keeps 60 periods; reading all of them for every room each day is wasteful, and a bill
-// unpaid for more than a year needs the owner, not a bot.
-const OLDER_PERIODS_TO_CHECK = 12;
 const MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
-const DAY_MS = 86400000;
-
-const dayNumber = (ymd) => {
-  const [y, m, d] = String(ymd).split("-").map(Number);
-  return Date.UTC(y, m - 1, d) / DAY_MS;
-};
 
 const markKey = (room, bill, kind) => `reminded:${room}:${bill.period}:${kind}:${bill.rev || 1}`;
 const legacyMarkKey = (room, bill, kind) => `reminded:${room}:${bill.period}:${kind}`;
@@ -88,13 +80,9 @@ function messageFor(bill, daysLeft, baseUrl) {
   };
 }
 
-// The latest bill plus older periods that are still unpaid.
+// The latest bill plus older periods that are still unpaid (the window lives in _ledger).
 async function candidateBills(room) {
-  // Independent keys: one round trip, not two.
-  const [latest, index] = await Promise.all([store.get(`bill:${room}`), store.get(`bills:${room}`)]);
-  const periods = (index || []).filter((p) => !latest || p !== latest.period).slice(0, OLDER_PERIODS_TO_CHECK);
-  const older = await mapLimit(periods, 6, (p) => store.get(`bill:${p}:${room}`));
-  return [latest, ...older].filter((b) => b && b.status === "unpaid" && b.due && b.period);
+  return (await recentBills(room)).filter((b) => b.status === "unpaid" && b.due && b.period);
 }
 
 async function remindRoom(room, today, baseUrl, out) {
@@ -131,7 +119,9 @@ async function remindRoom(room, today, baseUrl, out) {
     try {
       // Two cron runs on the same day (a retry, a double trigger) can both see "not reminded yet":
       // the mark is written after the push. The retry key makes LINE drop the second batch.
-      const retryKey = `remind:${room}:${today}:${batch.map((w) => `${w.bill.period}:${w.kind}:${w.bill.rev || 1}`).join(",")}`;
+      // The key names what the card says (total and due as well), so a bill re-issued with the same
+      // rev but a new amount or date is a different message and is not dropped.
+      const retryKey = `remind:${room}:${today}:${batch.map((w) => `${w.bill.period}:${w.kind}:${w.bill.rev || 1}:${w.bill.total}:${w.bill.due}`).join(",")}`;
       sent = await push(userId, batch.map(({ bill, daysLeft }) => messageFor(bill, daysLeft, baseUrl)), { retryKey });
     } catch (err) {
       console.error("reminder push failed", room, batch.map((w) => `${w.bill.period}/${w.kind}`).join(","), err.message);
@@ -173,7 +163,7 @@ async function runReminders({ today, baseUrl } = {}) {
     const rooms = [...new Set(late.map((s) => s.room))];
     const text = `สรุปทวงวันนี้: เลยกำหนด ${rooms.length} ห้อง (${rooms.join(", ")}) · ส่งเตือนแล้ว ${late.length} ข้อความ`;
     try {
-      await push(owner, [{ type: "text", text }], { retryKey: `remind-summary:${today}` });
+      await push(owner, [{ type: "text", text }], { retryKey: `remind-summary:${today}:${text}` });
     } catch (err) {
       console.error("reminder summary push failed", err.message);
     }

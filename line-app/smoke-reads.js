@@ -27,9 +27,10 @@ cache("_store", store);
 cache("_auth", {
   async requireUser(req) { return req.headers.authorization; },
   async canView(user) { return user === "owner"; },
+  async isOwner(user) { return user === "owner"; },
 });
 
-function call(handler, { query = {}, user = "owner" } = {}) {
+function call(handler, { query = {}, user = "owner", method = "GET", body } = {}) {
   return new Promise((resolve, reject) => {
     const res = {
       statusCode: 200,
@@ -37,7 +38,7 @@ function call(handler, { query = {}, user = "owner" } = {}) {
       status(code) { this.statusCode = code; return this; },
       json(body) { resolve({ status: this.statusCode, body }); },
     };
-    Promise.resolve(handler({ query, headers: { authorization: user } }, res)).catch(reject);
+    Promise.resolve(handler({ method, query, body, headers: { authorization: user } }, res)).catch(reject);
   });
 }
 
@@ -135,5 +136,43 @@ function call(handler, { query = {}, user = "owner" } = {}) {
   for (const bad of ["2026-13", "abc", "2026-1"]) {
     assert.strictEqual((await call(bill, { query: { income: bad }, user: "owner" })).status, 400, bad);
   }
+  // A December bill issued early and paid on 20 November (Bangkok) is November income: the bill's
+  // period does not matter. Bills of later periods are read too, so it is not December income.
+  putRoom("216", [{ period: "2026-12", total: 1500, status: "paid", paidAt: "2026-11-20T03:00:00Z" }]);
+  result = await call(bill, { query: { income: "2026-11" }, user: "owner" });
+  assert.ok(result.body.items.some((i) => i.room === "216" && i.period === "2026-12"), "a later period paid this month counts");
+  assert.deepStrictEqual([result.body.count, result.body.total], [4, 9400]);
+  result = await call(bill, { query: { income: "2026-12" }, user: "owner" });
+  assert.deepStrictEqual(result.body.items, [], "and it is not December income");
+
+  // ---- refunds: voids and overpaid paid bills share one owner list; the store is seeded directly
+  const refunds = (user = "owner", extra = {}) => call(bill, { query: { voided: "1", refunds: "1", ...extra }, user });
+  const mark = (body, user = "owner") => call(bill, { method: "POST", body: { action: "refunded", ...body }, user });
+  putRoom("217", [{ period: "2026-10", total: 3000, status: "paid", refundDue: 450, refundReason: "overpaid" }]);
+  values.set("overpaid:217", ["2026-10:1"]);
+  values.set("bills:218", ["2026-10"]);
+  values.set("bill:2026-10:218", { room: "218", period: "2026-10", total: 3000, status: "paid", rev: 2, refundDue: 100, refundReason: "overpaid" });
+  values.set("overpaid:218", ["2026-10:1"]); // the tag names rev 1, the bill is rev 2 now
+  values.set("bill-voids:219", ["2026-10:1"]);
+  values.set("bill-void:2026-10:219:1", { room: "219", period: "2026-10", rev: 1, status: "void", refundDue: 700 });
+  result = await refunds();
+  assert.deepStrictEqual(result.body.items.map((i) => [i.room, i.kind, i.refundDue]), [["217", "overpaid", 450], ["219", "void", 700]], "both kinds, stale tag skipped");
+  assert.deepStrictEqual([result.body.count, result.body.total], [2, 1150]);
+  assert.deepStrictEqual((await refunds("owner", { room: "217" })).body.items.map((i) => i.kind), ["overpaid"]);
+  assert.strictEqual((await refunds("tenant")).status, 403);
+
+  assert.strictEqual((await mark({ kind: "nope", room: "217", period: "2026-10", rev: 1 })).status, 400);
+  assert.strictEqual((await mark({ kind: "overpaid", room: "217", period: "2026-10", rev: 1 }, "tenant")).status, 403);
+  assert.strictEqual((await mark({ kind: "overpaid", room: "217", period: "2026-09", rev: 1 })).status, 404);
+  assert.strictEqual((await mark({ kind: "overpaid", room: "218", period: "2026-10", rev: 1 })).status, 409, "rev mismatch");
+  result = await mark({ kind: "overpaid", room: "217", period: "2026-10", rev: 1, note: "โอนคืน" });
+  assert.deepStrictEqual([result.status, result.body.kind, result.body.refundDue], [200, "overpaid", 450]);
+  assert.ok(values.get("bill:2026-10:217").refundedAt && values.get("bill:217").refundNote === "โอนคืน", "stamped on the bill and its latest copy");
+  assert.strictEqual((await mark({ kind: "overpaid", room: "217", period: "2026-10", rev: 1 })).status, 409, "not twice");
+  assert.deepStrictEqual((await refunds()).body.items.map((i) => i.room), ["219"], "no longer outstanding");
+  result = await mark({ room: "219", period: "2026-10", rev: 1 });
+  assert.strictEqual(result.status, 200, "kind defaults to void");
+  assert.deepStrictEqual((await refunds()).body.items, []);
+
   console.log("reads OK — bounded concurrency, ordering, legacy history, binding, auth, overdue and income");
 })().catch((error) => { console.error(error); process.exit(1); });

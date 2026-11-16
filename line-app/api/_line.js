@@ -133,6 +133,16 @@ function billBubble(bill, baseUrl) {
 // the whole group: the periods and the summed total, and a postback that names all of them.
 function confirmBubble(bill) {
   const money = (n) => Number(n || 0).toLocaleString("th-TH");
+  // What the owner must still do about the AMOUNT on the slip. Over/short is known from the bill's
+  // amount fields; with no amount read (SlipOK off, unverifiable) nothing was compared, and the
+  // card must say so instead of looking like a clean check.
+  const amountNote = (() => {
+    if (bill.overpaid > 0) return { text: `ยอดในสลิปเกินบิล ${money(bill.overpaid)} บาท — ต้องคืนผู้เช่า`, color: "#F59E0B" };
+    if (bill.shortBy > 0) return { text: `ยอดในสลิปขาด ${money(bill.shortBy)} บาท`, color: "#EF4444" };
+    if (!bill.slipPath || bill.slipVerify?.ok === true || bill.slipAmount != null) return null;
+    if (bill.slipVerify?.ok === false && bill.slipVerify.reason) return { text: bill.slipVerify.reason, color: "#EF4444" };
+    return { text: "ยังไม่ได้ตรวจยอดในสลิป — เทียบยอดเงินเข้าเอง", color: "#F59E0B" };
+  })();
   const group = bill.slipGroup?.periods?.length > 1 ? bill.slipGroup : null;
   const total = group ? group.total : bill.total;
   const postback = group
@@ -157,6 +167,7 @@ function confirmBubble(bill) {
           ...(bill.slipPath
             ? []
             : [{ type: "text", text: "ไม่มีรูปสลิป — ตรวจยอดเงินเข้าเองก่อนยืนยัน", size: "xs", color: "#F59E0B", wrap: true }]),
+          ...(amountNote ? [{ type: "text", text: amountNote.text, size: "xs", color: amountNote.color, wrap: true }] : []),
         ],
       },
       footer: {

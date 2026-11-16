@@ -4,8 +4,8 @@ const store = require("./_store");
 const { mapLimit } = require("./_async");
 
 const DAY_MS = 86400000;
-// Same bound as the daily reminders: the index keeps 60 periods, but a bill unpaid for more than a
-// year needs the owner, not another list row.
+// The index keeps 60 periods; the daily reminders and the overdue list look at the latest bill plus
+// this many older ones. A bill unpaid for more than a year needs the owner, not another list row.
 const OLDER_PERIODS = 12;
 const READ_CONCURRENCY = 6;
 const TZ = "Asia/Bangkok";
@@ -49,11 +49,19 @@ async function readBills(room, keep, limit) {
   return bills.filter(Boolean);
 }
 
-// The latest bill plus up to 12 older periods, newest first (the window the reminders use).
-const recentBills = (room) => readBills(room, () => true, OLDER_PERIODS + 1);
+// The latest bill plus the newest `OLDER_PERIODS` other periods of the index, latest first. This is
+// the one window the reminders and the overdue list share. `bill:<room>` and the index are
+// independent keys, so they are read together; legacy rooms may have only the first.
+async function recentBills(room) {
+  const [latest, index] = await Promise.all([store.get(`bill:${room}`), store.get(`bills:${room}`)]);
+  const periods = (index || []).filter((p) => !latest || p !== latest.period).slice(0, OLDER_PERIODS);
+  const older = await mapLimit(periods, READ_CONCURRENCY, (p) => store.get(`bill:${p}:${room}`));
+  return [latest, ...older].filter(Boolean);
+}
 
-// Bills whose period falls in [from, to], newest first.
-const billsInPeriods = (room, from, to) => readBills(room, (p) => p >= from && p <= to, 60);
+// Bills whose period is `from` or later (and `to` or earlier when given), newest first. Without
+// `to` it reads every indexed period from `from` upward, later periods included.
+const billsInPeriods = (room, from, to = null) => readBills(room, (p) => p >= from && (!to || p <= to), 60);
 
 // Unpaid bills that are past their due date. A bill due today is not overdue yet; `pending` is
 // waiting for the owner, `void` is cancelled, and a bill with no due date cannot be late.
@@ -70,4 +78,4 @@ function overdueOf(bills, today) {
   };
 }
 
-module.exports = { bangkokToday, bangkokMonth, daysBetween, shiftMonth, recentBills, billsInPeriods, overdueOf };
+module.exports = { OLDER_PERIODS, bangkokToday, bangkokMonth, dayNumber, daysBetween, shiftMonth, recentBills, billsInPeriods, overdueOf };

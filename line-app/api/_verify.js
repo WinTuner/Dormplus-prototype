@@ -112,4 +112,58 @@ function markStale(verify, now = Date.now(), maxDays = 30) {
   return { ...verify, ok: null, reason: `สลิปเก่า — โอนเมื่อ ${days} วันก่อน`, stale: true, staleDays: days };
 }
 
-module.exports = { verifySlip, markStale };
+// A transfer made BEFORE the bill was issued cannot have paid this bill: it is last month's slip
+// or a screenshot reused from somewhere else. Same policy as markStale: keep the slip, downgrade
+// "verified" to "cannot tell" and let the owner decide, never block. When markStale already hit,
+// the slip is `ok:null` with `stale`, so that case is accepted too and both facts are kept.
+// With no provider `paidAt` (SlipOK off or the slip unverifiable) neither rule can run, on
+// purpose: `slipAt` is when WE received the photo, not when the money moved, and `ok` is already
+// `null` in that case so the owner is told it was not checked.
+// Callers skip this for an advance slip (no bill yet) and a prepay attached to a bill.
+const EARLY_REASON = "โอนก่อนบิลออก — ตรวจว่าเป็นสลิปของบิลนี้";
+function markEarly(verify, issuedAt) {
+  if (!verify || !issuedAt || !verify.paidAt) return verify;
+  if (verify.ok !== true && !verify.stale) return verify;
+  const paid = new Date(verify.paidAt).getTime();
+  const issued = new Date(issuedAt).getTime();
+  if (!Number.isFinite(paid) || !Number.isFinite(issued) || paid >= issued) return verify;
+  return {
+    ...verify,
+    ok: null,
+    early: true,
+    reason: verify.stale ? `${verify.reason} · ${EARLY_REASON}` : EARLY_REASON,
+  };
+}
+
+// What the slip says against what the bill (or the group of bills) costs. Policy: flag, never
+// block, no credit to the next bill; extra money is owed back as a refund (see the webhook confirm).
+// -> { verify, slipAmount, overpaid, shortBy }; the three amounts are null when the provider gave
+// no amount (1013 without one, SlipOK off, unverifiable), because then nothing was compared.
+const baht = (n) => Number(n).toLocaleString("th-TH");
+function checkAmount(verify, total) {
+  const paid = Number(verify && verify.amount);
+  const due = Number(total);
+  if (!verify || verify.amount == null || !Number.isFinite(paid) || total == null || !Number.isFinite(due)) {
+    return { verify, slipAmount: null, overpaid: null, shortBy: null };
+  }
+  const diff = Math.round((paid - due) * 100) / 100;
+  if (diff === 0) return { verify, slipAmount: paid, overpaid: null, shortBy: null };
+  // A slip already refused for another reason (reused, wrong account) keeps that reason.
+  const keep = verify.ok === false && verify.reason !== "ยอดในสลิปไม่ตรงกับบิล";
+  const reason = diff > 0 ? `ยอดในสลิปเกินบิล ${baht(diff)} บาท` : `ยอดในสลิปขาด ${baht(-diff)} บาท`;
+  return {
+    verify: keep ? verify : { ...verify, ok: false, reason },
+    slipAmount: paid,
+    overpaid: diff > 0 ? diff : null,
+    shortBy: diff < 0 ? -diff : null,
+  };
+}
+
+// The amount fields as they sit on a bill (and in `slipGroup`): absent when nothing was compared.
+const amountFields = ({ slipAmount, overpaid, shortBy }) => ({
+  ...(slipAmount != null && { slipAmount }),
+  ...(overpaid != null && { overpaid }),
+  ...(shortBy != null && { shortBy }),
+});
+
+module.exports = { verifySlip, markStale, markEarly, checkAmount, amountFields };

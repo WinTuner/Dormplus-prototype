@@ -4,16 +4,18 @@
 // `voided=1` (owner and helper only) lists the cancelled bills (`bill-void:` archive): { items: [...] },
 // newest first; add `period=` to narrow.
 //
-// `voided=1&refunds=1` (owner and helper) lists only the cancelled bills whose refund is still owed,
-// across all rooms unless `room=` narrows.
+// `voided=1&refunds=1` (owner and helper) lists the refunds still owed, across all rooms unless
+// `room=` narrows. Two kinds, each item carries `kind`: "void" (a cancelled paid bill) and "overpaid"
+// (a paid bill whose confirmed slip was larger than the bill; `refundDue` is the extra).
 // `overdue=1`: unpaid bills past their due date, counted on the server (Bangkok date). A tenant gets
 // their own room; the owner and helpers get every room that has any (`room=` narrows).
-// `income=YYYY-MM` (owner and helper): money received in that Bangkok month by `paidAt`.
+// `income=YYYY-MM` (owner and helper): money received in that Bangkok month by `paidAt`, whatever the
+// bill's period (an early December bill paid in November counts in November).
 //
 // POST /api/bill { action: "void", room, period, reason } — the owner cancels a bill (ยกเลิกบิล).
 // A paid bill is never edited in place: void it, then re-issue it from /api/run (which bumps `rev`).
-// POST /api/bill { action: "refunded", room, period, rev, note? } — the owner marks the money of a
-// voided paid bill as given back.
+// POST /api/bill { action: "refunded", kind?, room, period, rev, note? } — the owner marks money as
+// given back. `kind` is "void" (default: a cancelled paid bill) or "overpaid" (the extra of a paid bill).
 const store = require("./_store");
 const { requireUser, canView, isOwner } = require("./_auth");
 const { ROOMS } = require("./_rooms");
@@ -29,6 +31,7 @@ const HISTORY_READ_CONCURRENCY = 6;
 const MAX_REASON_LENGTH = 200;
 const ROOMS_AT_ONCE = 4;
 const INCOME_LOOKBACK_MONTHS = 12; // a bill is paid at most about a year after its period
+const REFUND_KINDS = ["void", "overpaid"];
 
 const fail = (res, status, code, message) => res.status(status).json({ error: { code, message } });
 
@@ -140,8 +143,14 @@ async function voidBill(req, res, userId) {
 
   // The receipt number and the slip stay on the record: a void bill is evidence, not a deletion.
   // `latest` was read above, so saveBill does not read it again; the tenant lookup runs alongside.
+  // A paid bill may already carry an overpaid refund. The void copy must not inherit it: spreading
+  // would overwrite the extra still owed with the total (the extra would vanish from the list) and
+  // would copy refundedAt, hiding the full-total refund as "already refunded".
+  const { refundDue: oldRefund, refundReason, refundedAt: oldRefundedAt, refundedBy: _rb, refundNote: _rn, ...rest } = bill;
+  const overpaidExtra = refundReason === "overpaid" && oldRefund > 0 ? oldRefund : 0;
+  const extraOwed = oldRefundedAt ? 0 : overpaidExtra;
   const voided = {
-    ...bill,
+    ...rest,
     status: "void",
     voidedAt: new Date().toISOString(),
     voidedBy: userId,
@@ -149,7 +158,9 @@ async function voidBill(req, res, userId) {
     statusBefore: bill.status,
     // Money the dorm is holding for a cancelled payment. The system does not move money; this is the
     // number the owner has to refund, kept on the record so it is not lost.
-    ...(bill.status === "paid" && bill.total ? { refundDue: bill.total } : {}),
+    ...(bill.status === "paid" && bill.total ? { refundDue: bill.total + extraOwed } : {}),
+    // The extra was already paid back before the void: keep it for the history only.
+    ...(overpaidExtra && oldRefundedAt ? { priorRefund: { reason: "overpaid", amount: overpaidExtra, refundedAt: oldRefundedAt } } : {}),
   };
   const [, tenant, tenancy] = await Promise.all([
     // Archive at once, not only when run.js re-issues it: a bill cancelled and never re-issued must
@@ -257,12 +268,34 @@ async function voided(res, room, period) {
   return res.status(200).json({ room, items: await readVoids(room, period) });
 }
 
-// Voided paid bills whose money has not been given back yet (`refundDue` set, no `refundedAt`).
-// This is the owner's to-do list, so it spans all rooms unless one is asked for.
+// Paid bills that took more money than the bill asked for: `refundDue` is the extra and the confirm
+// step tagged them "<period>:<rev>" in `overpaid:<room>`. The bill is the source of truth; a tag whose
+// bill has since been re-issued (another rev), refunded or voided is skipped.
+async function readOverpaid(room) {
+  const tags = [...new Set((await store.get(`overpaid:${room}`)) || [])]
+    .filter((t) => typeof t === "string" && /^\d{4}-\d{2}:\d+$/.test(t))
+    .map((t) => t.split(":"));
+  if (!tags.length) return [];
+  const latest = await store.get(`bill:${room}`);
+  const bills = await mapLimit(tags, HISTORY_READ_CONCURRENCY, async ([p, rev]) => {
+    const b = (await store.get(`bill:${p}:${room}`)) || (latest && latest.period === p ? latest : null);
+    return b && b.status === "paid" && (b.rev || 1) === Number(rev) && b.refundDue && !b.refundedAt ? b : null;
+  });
+  return bills.filter(Boolean).sort((a, b) => (a.period < b.period ? 1 : a.period > b.period ? -1 : 0));
+}
+
+// Refunds the owner still owes: cancelled paid bills (`kind: "void"`) and overpaid paid bills
+// (`kind: "overpaid"`). This is the owner's to-do list, so it spans all rooms unless one is asked for.
 async function outstandingRefunds(res, room) {
   if (room && !ROOMS.includes(room)) return fail(res, 404, "NOT_FOUND", `ไม่พบห้อง ${room}`);
-  const perRoom = await mapLimit(room ? [room] : ROOMS, ROOMS_AT_ONCE, (r) => readVoids(r));
-  const items = perRoom.flat().filter((v) => v.refundDue && !v.refundedAt);
+  const perRoom = await mapLimit(room ? [room] : ROOMS, ROOMS_AT_ONCE, async (r) => {
+    const [voids, overpaid] = await Promise.all([readVoids(r), readOverpaid(r)]);
+    return [
+      ...voids.filter((v) => v.refundDue && !v.refundedAt).map((v) => ({ ...v, kind: "void" })),
+      ...overpaid.map((b) => ({ ...b, kind: "overpaid" })),
+    ];
+  });
+  const items = perRoom.flat();
   return res.status(200).json({
     ...(room ? { room } : {}),
     count: items.length,
@@ -271,12 +304,14 @@ async function outstandingRefunds(res, room) {
   });
 }
 
-// The owner records that a voided paid bill's money went back to the tenant. The system never moves
+// The owner records that refund money went back to the tenant (`kind` "void" by default, or "overpaid"). The system never moves
 // money; this only closes the to-do that `refundDue` opened. The archive record is the source of
 // truth, and the bill itself is updated too while it is still that same void revision (a re-issue
 // has replaced it otherwise, and the new bill must not inherit a refund).
 async function markRefunded(req, res, userId) {
-  const { room: askedRoom, period: askedPeriod, rev: askedRev, note: askedNote } = req.body || {};
+  const { kind: askedKind, room: askedRoom, period: askedPeriod, rev: askedRev, note: askedNote } = req.body || {};
+  const kind = askedKind === undefined || askedKind === null || askedKind === "" ? "void" : askedKind;
+  if (!REFUND_KINDS.includes(kind)) return fail(res, 400, "VALIDATION", `kind ต้องเป็น ${REFUND_KINDS.join(" หรือ ")}`);
   const room = String(askedRoom || "").trim();
   const period = String(askedPeriod || "").trim();
   const rev = Number(askedRev);
@@ -286,6 +321,8 @@ async function markRefunded(req, res, userId) {
   if (!STRICT_PERIOD.test(period)) return fail(res, 400, "VALIDATION", "period ต้องเป็น YYYY-MM");
   if (!Number.isInteger(rev) || rev < 1) return fail(res, 400, "VALIDATION", "rev ต้องเป็นจำนวนเต็ม ≥ 1");
   if (note.length > MAX_REASON_LENGTH) return fail(res, 400, "VALIDATION", `หมายเหตุยาวเกิน ${MAX_REASON_LENGTH} ตัวอักษร`);
+
+  if (kind === "overpaid") return markOverpaidRefunded(res, userId, { room, period, rev, note });
 
   const archiveKey = `bill-void:${period}:${room}:${rev}`;
   const [record, stored, latest] = await Promise.all([
@@ -305,6 +342,22 @@ async function markRefunded(req, res, userId) {
   }
   await Promise.all(writes);
   return res.status(200).json({ ok: true, room, period, rev, refundedAt: mark.refundedAt, refundDue: record.refundDue });
+}
+
+// The extra money of a paid bill went back. The paid bill itself carries `refundDue`, so this only
+// stamps it; a re-issued bill (another rev) is a different bill and answers 409.
+async function markOverpaidRefunded(res, userId, { room, period, rev, note }) {
+  const [stored, latest] = await Promise.all([store.get(`bill:${period}:${room}`), store.get(`bill:${room}`)]);
+  const bill = stored || (latest && latest.period === period ? latest : null);
+  if (!bill) return fail(res, 404, "NOT_FOUND", `ไม่พบบิลห้อง ${room} รอบ ${period}`);
+  if (bill.status !== "paid" || (bill.rev || 1) !== rev) {
+    return fail(res, 409, "INVALID_STATE", `บิลห้อง ${room} รอบ ${period} ครั้งที่ ${rev} ไม่ใช่บิลที่ชำระแล้วที่มียอดโอนเกิน`);
+  }
+  if (!bill.refundDue) return fail(res, 409, "INVALID_STATE", "บิลนี้ไม่มียอดที่ต้องคืนเงิน");
+  if (bill.refundedAt) return fail(res, 409, "INVALID_STATE", "บันทึกว่าคืนเงินแล้วก่อนหน้านี้");
+  const mark = { refundedAt: new Date().toISOString(), refundedBy: userId, refundNote: note };
+  await saveBill({ ...bill, ...mark }, { latest });
+  return res.status(200).json({ ok: true, kind: "overpaid", room, period, rev, refundedAt: mark.refundedAt, refundDue: bill.refundDue });
 }
 
 // Unpaid bills past their due date, from the server's Bangkok date. A tenant sees only their own
@@ -336,12 +389,15 @@ async function overdue(res, { staff, bound, asked }) {
 }
 
 // Money received in a Bangkok month, by the day it was paid (`paidAt`), not by the bill's period:
-// an October bill paid on 2 November is November income. A void bill is money owed back, so only
-// `paid` counts. Per room only the periods that could have been paid in that month are read.
+// an October bill paid on 2 November is November income, and so is a December bill issued early and
+// paid on 20 November. A void bill is money owed back, so only `paid` counts.
+// Reads are bounded: per room every indexed period from 12 months before the month upward, with no
+// upper bound (later periods are included). The only bill not counted is one paid more than 12 months
+// after its period.
 async function income(res, month) {
   if (!STRICT_PERIOD.test(month)) return fail(res, 400, "VALIDATION", "income ต้องเป็น YYYY-MM");
   const from = ledger.shiftMonth(month, -INCOME_LOOKBACK_MONTHS);
-  const perRoom = await mapLimit(ROOMS, ROOMS_AT_ONCE, async (room) => (await ledger.billsInPeriods(room, from, month)).map((b) => ({ ...b, room })));
+  const perRoom = await mapLimit(ROOMS, ROOMS_AT_ONCE, async (room) => (await ledger.billsInPeriods(room, from)).map((b) => ({ ...b, room })));
   const items = perRoom
     .flat()
     .filter((b) => b.status === "paid" && ledger.bangkokMonth(b.paidAt) === month)
