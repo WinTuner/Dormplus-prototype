@@ -1435,7 +1435,58 @@ const { saveBill } = require("./api/_bills");
   data.delete("room:202"); data.delete("bill:203"); data.delete("bill:2026-12:203");
   data.delete("bills:203"); data.delete("meter:203");
 
-  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings");
+  // ---------------------------------------------------------------- PromptPay QR on a bill
+  const { payloadFor, normalizeId, crc16 } = require("./api/_promptpay");
+  assert.strictEqual(crc16("123456789"), "29B1", "CRC-16/CCITT-FALSE check value");
+  assert.deepStrictEqual(normalizeId("081-234-5678"), { tag: "01", value: "0066812345678" });
+  assert.deepStrictEqual(normalizeId("66812345678"), { tag: "01", value: "0066812345678" });
+  assert.deepStrictEqual(normalizeId("1234567890123"), { tag: "02", value: "1234567890123" });
+  assert.strictEqual(normalizeId("123"), null, "not a PromptPay id");
+  assert.strictEqual(payloadFor("123", 100), null, "no payload without a usable id");
+  assert.strictEqual(payloadFor("0812345678", 0), null, "a bill with no amount gets no QR");
+
+  const tlv = (s) => {
+    const out = {};
+    for (let i = 0; i < s.length;) {
+      const tag = s.slice(i, i + 2);
+      const len = Number(s.slice(i + 2, i + 4));
+      out[tag] = s.slice(i + 4, i + 4 + len);
+      i += 4 + len;
+    }
+    return out;
+  };
+  const payload = payloadFor("0812345678", 3562);
+  const top = tlv(payload);
+  assert.deepStrictEqual([top["00"], top["01"], top["53"], top["58"]], ["01", "12", "764", "TH"]);
+  assert.strictEqual(top["54"], "3562.00", "the amount is the bill total");
+  assert.strictEqual(top["29"].startsWith("0016A000000677010111"), true, "PromptPay application id");
+  assert.strictEqual(top["63"], crc16(payload.slice(0, -4)), "checksum covers everything before it");
+
+  // The bill hands the QR to the tenant, and only while there is something to pay.
+  data.delete("bill:201"); data.delete("bill:2026-11:201");
+  data.set("bill:201", { room: "201", period: "2026-11", total: 3562, rent: 3220, water: 125, elec: 217, waterUnits: 5, elecUnits: 31, due: "2026-11-09", status: "unpaid", issuedAt: new Date().toISOString() });
+  data.set("bill:2026-11:201", data.get("bill:201"));
+  r = await call(rooms, { body: { dorm: { promptpay: "0812345678" } }, user: "Uowner" });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.body.dorm.promptpay, "0812345678");
+
+  data.set("user-room:UtenantA", "201"); // the member test rotated the room, which unbinds everybody
+  r = await call(bill, { method: "GET", user: "UtenantA" });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.body.pay.payload, payloadFor("0812345678", 3562), "the bill carries the payload");
+  assert.ok(String(r.body.pay.qr).includes("<svg"), "and a rendered QR the page can show");
+
+  data.set("bill:201", { ...data.get("bill:201"), status: "paid" });
+  data.set("bill:2026-11:201", data.get("bill:201"));
+  r = await call(bill, { method: "GET", user: "UtenantA" });
+  assert.strictEqual(r.body.pay, null, "a paid bill shows no pay QR");
+
+  assert.strictEqual((await call(rooms, { body: { dorm: { promptpay: "123" } }, user: "Uowner" })).status, 400, "bad PromptPay id");
+
+  await call(rooms, { body: { dorm: { promptpay: null } }, user: "Uowner" });
+  data.delete("bill:201"); data.delete("bill:2026-11:201");
+
+  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings, PromptPay QR");
 })().catch((err) => {
   console.error(err);
   process.exit(1);
