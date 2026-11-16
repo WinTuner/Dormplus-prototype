@@ -11,6 +11,8 @@ const { requireUser, canView, isOwner } = require("./_auth");
 const { ROOMS } = require("./_rooms");
 const { mapLimit } = require("./_async");
 const { push } = require("./_line");
+const { payloadFor } = require("./_promptpay");
+const { qrSvg } = require("./_qr");
 const { saveBill, archiveVoid, tenancyOf, visibleToTenant, receiptNoOf, PERIOD: STRICT_PERIOD } = require("./_bills");
 
 const PERIOD = /^\d{4}-\d{2}$/;
@@ -64,7 +66,7 @@ module.exports = async (req, res) => {
   if (period) {
     const [bill, tenancy] = await Promise.all([store.get(`bill:${period}:${room}`), tenancyP]);
     if (!bill || !visibleIn(tenancy)(bill)) return res.status(404).json({ error: { code: "NOT_FOUND", message: `ไม่พบบิลของห้อง ${room}` } });
-    return res.status(200).json({ ...forCaller(withReceipt(bill), staff), hasSlip: !!bill.slipPath });
+    return res.status(200).json({ ...forCaller(withReceipt(bill), staff), hasSlip: !!bill.slipPath, pay: await payQr(bill) });
   }
 
   // The latest bill also reports a slip sent before it existed, so the tenant sees "รอบิลออก".
@@ -75,8 +77,19 @@ module.exports = async (req, res) => {
     return res.status(404).json({ error: { code: "NOT_FOUND", message: `ไม่พบบิลของห้อง ${room}`, advance } });
   }
 
-  return res.status(200).json({ ...forCaller(withReceipt(bill), staff), hasSlip: !!bill.slipPath, advance });
+  return res.status(200).json({ ...forCaller(withReceipt(bill), staff), hasSlip: !!bill.slipPath, advance, pay: await payQr(bill) });
 };
+
+// A scannable PromptPay QR for this bill: only when the dorm configured an id and the bill is still
+// payable. The payload is a normal EMVCo string, so any Thai banking app can read it; the SVG is
+// rendered here because the page has no QR library.
+async function payQr(bill) {
+  if (!bill || (bill.status !== "unpaid" && bill.status !== "pending")) return null;
+  const dorm = await store.get("dorm");
+  const payload = dorm && payloadFor(dorm.promptpay, bill.total);
+  if (!payload) return null;
+  return { payload, qr: qrSvg(payload) };
+}
 
 async function voidBill(req, res, userId) {
   if (!await isOwner(userId)) return fail(res, 403, "FORBIDDEN", "เฉพาะเจ้าของหอ");

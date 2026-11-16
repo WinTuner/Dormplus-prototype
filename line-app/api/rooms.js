@@ -3,6 +3,7 @@
 const store = require("./_store");
 const { requireUser, canView, isOwner } = require("./_auth");
 const { ROOMS, configFor, dormOf, baseDefaults } = require("./_rooms");
+const { normalizeId } = require("./_promptpay");
 const { mapLimit } = require("./_async");
 
 const READ_CONCURRENCY = 12; // 12 rooms → one wave (72 reads in flight); a 42-room dorm takes 4 waves
@@ -112,6 +113,14 @@ async function saveDorm(res, input) {
     const value = price(input[key], max);
     if (value === null) return fail(res, 400, "VALIDATION", "ค่าเช่า/ค่าน้ำ/ค่าไฟ ต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป");
     fields[key] = value;
+  }
+  if (input.promptpay !== undefined) {
+    if (input.promptpay === null || String(input.promptpay).trim() === "") fields.promptpay = null;
+    else {
+      const id = normalizeId(input.promptpay);
+      if (!id) return fail(res, 400, "VALIDATION", "พร้อมเพย์ต้องเป็นเบอร์มือถือ 10 หลัก, เลขบัตรประชาชน 13 หลัก หรือ e-Wallet 15 หลัก");
+      fields.promptpay = String(input.promptpay).replace(/\D/g, "");
+    }
   }
   if (!Object.keys(fields).length) return fail(res, 400, "VALIDATION", "ต้องระบุ name, rent, waterRate, elecRate หรือ dueDay");
 

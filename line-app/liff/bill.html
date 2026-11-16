@@ -391,7 +391,12 @@ function tenantInvoice() {
       ${b.status === "paid" && b.receiptNo ? `<div class="m" style="margin-top:8px">ใบเสร็จเลขที่ ${esc(b.receiptNo)}</div>
         <button class="btn" id="rcptBtn" style="margin-top:10px">ดูใบเสร็จ</button>` : ""}
     </div>
-    ${b.status === "void" ? "" : `<div class="card">
+    ${b.status === "void" ? "" : b.pay ? `<div class="card">
+      <div class="m">สแกนจ่ายผ่านพร้อมเพย์</div>
+      <div class="qr" style="margin-top:10px">${b.pay.qr}</div>
+      <div class="m" style="text-align:center;margin-top:8px">${fmt(b.total)} บาท</div>
+      <div class="hint" style="text-align:center;margin-top:6px">สแกนด้วยแอปธนาคาร แล้วแนบสลิปด้านล่างให้เจ้าของตรวจ</div>
+    </div>` : `<div class="card">
       <div class="qr-ph">QR พร้อมเพย์</div>
       <div class="hint" style="text-align:center;margin-top:10px">เจ้าของหอยังไม่ได้ใส่ QR · โอนตามช่องทางที่หอแจ้ง แล้วแนบสลิป</div>
     </div>`}
@@ -739,13 +744,19 @@ async function ownerSettings() {
       <div class="hint">เว้นว่าง = ไม่กำหนดวันครบกำหนด (บิลจะไม่มีกำหนด)</div>
     </div>
     <div class="card">
+      <div class="field"><label for="sPay">พร้อมเพย์ (เบอร์มือถือ / เลขบัตรประชาชน)</label>
+        <input id="sPay" inputmode="numeric" maxlength="20" value="${esc(dorm.promptpay || "")}" placeholder="เช่น 0812345678">
+      </div>
+      <div class="hint">ใส่แล้วบิลของผู้เช่าจะมี QR พร้อมเพย์ตามยอดให้สแกน · เว้นว่าง = ไม่แสดง QR</div>
+    </div>
+    <div class="card">
       <button class="btn" id="saveDorm">บันทึก</button>
       <div class="hint" style="margin-top:8px">มีผลกับบิลที่ออกหลังจากนี้ — บิลที่ออกแล้วไม่เปลี่ยน</div>
     </div>`;
 
   $("saveDorm").onclick = async () => {
     const num = (id) => ($(id).value.trim() === "" ? null : Number($(id).value));
-    const body = { dorm: { name: $("sName").value.trim() || null, rent: num("sRent"), waterRate: num("sWater"), elecRate: num("sElec"), dueDay: num("sDue") } };
+    const body = { dorm: { name: $("sName").value.trim() || null, rent: num("sRent"), waterRate: num("sWater"), elecRate: num("sElec"), dueDay: num("sDue"), promptpay: $("sPay").value.trim() || null } };
     try {
       await api("/api/rooms", { method: "POST", body: JSON.stringify(body) });
       toast("บันทึกการตั้งค่าหอแล้ว");
