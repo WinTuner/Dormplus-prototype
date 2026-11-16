@@ -106,7 +106,7 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "$B/api/bill?room=203"
 | `kv/room-user-<room>.json` | `"U…"` — ห้องนี้ผูกกับ userId ไหน (ใช้ส่งการ์ด) |
 | `kv/bill-<room>.json` | `{ room, period, rent, water, elec, waterUnits, elecUnits, total, due, status, slipPath?, slipAt? }` |
 | `kv/meter-<room>.json` | `{ water, elec, at }` — หน่วยล่าสุด |
-| `kv/room-<room>.json` | `{ rent, waterRate, elecRate }` — ค่าเช่าเฉพาะห้อง |
+| `kv/room-<room>.json` | `{ rent, waterRate, elecRate }` — ค่าเช่าเฉพาะห้อง (เขียนโดย `POST /api/rooms`) |
 | `slips/<room>-<ts>.jpg` | รูปสลิป (private) |
 
 `status`: `unpaid` → `pending` (แนบสลิป) → `paid` (เจ้าของยืนยัน)

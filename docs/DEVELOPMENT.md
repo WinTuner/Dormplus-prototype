@@ -327,6 +327,7 @@ const pathOf = (key) => `kv/${String(key).replace(/[^a-zA-Z0-9._-]/g, "-")}.json
 | `api/webhook.js` | `bill:<room>` และ `bill:<period>:<room>` (การ์ดเก่าต้องหากันเจอ) + `tenancy:<room>` |
 | `api/_remind.js` | `bill:<room>`, `bills:<room>`, `bill:<period>:<room>`, `reminded:…`, `tenancy:<room>`, `room-user:<room>` |
 | `api/_verify.js` | ไม่แตะ Blob — เรียก SlipOK แล้วคืน `{ok, reason, amount, transRef}` ให้ `slip.js` |
+| `api/rooms.js` | `room:<room>` (เขียนเมื่อเจ้าของแก้ราคา — `POST`) |
 | `api/cron.js` | `cron-lock` |
 | `api/_verify.js` | ไม่แตะ Blob เอง — คืนผลให้ `slip.js` |
 | `api/slip.js` | `slip-ref:<transRef>` (เขียนหลังตรวจผ่าน) |

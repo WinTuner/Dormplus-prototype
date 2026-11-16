@@ -1011,9 +1011,15 @@ function ownerEntry(roomNo) {
     <div class="card">
       <div class="m">ให้ผู้เช่าผูกห้องนี้ด้วย QR</div>
       <button class="btn" id="qrBtn" style="margin-top:10px">QR ผู้เช่า (ปริ้นแปะหน้าห้อง)</button>
-    </div>`;
+    </div>
+    ${MYROLE !== "viewer" ? `<div class="card">
+      <div class="m">ค่าเช่า/ค่าน้ำ/ค่าไฟของห้องนี้</div>
+      <div class="hint" style="margin-top:6px">ค่าเช่า ${fmt(c.rent)} บาท · น้ำ ${fmt(c.waterRate)} · ไฟ ${fmt(c.elecRate)} ต่อหน่วย</div>
+      <button class="btn" id="priceBtn" style="margin-top:10px">แก้ไขราคาห้อง</button>
+    </div>` : ""}`;
 
   $("qrBtn").onclick = () => go(`qr/${encodeURIComponent(r.room)}`);
+  if ($("priceBtn")) $("priceBtn").onclick = () => editRoom(r.room, c);
   if ($("rcptBtn")) $("rcptBtn").onclick = () => go(`receipt/${r.bill.period}/${encodeURIComponent(r.room)}`);
   if ($("voidBtn")) $("voidBtn").onclick = () => voidBill(r.room, r.bill);
   if ($("advSlip")) $("advSlip").onclick = () => showSlip(r.room, true);
@@ -1234,6 +1240,34 @@ async function voidBill(room, bill) {
   } catch (e) {
     toast(e.message, true);
     if (btn) btn.disabled = false;
+  }
+}
+
+async function editRoom(room, current) {
+  const c = current || {};
+  const ask = (label, value) => {
+    const raw = prompt(`${label} (บาท) — ห้อง ${room}`, String(value ?? 0));
+    return raw === null ? null : raw.trim();
+  };
+  const rent = ask("ค่าเช่าต่อเดือน", c.rent);
+  if (rent === null) return;
+  const waterRate = ask("ค่าน้ำต่อหน่วย", c.waterRate);
+  if (waterRate === null) return;
+  const elecRate = ask("ค่าไฟต่อหน่วย", c.elecRate);
+  if (elecRate === null) return;
+  if (![rent, waterRate, elecRate].every((v) => /^\d+$/.test(v))) {
+    return toast("ใส่เป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป", true);
+  }
+  try {
+    await api("/api/rooms", {
+      method: "POST",
+      body: JSON.stringify({ room, rent: Number(rent), waterRate: Number(waterRate), elecRate: Number(elecRate) }),
+    });
+    toast(`บันทึกราคาห้อง ${room} แล้ว — มีผลกับบิลที่ออกใหม่`);
+    await loadOwner();
+    go(`entry/${encodeURIComponent(room)}`);
+  } catch (e) {
+    toast(e.message, true);
   }
 }
 

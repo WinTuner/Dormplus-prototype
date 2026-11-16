@@ -288,9 +288,9 @@ cd ..\backend; $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@lo
 | ✅ automated — id ของตัวเองใน `smoke-usecases.js` | 156 | `line-app/smoke-usecases.js` |
 | ✅ automated — ชี้ไป backend pytest | 50 | `backend/tests/*.py` |
 | ✅ automated — ชี้ไปเคสที่ automate แล้วใน UC อื่น (หรือ `smoke-cron.js`) | 9 | `smoke-usecases.js` / `smoke-cron.js` |
-| ✅ automated — ตรวจสลิปผ่าน SlipOK (`smoke-handlers.js`, stub provider) | 6 | `line-app/smoke-handlers.js` |
+| ✅ automated — ตรวจสลิปผ่าน SlipOK (`smoke-handlers.js`, stub provider) | 7 | `line-app/smoke-handlers.js` |
 | 🖐 manual | 23 | คนกดกับ LINE OA + LIFF จริง (ข้อ 7) |
-| ⏳ ยังไม่สร้าง | 21 | ยังไม่มีฟีเจอร์ จึงยังไม่มี test |
+| ⏳ ยังไม่สร้าง | 20 | ยังไม่มีฟีเจอร์ จึงยังไม่มี test |
 | **รวม** | **265** | |
 
 ตัวเลข 198 ไม่ได้แปลว่าโค้ดทุกบรรทัดถูกตรวจ — เคสหนึ่งอาจ assert หลายอย่างหรือแค่ทางเดียวของ handler
