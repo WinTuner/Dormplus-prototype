@@ -17,7 +17,7 @@ const store = require("./_store");
 const { saveBill, archiveVoid, PERIOD } = require("./_bills");
 const { push, billBubble, confirmBubble } = require("./_line");
 const { requireUser, isOwner } = require("./_auth");
-const { ROOMS, configFor } = require("./_rooms");
+const { ROOMS, configFor, baseDefaults } = require("./_rooms");
 const { mapLimit } = require("./_async");
 
 const DATE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
@@ -48,10 +48,17 @@ module.exports = async (req, res) => {
   }
 
   const billPeriod = String(period || process.env.BILL_PERIOD || "").trim();
-  const billDue = String(due || process.env.BILL_DUE || "").trim();
   if (!PERIOD.test(billPeriod)) {
     return res.status(400).json({ error: { code: "VALIDATION", message: "period ต้องเป็น YYYY-MM (เช่น 2026-11)" } });
   }
+  // Due date: what the request says, else the env, else the dorm's due day (5 → the 5th of the
+  // billed month). One read of the settings also gives every room its rent without 12 extra reads.
+  const dorm = await store.get("dorm");
+  const base = await baseDefaults(dorm);
+  const dueDay = dorm && Number.isInteger(dorm.dueDay) ? dorm.dueDay : 0;
+  const billDue = String(
+    due || process.env.BILL_DUE || (dueDay ? `${billPeriod}-${String(dueDay).padStart(2, "0")}` : "")
+  ).trim();
   if (billDue && !DATE.test(billDue)) {
     return res.status(400).json({ error: { code: "VALIDATION", message: "due ต้องเป็น YYYY-MM-DD" } });
   }
@@ -71,14 +78,14 @@ module.exports = async (req, res) => {
   const out = await mapLimit(jobs, ROOM_CONCURRENCY, (job) =>
     job.repeated
       ? { room: job.room, error: "ห้องนี้ซ้ำในคำขอเดียวกัน" } // two writers on one room's keys would race
-      : issueBill(job.r, job.room, billPeriod, billDue, baseUrl)
+      : issueBill(job.r, job.room, billPeriod, billDue, baseUrl, base)
   );
 
   return res.status(200).json({ ok: true, period: billPeriod, due: billDue || null, rooms: out });
 };
 
 // One room: validate, refuse to touch a bill that has a slip or is paid, write, push the card.
-async function issueBill(r, room, billPeriod, billDue, baseUrl) {
+async function issueBill(r, room, billPeriod, billDue, baseUrl, base) {
   if (!ROOMS.includes(room)) return { room, error: "ไม่มีห้องนี้ในหอ" };
   if (isMissing(r.water) || isMissing(r.elec)) return { room, error: "ต้องกรอกหน่วยน้ำและไฟ" };
   const waterUnits = parseUnits(r.water);
@@ -90,7 +97,7 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl) {
   const [latest, periodBill, cfg, tenant, prepay] = await Promise.all([
     store.get(`bill:${room}`),
     store.get(`bill:${billPeriod}:${room}`),
-    configFor(room),
+    configFor(room, base),
     store.get(`room-user:${room}`),
     store.get(`prepay:${room}`),
   ]);

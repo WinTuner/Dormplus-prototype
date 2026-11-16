@@ -168,8 +168,9 @@ webhook ฝั่งนี้บันทึกทุก event ลงตาร�
 
 - `ROOMS` เป็น comma-separated; เปลี่ยนแล้วข้อมูล Blob ของห้องเดิม (`room:<room>`, `bill:<room>`, `meter:<room>`) ไม่ถูกลบ
 - ค่าเช่า/เรตถูก wrap ด้วย `Number()` — ใส่ค่าที่แปลงไม่ได้ (เช่น `25 บาท`) จะได้ `NaN` แล้วยอดบิลกลายเป็น `NaN` โดยไม่ error
-- ค่าเฉพาะห้องเขียนทับได้ด้วย key `room:<room>` ใน Blob (`{...DEFAULTS, ...roomConfig}`)
-- **การเปลี่ยนค่าเช่าใน production เป็นการตั้งค่า deployment ไม่ใช่การแก้โค้ด** — ตั้ง `DEFAULT_RENT` (default `3500`) ใน Vercel → Project → Settings → Environment Variables แล้ว Redeploy เพราะ `_rooms.js` อ่านตอน module load (instance ที่ warm อยู่ใช้ค่าเดิม) · ผลกับบิลที่ออกไปแล้ว: ไม่ย้อนหลัง บิลเก่าเก็บยอดไว้ใน Blob แล้ว
+- **ลำดับความสำคัญ:** env → ค่าที่เจ้าของบันทึกจากหน้าตั้งค่าหอ (`dorm` ใน Blob) → ค่าเฉพาะห้อง (`room:<room>`)
+- **เจ้าของแก้ค่าเริ่มต้นได้เองในแอป** — หน้าตั้งค่าหอ (`POST /api/rooms` `{dorm}`) เขียน `dorm` = `{ name, rent, waterRate, elecRate, dueDay }` · ไม่ต้อง Redeploy · `dueDay` (1–28) ใช้สร้างวันครบกำหนดของบิล (แทน `BILL_DUE`) · ผลกับบิลที่ออกไปแล้ว: ไม่ย้อนหลัง
+- env ยังใช้เป็น **fallback** ของหอที่ยังไม่ตั้งค่า — ตั้ง `DEFAULT_RENT` ใน Vercel แล้ว Redeploy เมื่ออยากเปลี่ยนค่าตั้งต้นของหลาย deployment พร้อมกัน
 
 ### 2.2 `SEED_TOKEN` / `ALLOW_SEED_BYPASS`
 

@@ -328,7 +328,7 @@ const pathOf = (key) => `kv/${String(key).replace(/[^a-zA-Z0-9._-]/g, "-")}.json
 | ไฟล์ | อ่านอะไร |
 |---|---|
 | `api/bill.js` | `bill:<period>:<room>` / `bill:<room>` + `bills:<room>` (history) + `bill-voids:<room>` → `bill-void:…` (`?voided=1`) |
-| `api/rooms.js` | `bill:<room>` + `prepay:<room>` + `meter:<room>` + `room-user:<room>` + `configFor()` (`room:<room>`) ต่อห้อง; `POST` (owner เท่านั้น) เขียน `room:<room>` |
+| `api/rooms.js` | `bill:<room>` + `prepay:<room>` + `meter:<room>` + `room-user:<room>` + `room-users:<room>` + `configFor()` (`dorm` → `room:<room>`) ต่อห้อง; `POST` (owner เท่านั้น) เขียน `room:<room>` หรือ `dorm`; `?settings=1` อ่าน `dorm` |
 | `api/run.js` | `bill:<room>` + `bill:<period>:<room>` + `prepay:<room>` + config/ผู้เช่า (กันออกซ้ำ/ทับบิลที่จ่ายแล้ว, แนบ prepay) |
 | `api/slip.js` | `bill:<room>`, `bills:<room>`, `bill:<period>:<room>`, `tenancy:<room>`, `prepay:<room>` + เขียน `slip-ref:<transRef>` หลังตรวจผ่าน |
 | `api/slip-image.js` | `bill:<room>`, `prepay:<room>` (`advance=1`), `prepay-old:<room>` (`archived=1`) |

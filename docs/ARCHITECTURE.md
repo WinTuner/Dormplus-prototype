@@ -145,6 +145,7 @@ webhook ของ OA ยังชี้ที่ `line-app`
 | เริ่มสัญญาเช่าปัจจุบันของห้อง | `tenancy:<room>` (`{ since: ISO }`) | `kv/tenancy-<room>.json` |
 | มิเตอร์ล่าสุด | `meter:<room>` | `kv/meter-<room>.json` |
 | config ต่อห้อง (ทับค่า default) | `room:<room>` (อ่านโดย `configFor()`, เขียนโดย `POST /api/rooms`) | `kv/room-<room>.json` |
+| ค่าตั้งของหอ (ชื่อ, ค่าเริ่มต้น, วันครบกำหนด) | `dorm` | `kv/dorm.json` |
 | สิทธิ์เจ้าของ/ผู้ช่วย | `owner:<userId>` | `kv/owner-<userId>.json` |
 | QR ผูกห้อง | `room-qr:<room>` / `qr-code:<code>` | `kv/room-qr-<room>.json` ฯลฯ |
 | ส่งเตือนไปแล้ว | `reminded:<room>:<period>:<kind>:<rev>` (+ key เดิมที่ไม่มี rev ซึ่งยังถูกอ่าน) | `kv/reminded-<room>-<period>-<kind>-<rev>.json` |
