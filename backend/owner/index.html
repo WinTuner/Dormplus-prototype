@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DormPlus — เจ้าของหอ</title>
+<style>
+  :root{
+    --bg:#0B0F14;--bar:#0F151C;--card:#121A22;--card2:#18222C;
+    --line:rgba(230,237,243,.08);--line2:rgba(230,237,243,.14);
+    --text:#E6EDF3;--muted:#93A1B0;--accent:#4FD8D2;--warn:#E3A008;--bad:#F0726B;
+    --radius:12px;--gutter:20px
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans Thai',system-ui,'Segoe UI',sans-serif;font-variant-numeric:tabular-nums;min-height:100vh}
+  button{font-family:inherit;color:inherit}
+  input{font-family:inherit}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .wrap{max-width:760px;margin:0 auto;padding-bottom:40px}
+
+  .topbar{position:sticky;top:0;z-index:5;background:var(--bar);border-bottom:1px solid var(--line);padding:16px var(--gutter) 12px;display:flex;justify-content:space-between;align-items:flex-end;gap:16px}
+  .kick{font-size:12px;color:var(--muted);line-height:1.4}
+  h1{font-size:18px;font-weight:600;line-height:1.4}
+  .period{display:flex;align-items:center;gap:8px}
+  .period input{background:var(--card);border:1px solid var(--line2);color:var(--text);border-radius:8px;padding:6px 10px;font-size:13px}
+
+  main{padding:20px var(--gutter);display:flex;flex-direction:column;gap:12px}
+  .tabs{display:flex;gap:4px;padding:4px;background:var(--card);border:1px solid var(--line);border-radius:12px}
+  .tabs button{flex:1;background:none;border:0;border-radius:8px;padding:8px;font-size:13px;font-weight:500;color:var(--muted);cursor:pointer}
+  .tabs button.on{background:var(--card2);color:var(--text)}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
+  .m{font-size:12px;color:var(--muted);line-height:1.6}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .big{font-size:20px;font-weight:600;line-height:1.3}
+  .huge{font-size:28px;font-weight:600;line-height:1.2}
+  .unit{font-size:13px;color:var(--muted);font-weight:400}
+  .stats{display:grid;grid-template-columns:repeat(4,1fr);background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .stats .cell{padding:14px 12px;border-left:1px solid var(--line)}
+  .stats .cell:first-child{border-left:0}
+  .stats .big{margin-top:6px}
+
+  .btn{display:block;width:100%;background:transparent;border:1px solid var(--line2);border-radius:10px;padding:12px;font-size:15px;font-weight:500;text-align:center;cursor:pointer;color:var(--text);transition:background-color .12s,transform .12s}
+  .btn:active{transform:scale(.99)}
+  .btn.primary{background:var(--text);border-color:var(--text);color:#0B0F14;font-weight:600}
+  .btn:disabled{opacity:.45;cursor:default}
+  .btn.sm{width:auto;padding:8px 12px;font-size:13px}
+
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap}
+  .pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+  .pill.ok{color:var(--accent)}.pill.warn{color:var(--warn)}.pill.bad{color:var(--bad)}
+
+  .room{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
+  .room:first-child{border-top:0;padding-top:0}
+  .room .who{flex:1;min-width:0}
+  .room b{font-weight:500;font-size:14px}
+  .room .m{margin-top:2px}
+  .meter{display:flex;gap:8px;flex:none}
+  .meter label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted)}
+  .meter input{width:76px;background:var(--card2);border:1px solid var(--line2);color:var(--text);border-radius:8px;padding:8px;font-size:14px;text-align:right}
+  .meter input:disabled{opacity:.55}
+
+  .inv{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
+  .inv:first-child{border-top:0;padding-top:0}
+  .inv .who{flex:1;min-width:0}
+  .inv .amt{font-size:14px;font-weight:500;white-space:nowrap}
+  .acts{display:flex;gap:8px;flex:none}
+
+  .hint{font-size:12px;color:var(--muted);line-height:1.6}
+  .err{color:var(--bad);font-size:13px;line-height:1.6}
+  .empty{text-align:center;padding:24px 12px;color:var(--muted);font-size:13px}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);max-width:calc(100% - 32px);background:var(--card2);border:1px solid var(--line2);padding:10px 14px;border-radius:10px;font-size:13px;z-index:30;opacity:0;pointer-events:none;transition:opacity .16s}
+  .toast.show{opacity:1}
+  .toast.bad{border-color:rgba(240,114,107,.5)}
+  .login{max-width:380px;margin:12vh auto 0;padding:0 var(--gutter)}
+  .field{display:flex;flex-direction:column;gap:8px;margin-top:16px}
+  .field label{font-size:12px;color:var(--muted)}
+  .field input{background:var(--card2);border:1px solid var(--line2);color:var(--text);border-radius:10px;padding:12px;font-size:16px}
+  @media (max-width:560px){
+    .stats{grid-template-columns:repeat(2,1fr)}
+    .stats .cell:nth-child(3){border-left:0;border-top:1px solid var(--line)}
+    .stats .cell:nth-child(4){border-top:1px solid var(--line)}
+    .room,.inv{flex-wrap:wrap}
+    .meter{width:100%;justify-content:flex-start}
+    .meter input{width:100%}
+    .meter label{flex:1}
+  }
+</style>
+</head>
+<body>
+<div id="app"><div class="wrap"><main><div class="card empty">กำลังโหลด…</div></main></div></div>
+<div class="toast" id="toast"></div>
+<script>
+const $ = (id) => document.getElementById(id);
+const root = $("app");
+const fmt = (n) => Number(n || 0).toLocaleString("th-TH");
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const TH_MONTH = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.", "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."];
+const periodTh = (p) => { const [y, m] = String(p || "").split("-"); return `${TH_MONTH[Number(m) - 1] || ""} ${Number(y) + 543}`; };
+const monthNow = () => new Date().toLocaleDateString("sv-SE", { timeZone: "Asia/Bangkok" }).slice(0, 7);
+
+let toastTimer = null;
+function toast(msg, bad) {
+  const el = $("toast");
+  el.textContent = msg;
+  el.className = "toast show" + (bad ? " bad" : "");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => (el.className = "toast"), 3200);
+}
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, {
+    ...opts,
+    credentials: "same-origin",
+    headers: { ...(opts.body ? { "Content-Type": "application/json" } : {}), ...(opts.headers || {}) },
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw Object.assign(new Error(data?.error?.message || `HTTP ${res.status}`), { status: res.status });
+  return data;
+}
+
+const S = { period: monthNow(), tab: "meter", rooms: null, invoices: null, report: null };
+
+// ---------- shell ----------
+function shell() {
+  root.innerHTML = `
+    <div class="wrap">
+      <div class="topbar">
+        <div><div class="kick">DormPlus · เจ้าของหอ</div><h1>${periodTh(S.period)}</h1></div>
+        <div class="period"><input id="period" type="month" value="${esc(S.period)}"></div>
+      </div>
+      <main>
+        <div class="tabs">
+          ${[["meter", "มิเตอร์"], ["bills", "บิล"], ["slips", "สลิป"], ["report", "รายงาน"]]
+            .map(([k, label]) => `<button data-tab="${k}" class="${S.tab === k ? "on" : ""}">${label}</button>`).join("")}
+        </div>
+        <div id="view"><div class="card empty">กำลังโหลด…</div></div>
+      </main>
+    </div>`;
+  $("period").onchange = (e) => {
+    const v = e.target.value;
+    if (!/^\d{4}-\d{2}$/.test(v)) return toast("เลือกรอบบิลก่อน", true);
+    S.period = v;
+    S.rooms = S.invoices = S.report = null;
+    render();
+  };
+  root.querySelectorAll("[data-tab]").forEach((el) => (el.onclick = () => { S.tab = el.dataset.tab; shell(); render(); }));
+}
+
+function loginScreen(message) {
+  root.innerHTML = `
+    <div class="login">
+      <div class="card">
+        <div class="kick">DormPlus</div>
+        <h1>เข้าสู่หน้าจอเจ้าของหอ</h1>
+        <div class="m" style="margin-top:8px">ใช้รหัสเจ้าของหอของหอนี้ (ตั้งใน OWNER_ACCESS_CODE บนเซิร์ฟเวอร์)</div>
+        <div class="field"><label for="code">รหัสเจ้าของหอ</label><input id="code" type="password" autocomplete="current-password" placeholder="••••••"></div>
+        ${message ? `<div class="err" style="margin-top:12px">${esc(message)}</div>` : ""}
+        <button class="btn primary" id="login" style="margin-top:16px">เข้าสู่ระบบ</button>
+      </div>
+    </div>`;
+  const go = async () => {
+    const code = $("code").value.trim();
+    if (!code) return toast("ใส่รหัสก่อน", true);
+    try {
+      await api("/v1/auth/owner", { method: "POST", body: JSON.stringify({ code }) });
+      start();
+    } catch (e) {
+      loginScreen(e.message);
+    }
+  };
+  $("login").onclick = go;
+  $("code").onkeydown = (e) => { if (e.key === "Enter") go(); };
+  $("code").focus();
+}
+
+// ---------- meter ----------
+function renderMeter() {
+  const view = $("view");
+  if (!S.rooms) return;
+  if (!S.rooms.length) {
+    view.innerHTML = `<div class="card empty">ยังไม่มีห้องในหอนี้</div>`;
+    return;
+  }
+  const read = S.rooms.filter((r) => r.reading).length;
+  view.innerHTML = `
+    <div class="card">
+      <div class="row"><span class="m">จดมิเตอร์รอบนี้</span><span class="m">${read} / ${S.rooms.length} ห้อง</span></div>
+    </div>
+    <div class="card">
+      ${S.rooms.map((r) => {
+        const billed = r.invoice && r.invoice.status !== "void";
+        const cur = r.reading || {};
+        const water = cur.water_now ?? cur.water_prev ?? "";
+        const elec = cur.elec_now ?? cur.elec_prev ?? "";
+        return `<div class="room">
+          <div class="who">
+            <b>ห้อง ${esc(r.room_no)}</b>
+            <div class="m">${esc(r.tenant?.name || "ยังไม่มีผู้เช่า")}${r.tenant && !r.tenant.line_linked ? " · ไม่ได้ผูก LINE" : ""}${billed ? " · ออกบิลแล้ว" : ""}</div>
+          </div>
+          <div class="meter">
+            <label>น้ำ<input type="number" min="0" step="1" inputmode="numeric" value="${esc(water)}" data-room="${esc(r.id)}" data-k="water" ${billed ? "disabled" : ""}></label>
+            <label>ไฟ<input type="number" min="0" step="1" inputmode="numeric" value="${esc(elec)}" data-room="${esc(r.id)}" data-k="elec" ${billed ? "disabled" : ""}></label>
+          </div>
+          ${billed ? "" : `<button class="btn sm" data-save="${esc(r.id)}">บันทึก</button>`}
+        </div>`;
+      }).join("")}
+    </div>
+    <div class="hint">บันทึกซ้ำได้จนกว่าห้องนั้นจะถูกออกบิล · ค่าเริ่มต้นของช่องคือเลขมิเตอร์เดือนก่อน</div>`;
+
+  view.querySelectorAll("[data-save]").forEach((btn) => {
+    btn.onclick = async () => {
+      const id = btn.dataset.save;
+      const val = (k) => view.querySelector(`[data-room="${id}"][data-k="${k}"]`).value;
+      btn.disabled = true;
+      try {
+        const out = await api(`/v1/rooms/${encodeURIComponent(id)}/reading`, {
+          method: "PUT",
+          body: JSON.stringify({ period: S.period, water_now: Number(val("water") || 0), elec_now: Number(val("elec") || 0) }),
+        });
+        toast(`บันทึกแล้ว · น้ำ ${fmt(out.water_units)} · ไฟ ${fmt(out.elec_units)} หน่วย${out.warning ? " · " + out.warning : ""}`);
+        S.rooms = null;
+        render();
+      } catch (e) {
+        toast(e.message, true);
+        btn.disabled = false;
+      }
+    };
+  });
+}
+
+// ---------- bills + slips ----------
+function invRow(inv, withActions) {
+  const due = inv.due_date ? ` · ครบกำหนด ${esc(inv.due_date)}` : "";
+  const late = inv.days_overdue > 0 ? ` · เลย ${inv.days_overdue} วัน` : "";
+  return `<div class="inv">
+    <div class="who"><b>ห้อง ${esc(inv.room_no)}</b>
+      <div class="m">${fmt(inv.total)} บาท${due}${late}</div></div>
+    <span class="pill ${inv.status === "paid" ? "ok" : inv.status === "pending" ? "warn" : inv.status === "void" ? "" : "bad"}">
+      ${inv.status === "paid" ? "ชำระแล้ว" : inv.status === "pending" ? "รอตรวจ" : inv.status === "void" ? "ยกเลิก" : "ยังไม่จ่าย"}</span>
+    ${withActions ? `<div class="acts">
+      <button class="btn sm" data-confirm="${esc(inv.id)}">ยืนยัน</button>
+      <button class="btn sm" data-reject="${esc(inv.id)}">ตีกลับ</button></div>` : ""}
+  </div>`;
+}
+
+function wireInvoiceActions(view) {
+  view.querySelectorAll("[data-confirm]").forEach((btn) => {
+    btn.onclick = async () => {
+      btn.disabled = true;
+      try {
+        const out = await api(`/v1/invoices/${encodeURIComponent(btn.dataset.confirm)}/confirm`, { method: "POST" });
+        toast(`ยืนยันแล้ว · ใบเสร็จ ${out.receipt_no}`);
+        S.invoices = null;
+        render();
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
+    };
+  });
+  view.querySelectorAll("[data-reject]").forEach((btn) => {
+    btn.onclick = async () => {
+      const reason = (prompt("เหตุผลที่ตีกลับสลิป (ผู้เช่าจะเห็น)") || "").trim();
+      if (!reason) return;
+      btn.disabled = true;
+      try {
+        await api(`/v1/invoices/${encodeURIComponent(btn.dataset.reject)}/reject`, { method: "POST", body: JSON.stringify({ reason }) });
+        toast("ตีกลับแล้ว · บิลกลับเป็นยังไม่จ่าย");
+        S.invoices = null;
+        render();
+      } catch (e) { toast(e.message, true); btn.disabled = false; }
+    };
+  });
+}
+
+function renderBills() {
+  const view = $("view");
+  if (!S.invoices) return;
+  const { items, summary } = S.invoices;
+  const pending = items.filter((i) => i.status === "pending");
+  view.innerHTML = `
+    <div class="stats">
+      <div class="cell"><div class="m">ออกบิลรวม</div><div class="big">${fmt(summary.total)}</div></div>
+      <div class="cell"><div class="m">เก็บได้</div><div class="big">${fmt(summary.paid)}</div></div>
+      <div class="cell"><div class="m">รอตรวจ</div><div class="big">${fmt(summary.pending)}</div></div>
+      <div class="cell"><div class="m">ยังไม่จ่าย</div><div class="big">${fmt(summary.unpaid)}</div></div>
+    </div>
+    <div class="card">
+      <div class="row"><span class="m">บิลรอบ ${periodTh(S.period)}</span><span class="m">${items.length} ห้อง</span></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn sm" id="run">ออกบิลทั้งหอ</button>
+        ${pending.length ? `<span class="pill warn">รอตรวจ ${pending.length}</span>` : ""}
+      </div>
+    </div>
+    <div class="card">${items.length ? items.map((i) => invRow(i, false)).join("") : `<div class="empty">ยังไม่มีบิลรอบนี้</div>`}</div>`;
+
+  $("run").onclick = async (e) => {
+    const btn = e.target;
+    if (!confirm(`ออกบิลรอบ ${periodTh(S.period)} ให้ทุกห้องที่จดมิเตอร์แล้ว?`)) return;
+    btn.disabled = true;
+    btn.textContent = "กำลังออกบิล…";
+    try {
+      const out = await api("/v1/billing/run", { method: "POST", body: JSON.stringify({ period: S.period }) });
+      toast(`ออกบิล ${out.rooms_to_bill} ห้อง · ส่งLINE ${out.queued} · ข้ามไม่มีมิเตอร์ ${out.skipped_no_reading + out.skipped_no_previous_reading}`);
+      S.invoices = null;
+      render();
+    } catch (err) { toast(err.message, true); btn.disabled = false; btn.textContent = "ออกบิลทั้งหอ"; }
+  };
+}
+
+function renderSlips() {
+  const view = $("view");
+  if (!S.invoices) return;
+  const pending = S.invoices.items.filter((i) => i.status === "pending");
+  view.innerHTML = pending.length
+    ? `<div class="card">${pending.map((i) => invRow(i, true)).join("")}</div>
+       <div class="hint">ยืนยันแล้วบิลเป็น “ชำระแล้ว” และได้เลขใบเสร็จ · ตีกลับแล้วบิลกลับเป็น “ยังไม่จ่าย” พร้อมเหตุผล</div>`
+    : `<div class="card empty">ไม่มีสลิปที่รอตรวจ</div>`;
+  wireInvoiceActions(view);
+}
+
+// ---------- report ----------
+function renderReport() {
+  const view = $("view");
+  if (!S.report) return;
+  const r = S.report;
+  view.innerHTML = `
+    <div class="card">
+      <div class="m">ออกบิลรอบ ${periodTh(S.period)}</div>
+      <div class="huge" style="margin-top:4px">${fmt(r.billed)} <span class="unit">บาท</span></div>
+      <div class="m" style="margin-top:8px">เก็บได้ ${fmt(r.paid)} · รอตรวจ ${fmt(r.pending)} · ยังไม่จ่าย ${fmt(r.unpaid)}</div>
+    </div>
+    <div class="stats">
+      <div class="cell"><div class="m">ห้องทั้งหมด</div><div class="big">${r.rooms_total}</div></div>
+      <div class="cell"><div class="m">จ่ายครบ</div><div class="big">${r.rooms_paid}</div></div>
+      <div class="cell"><div class="m">ค้างเกินกำหนด</div><div class="big">${r.rooms_overdue}</div></div>
+      <div class="cell"><div class="m">เก็บได้</div><div class="big">${r.billed ? Math.round((r.paid / r.billed) * 100) : 0}<span class="unit">%</span></div></div>
+    </div>`;
+}
+
+// ---------- data ----------
+async function render() {
+  if (!["meter", "bills", "slips", "report"].includes(S.tab)) S.tab = "meter";
+  try {
+    if (S.tab === "meter") {
+      if (!S.rooms) S.rooms = (await api(`/v1/rooms?period=${S.period}`)).items;
+      return renderMeter();
+    }
+    if (S.tab === "bills") {
+      if (!S.invoices) S.invoices = await api(`/v1/invoices?period=${S.period}`);
+      return renderBills();
+    }
+    if (S.tab === "slips") {
+      if (!S.invoices) S.invoices = await api(`/v1/invoices?period=${S.period}&status=pending`);
+      return renderSlips();
+    }
+    if (!S.report) S.report = await api(`/v1/reports/summary?period=${S.period}`);
+    return renderReport();
+  } catch (e) {
+    if (e.status === 401) return loginScreen();
+    if (e.status === 403) return loginScreen("บัญชีนี้เป็นผู้เช่า ไม่ใช่เจ้าของหอ");
+    $("view").innerHTML = `<div class="card"><div class="err">${esc(e.message)}</div></div>`;
+  }
+}
+
+function start() {
+  S.rooms = S.invoices = S.report = null;
+  shell();
+  render();
+}
+
+// The cookie decides who we are; calling a protected route tells us whether we are in.
+(async () => {
+  try {
+    await api(`/v1/rooms?period=${S.period}`);
+    start();
+  } catch (e) {
+    if (e.status === 401 || e.status === 403) return loginScreen();
+    loginScreen(e.message);
+  }
+})();
+</script>
+</body>
+</html>

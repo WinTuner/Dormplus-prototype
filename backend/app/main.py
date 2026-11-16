@@ -13,6 +13,7 @@ from app.routes import auth, billing, cron, dunning, invites, me, properties, re
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 LIFF_DIR = BACKEND_DIR / "liff"
+OWNER_DIR = BACKEND_DIR / "owner"
 
 
 def create_app() -> FastAPI:
@@ -56,6 +57,9 @@ def create_app() -> FastAPI:
 
     if LIFF_DIR.is_dir():
         app.mount("/liff", StaticFiles(directory=str(LIFF_DIR), html=True), name="liff")
+    # Owner UI: one static page, cookie-authenticated with POST /v1/auth/owner.
+    if OWNER_DIR.is_dir():
+        app.mount("/owner", StaticFiles(directory=str(OWNER_DIR), html=True), name="owner")
 
     return app
 
