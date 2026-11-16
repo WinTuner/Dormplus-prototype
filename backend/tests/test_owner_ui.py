@@ -31,7 +31,7 @@ def test_owner_login_opens_the_rooms_screen(seeded, client_for, monkeypatch):
     assert "dp_session" in res.cookies
     rooms = client.get("/v1/rooms?period=2026-11")
     assert rooms.status_code == 200
-    assert len(rooms.json()["items"]) == 12
+    assert len(rooms.json()["items"]) == 42  # the seeded dorm has 42 rooms
 
 
 def test_a_wrong_code_is_a_failure_and_guessing_is_limited(seeded, client_for, monkeypatch):
