@@ -99,3 +99,43 @@ try {
   if (err.code === "MODULE_NOT_FOUND") console.log("smoke: qrcode-svg not installed, QR check skipped");
   else throw err;
 }
+
+// 7) R2 adapter: the six calls _store.js needs, against a fake S3 endpoint (no network, no bucket).
+(async () => {
+  const { createStore } = require("./api/_store-r2");
+  const calls = [];
+  const replies = [];
+  const fakeFetch = async (req) => {
+    // aws4fetch hands over a signed Request, so body and method come from it, not from init.
+    const body = req.method === "GET" ? undefined : await req.text();
+    calls.push({ url: req.url, method: req.method, body });
+    const next = replies.shift() || {};
+    return new Response(next.body ?? "", { status: next.status || 200, headers: next.headers || {} });
+  };
+  const store = createStore(
+    { R2_ACCOUNT_ID: "acc", R2_BUCKET: "dorm", R2_ACCESS_KEY_ID: "k", R2_SECRET_ACCESS_KEY: "s" },
+    fakeFetch
+  );
+
+  replies.push({ body: '{"a":1}' });
+  assert.strictEqual(await store.getText("kv/dorm.json"), '{"a":1}');
+  assert.ok(calls[0].url.endsWith("/dorm/kv/dorm.json"), "object URL is /<bucket>/<path>");
+
+  replies.push({ status: 404 });
+  assert.strictEqual(await store.getText("kv/none.json"), null, "a missing key is null, not a throw");
+
+  replies.push({});
+  await store.putText("kv/x.json", '{"b":2}');
+  assert.deepStrictEqual([calls[2].method, calls[2].body], ["PUT", '{"b":2}']);
+
+  replies.push({ status: 404 });
+  await store.delFile("slips/gone.jpg"); // 404 on delete is fine
+
+  replies.push({ body: "<IsTruncated>true</IsTruncated><NextContinuationToken>t1</NextContinuationToken><Key>kv/a.json</Key>" });
+  replies.push({ body: "<IsTruncated>false</IsTruncated><Key>kv/b.json</Key>" });
+  assert.deepStrictEqual(await store.listPaths("kv/"), ["kv/a.json", "kv/b.json"], "list follows the continuation token");
+  console.log("smoke OK — R2 adapter: get/404, put, delete, list pagination");
+})().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

@@ -368,14 +368,14 @@ async function overdue(res, { staff, bound, asked }) {
   if (!staff) {
     if (!bound) return fail(res, 400, "VALIDATION", "ต้องผูกห้องก่อน");
     if (asked && asked !== bound) return fail(res, 403, "FORBIDDEN", `บัญชีนี้ยังไม่ได้ผูกกับห้อง ${asked}`);
-    const [bills, tenancy] = await Promise.all([ledger.recentBills(bound), tenancyOf(bound)]);
+    const [bills, tenancy] = await Promise.all([ledger.stateBills(bound), tenancyOf(bound)]);
     const { count, total, maxDaysOverdue, items } = ledger.overdueOf(bills.filter((b) => visibleToTenant(b, tenancy)), today);
     return res.status(200).json({ today, room: bound, count, total, maxDaysOverdue, items });
   }
   if (asked && !ROOMS.includes(asked)) return fail(res, 404, "NOT_FOUND", `ไม่พบห้อง ${asked}`);
   const perRoom = await mapLimit(asked ? [asked] : ROOMS, ROOMS_AT_ONCE, async (room) => ({
     room,
-    ...ledger.overdueOf(await ledger.recentBills(room), today),
+    ...ledger.overdueOf(await ledger.stateBills(room), today),
   }));
   const rooms = perRoom
     .filter((r) => r.count > 0)
@@ -391,13 +391,14 @@ async function overdue(res, { staff, bound, asked }) {
 // Money received in a Bangkok month, by the day it was paid (`paidAt`), not by the bill's period:
 // an October bill paid on 2 November is November income, and so is a December bill issued early and
 // paid on 20 November. A void bill is money owed back, so only `paid` counts.
-// Reads are bounded: per room every indexed period from 12 months before the month upward, with no
-// upper bound (later periods are included). The only bill not counted is one paid more than 12 months
-// after its period.
+// Reads are bounded: one compact state key per room (`_ledger.stateBills`), which keeps the latest 24
+// periods — more than the 12-month window below, so the only bill not counted is one paid more than
+// 12 months after its period.
 async function income(res, month) {
   if (!STRICT_PERIOD.test(month)) return fail(res, 400, "VALIDATION", "income ต้องเป็น YYYY-MM");
   const from = ledger.shiftMonth(month, -INCOME_LOOKBACK_MONTHS);
-  const perRoom = await mapLimit(ROOMS, ROOMS_AT_ONCE, async (room) => (await ledger.billsInPeriods(room, from)).map((b) => ({ ...b, room })));
+  const perRoom = await mapLimit(ROOMS, ROOMS_AT_ONCE, async (room) =>
+    (await ledger.stateBills(room)).filter((b) => b.period >= from).map((b) => ({ ...b, room })));
   const items = perRoom
     .flat()
     .filter((b) => b.status === "paid" && ledger.bangkokMonth(b.paidAt) === month)

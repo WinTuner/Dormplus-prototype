@@ -128,6 +128,11 @@ vercel --prod
   (`vercel storage connect` ใส่ `BLOB_STORE_ID` ไว้ให้แล้ว) · **`BLOB_READ_WRITE_TOKEN` ไม่ถูกอ่านโดยโค้ด**
   เพราะทุก call ใช้ `access: "private"` — ถ้าเห็นตัวแปรนี้ค้างอยู่ ลบได้ ไม่มีผล
   <!-- VERIFY: Blob store ที่ผูกกับโปรเจกต์ `line-app` (ชื่อ/region) — ดูที่ Project → Storage -->
+- **ย้ายที่เก็บไป Cloudflare R2 (`line-app`)** — ตัวเลือกเมื่อโควตา Blob (10,000 ops/เดือน) ไม่พอ:
+  1. สร้าง bucket + S3 API token แล้วคัดลอกข้อมูล: `BLOB_READ_WRITE_TOKEN=… R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… R2_BUCKET=… node line-app/scripts/migrate-blob-to-r2.js --dry` (ดูจำนวน/ขนาด) แล้วรันซ้ำโดยไม่มี `--dry`
+  2. ตั้ง `R2_BUCKET` + credential ทั้งสามบน Vercel (Production) **หลัง** คัดลอกเสร็จ — มี `R2_BUCKET` เมื่อไร โค้ดใช้ R2 ทันที ไม่ต้องแก้โค้ด
+  3. redeploy แล้วตรวจ `/api/config` + 1 บิล 1 สลิป · ถ้าอยากถอยกลับ แค่ลบ `R2_BUCKET` แล้ว redeploy (ข้อมูลช่วงที่อยู่บน R2 จะยังไม่กลับไป Blob — คัดลอกย้อนก่อนถ้าจำเป็น)
+  <!-- VERIFY: ชื่อ bucket / region / สถานะ R2 บน Cloudflare dashboard และโควตาจริงที่ใช้อยู่ — อยู่นอกเรพ -->
 - **ขั้นตอนที่ทำได้จาก dashboard เท่านั้น** (ไม่มีคำสั่งในเรพ):
   - Vercel → Project → Settings → **Environment Variables** (ผูกกับ Production/Preview) และ **Root Directory**
   - LINE Developers → LIFF app → **Endpoint URL** ต้องชี้โดเมน production และเปิด **friend option** ตามที่หอต้องการ

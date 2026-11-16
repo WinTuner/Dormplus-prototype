@@ -3,6 +3,7 @@
 // Every write goes through saveBill()/saveBills() so the two copies can never disagree.
 const store = require("./_store");
 const { checkAmount, amountFields } = require("./_verify");
+const ledger = require("./_ledger");
 
 const PERIOD = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -31,6 +32,8 @@ async function saveBills(bills, { latest } = {}) {
     latest === undefined ? store.get(`bill:${room}`) : latest,
     ...bills.map((b) => store.set(`bill:${b.period}:${room}`, b)),
     indexBills(room, bills.map((b) => b.period)),
+    // The compact state other paths read instead of one key per period (see `_ledger.stateBills`).
+    ledger.indexState(bills),
   ]);
   // Never let an older period replace the newest bill.
   if (!seen || !seen.period || newest.period >= seen.period) {

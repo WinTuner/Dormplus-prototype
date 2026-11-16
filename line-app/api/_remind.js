@@ -4,7 +4,7 @@ const { push } = require("./_line");
 const { ROOMS } = require("./_rooms");
 const { mapLimit } = require("./_async");
 const { tenancyOf, visibleToTenant } = require("./_bills");
-const { recentBills, dayNumber } = require("./_ledger");
+const { stateBills, dayNumber } = require("./_ledger");
 
 const ROOMS_AT_ONCE = 4;
 const PUSH_MAX_MESSAGES = 5; // LINE accepts at most 5 messages in one push
@@ -80,9 +80,17 @@ function messageFor(bill, daysLeft, baseUrl) {
   };
 }
 
-// The latest bill plus older periods that are still unpaid (the window lives in _ledger).
+// The latest bill plus older periods that are still unpaid. The compact state says which periods to
+// look at (one read per room); only those bills are read in full, because the card needs the money
+// breakdown. A room with nothing unpaid costs one read.
 async function candidateBills(room) {
-  return (await recentBills(room)).filter((b) => b.status === "unpaid" && b.due && b.period);
+  const state = (await stateBills(room)).filter((b) => b.status === "unpaid" && b.due && b.period);
+  if (!state.length) return [];
+  const latest = await store.get(`bill:${room}`);
+  const bills = await mapLimit(state, 4, (b) =>
+    b.period === latest?.period ? latest : store.get(`bill:${b.period}:${room}`)
+  );
+  return bills.filter(Boolean).filter((b) => b.status === "unpaid" && b.due && b.period);
 }
 
 async function remindRoom(room, today, baseUrl, out) {

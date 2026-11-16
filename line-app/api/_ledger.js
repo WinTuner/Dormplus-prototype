@@ -63,6 +63,36 @@ async function recentBills(room) {
 // `to` it reads every indexed period from `from` upward, later periods included.
 const billsInPeriods = (room, from, to = null) => readBills(room, (p) => p >= from && (!to || p <= to), 60);
 
+// `bill-state:<room>` is a compact copy of each bill — the fields the reminder, overdue and income
+// paths actually use — so those paths cost ONE read per room instead of one per period. saveBills()
+// keeps it current; a room written before the key existed is rebuilt once by stateBills().
+const STATE_MAX = 24;
+const stateOf = (b) => ({
+  room: b.room || null, period: b.period, status: b.status, total: b.total,
+  due: b.due || null, rev: b.rev || 1, issuedAt: b.issuedAt || null,
+  paidAt: b.paidAt || null, receiptNo: b.receiptNo || null,
+  refundDue: b.refundDue || null, refundedAt: b.refundedAt || null,
+});
+
+async function indexState(bills) {
+  if (!bills.length) return;
+  const key = `bill-state:${bills[0].room}`;
+  const current = (await store.get(key)) || [];
+  const byPeriod = new Map(current.map((s) => [s.period, s]));
+  for (const b of bills) byPeriod.set(b.period, stateOf(b));
+  const next = [...byPeriod.values()].sort((a, b) => (a.period < b.period ? 1 : -1)).slice(0, STATE_MAX);
+  await store.set(key, next);
+}
+
+// The compact state, or the bills themselves for a room written before the key existed. Nothing is
+// written here on purpose: only saveBills() may create state, so a read cannot freeze a stale list
+// in place (a bill written around it would disappear from the answer).
+async function stateBills(room) {
+  const state = await store.get(`bill-state:${room}`);
+  if (state) return state;
+  return (await recentBills(room)).map(stateOf);
+}
+
 // Unpaid bills that are past their due date. A bill due today is not overdue yet; `pending` is
 // waiting for the owner, `void` is cancelled, and a bill with no due date cannot be late.
 function overdueOf(bills, today) {
@@ -78,4 +108,4 @@ function overdueOf(bills, today) {
   };
 }
 
-module.exports = { OLDER_PERIODS, bangkokToday, bangkokMonth, dayNumber, daysBetween, shiftMonth, recentBills, billsInPeriods, overdueOf };
+module.exports = { OLDER_PERIODS, bangkokToday, bangkokMonth, dayNumber, daysBetween, shiftMonth, recentBills, billsInPeriods, overdueOf, stateOf, indexState, stateBills };
