@@ -205,7 +205,7 @@ bill object ที่ `run.js` สร้าง: `{ room, period, rent, water, el
 | `api/_remind.js` | ตัดสินชนิดเตือน (`kindFor`), อ่านบิลที่ยัง `unpaid`, push ต่อห้อง, เขียน `reminded:` | ไม่ใช่ endpoint; รับ `today` เพื่อให้เทสต์เลือกวันได้ |
 | `api/_bills.js` | `saveBills()`/`saveBill()`, `archiveVoid()`, `tenancyOf`/`visibleToTenant`, `receiptNoOf`, `PERIOD` | เขียนสำเนาต่อรอบ + index + `bill:<room>` ครั้งเดียวต่อกลุ่ม; ผู้เรียกที่เพิ่งอ่าน `bill:<room>` ส่ง `{ latest }` ได้ จะได้ไม่อ่านซ้ำ |
 | `api/config.js` | `GET` คืน `{ liffId }` | public โดยตั้งใจ |
-| `liff/bill.html` | หน้าเดียว 2 บทบาท + ตัวเรียก API ทั้งหมด | ไม่มี build; inline CSS/JS; ใช้ LIFF SDK จาก CDN |
+| `liff/bill.html` | หน้าเดียว 2 บทบาท + ตัวเรียก API ทั้งหมด | ไม่มี build; inline CSS/JS; ใช้ LIFF SDK จาก CDN · ตอนบูตเรียก `liff.getFriendship()` และขึ้นการ์ดชวนเพิ่มเพื่อนถ้ายังไม่ follow (LINE ไม่อนุญาตให้แอปเพิ่มเพื่อนเอง — ได้แค่เรียก `liff.requestFriendship()` ให้ผู้ใช้กด) |
 | `smoke.js` | เทสต์ offline: signature + รูปการ์ด + postback data | ใช้ `assert`, ตั้ง env ปลอมเอง |
 | `vercel.json` | rewrite `/` → `/liff/bill.html` และ `crons`: `/api/cron` ทุกวัน 02:00 UTC | ไม่มี build config |
 
