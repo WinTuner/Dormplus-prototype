@@ -11,7 +11,7 @@
 const crypto = require("crypto");
 const store = require("./_store");
 const { requireUser, isOwner } = require("./_auth");
-const { linkRichMenu, push } = require("./_line");
+const { linkRichMenu, push, displayName } = require("./_line");
 const { ROOMS } = require("./_rooms");
 const limit = require("./_limit");
 
@@ -38,7 +38,7 @@ async function ensureCode(room, rotate) {
 async function unbindRoom(room) {
   const primary = await store.get(`room-user:${room}`);
   const members = (await store.get(`room-users:${room}`)) || [];
-  const all = [...new Set([...(primary ? [primary] : []), ...members])];
+  const all = [...new Set([...(primary ? [primary] : []), ...members.map(idOf).filter(Boolean)])];
   for (const userId of all) {
     if ((await store.get(`user-room:${userId}`)) === room) await store.set(`user-room:${userId}`, null);
   }
@@ -49,9 +49,12 @@ async function unbindRoom(room) {
 
 // Roommates: extra accounts that may see the bill and pay. They never receive the cards or reminders —
 // those go to the primary account, so one room cannot burn two shares of the OA quota.
+// Entries are `{ id, name }`; a plain string is an entry written before names were kept.
 async function membersOf(room) {
   return (await store.get(`room-users:${room}`)) || [];
 }
+
+const idOf = (member) => (typeof member === "string" ? member : member && member.id);
 
 // The tenant has left: the room's next tenancy starts now (bills issued before it stay hidden from
 // them, see _bills.js). An advance slip waiting in `prepay:<room>` was the leaving tenant's, so it is
@@ -158,7 +161,7 @@ async function bind(req, res, userId, code) {
   if (addMode) {
     // Joining a room that already has someone is the whole point of this code, so it is idempotent
     // rather than a ROOM_TAKEN refusal.
-    if (holder === userId || members.includes(userId)) {
+    if (holder === userId || members.some((m) => idOf(m) === userId)) {
       return res.status(200).json({ ok: true, room, already: true, previous: null });
     }
   } else if (holder && holder !== userId) {
@@ -191,14 +194,18 @@ async function bind(req, res, userId, code) {
     } else {
       // A member moving out: only their own name leaves the list.
       const old = await membersOf(previous);
-      if (old.includes(userId)) await store.set(`room-users:${previous}`, old.filter((u) => u !== userId));
+      if (old.some((m) => idOf(m) === userId)) {
+        await store.set(`room-users:${previous}`, old.filter((m) => idOf(m) !== userId));
+      }
     }
   }
   await store.set(`user-room:${userId}`, room);
   if (!holder) await store.set(`room-user:${room}`, userId); // first arrival is the primary
-  const joined = new Set(members);
-  joined.add(userId);
-  await store.set(`room-users:${room}`, [...joined]);
+  // The name is what lets the owner answer "who is in 203?" without opening LINE for each room.
+  const name = await displayName(userId);
+  const joined = members.filter((m) => idOf(m) !== userId);
+  joined.push({ id: userId, name, at: new Date().toISOString() });
+  await store.set(`room-users:${room}`, joined);
 
   if (process.env.RICHMENU_TENANT_ID) {
     await linkRichMenu(userId, process.env.RICHMENU_TENANT_ID).catch((err) =>

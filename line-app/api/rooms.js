@@ -40,7 +40,16 @@ module.exports = async (req, res) => {
     const advance = prepay
       ? { slipAt: prepay.slipAt, hasSlip: !!prepay.slipPath, verify: prepay.slipVerify || null }
       : null;
-    return { room, config, meter, bill, linked: !!tenant, tenant: !!tenant, members: (members || []).length, advance };
+    // Who lives here: the primary's name plus every account in the room (names come from the bind).
+    const list = members || [];
+    const idOf = (m) => (typeof m === "string" ? m : m && m.id);
+    const primary = list.find((m) => idOf(m) === tenant);
+    return {
+      room, config, meter, bill, linked: !!tenant, tenant: !!tenant, members: list.length,
+      tenantName: (primary && primary.name) || null,
+      memberNames: list.map((m) => m && m.name).filter(Boolean),
+      advance,
+    };
   });
 
   return res.status(200).json({ period: process.env.BILL_PERIOD || null, rooms });

@@ -1363,12 +1363,13 @@ const { saveBill } = require("./api/_bills");
   assert.strictEqual(r.status, 200);
   assert.strictEqual(r.body.room, "201");
   assert.strictEqual(data.get("room-user:201"), "UtenantA", "the first arrival becomes the primary");
-  assert.deepStrictEqual(data.get("room-users:201"), ["UtenantA"]);
+  assert.deepStrictEqual(data.get("room-users:201").map((m) => m.id), ["UtenantA"]);
+  assert.strictEqual(data.get("room-users:201")[0].name, "name-UtenantA", "the bind remembers who they are");
 
   r = await call(qr, { body: { code: addCode }, user: "UtenantB" });
   assert.strictEqual(r.status, 200, "a second account joins as a member");
   assert.strictEqual(data.get("room-user:201"), "UtenantA", "the primary does not change");
-  assert.deepStrictEqual([...data.get("room-users:201")].sort(), ["UtenantA", "UtenantB"]);
+  assert.deepStrictEqual(data.get("room-users:201").map((m) => m.id).sort(), ["UtenantA", "UtenantB"]);
   assert.strictEqual(data.get("user-room:UtenantB"), "201", "the member can reach the room");
 
   r = await call(qr, { body: { code: addCode }, user: "UtenantB" });
@@ -1384,7 +1385,10 @@ const { saveBill } = require("./api/_bills");
   r = await call(bill, { method: "GET", user: "UtenantB" });
   assert.strictEqual(r.status, 200, "a member sees the room's bill");
   r = await call(rooms, { method: "GET", user: "Uowner" });
-  assert.strictEqual(r.body.rooms.find((x) => x.room === "201").members, 2, "the owner sees how many accounts");
+  const memberRoom = r.body.rooms.find((x) => x.room === "201");
+  assert.strictEqual(memberRoom.members, 2, "the owner sees how many accounts");
+  assert.strictEqual(memberRoom.tenantName, "name-UtenantA", "and who the primary is");
+  assert.deepStrictEqual(memberRoom.memberNames.sort(), ["name-UtenantA", "name-UtenantB"], "and who else lives there");
 
   // Changing the tenant clears everybody and kills the add QR.
   r = await call(qr, { method: "POST", query: { room: "201" }, user: "Uowner" });
