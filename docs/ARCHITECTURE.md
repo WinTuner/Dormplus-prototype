@@ -134,7 +134,7 @@ webhook ของ OA ยังชี้ที่ `line-app`
 | ข้อมูล | key | pathname จริง |
 |---|---|---|
 | ผู้ใช้ผูกห้อง | `user-room:<userId>` | `kv/user-room-<userId>.json` |
-| ห้องผูกผู้ใช้ | `room-user:<room>` (ผู้เช่าหลัก — รับการ์ด/ทวง/ใบเสร็จ) + `room-users:<room>` (รายชื่อทุกบัญชีในห้อง รวมคนหลัก) | `kv/room-user-<room>.json` · `kv/room-users-<room>.json` |
+| ห้องผูกผู้ใช้ | `room-user:<room>` (ผู้เช่าหลัก — รับการ์ด/ทวง/ใบเสร็จ) + `room-users:<room>` (`[{id, name, at}]` ทุกบัญชีในห้อง รวมคนหลัก) | `kv/room-user-<room>.json` · `kv/room-users-<room>.json` |
 | ผู้ใช้ที่เคยกด follow | `user:<userId>` | `kv/user-<userId>.json` |
 | บิลล่าสุดของห้อง | `bill:<room>` | `kv/bill-<room>.json` |
 | บิลต่อรอบ | `bill:<period>:<room>` + index `bills:<room>` (เก็บ ≤ 60 รอบ) | `kv/bill-<period>-<room>.json` |

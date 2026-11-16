@@ -163,7 +163,7 @@ stateDiagram-v2
 | `user:<userId>` | `kv/user-<userId>.json` | `{ followedAt }` | webhook (`follow`) | ไม่มีที่อ่าน |
 | `user-room:<userId>` | `kv/user-room-<userId>.json` | `"203"` (string) | `qr` (`POST` ด้วยรหัสผูก) | webhook, `me`, `bill`, `slip`, `slip-image` |
 | `room-user:<room>` | `kv/room-user-<room>.json` | `"U..."` (string) — **ผู้เช่าหลัก** (รับการ์ด/ทวง/ใบเสร็จ) | `qr` (`POST` ด้วยรหัสผูก) | `run`, `rooms`, `webhook`, `_remind` |
-| `room-users:<room>` | `kv/room-users-<room>.json` | `["U...", ...]` — ทุกบัญชีในห้อง (รวมคนหลัก) · คนแรกที่สแกนเป็นผู้เช่าหลัก · ล้างทั้งหมดเมื่อเปลี่ยนผู้เช่า | `qr` (ผูก / เพิ่มสมาชิก) | `rooms` (นับ `members`) |
+| `room-users:<room>` | `kv/room-users-<room>.json` | `[{ id, name, at }, ...]` — ทุกบัญชีในห้อง (รวมคนหลัก) พร้อมชื่อจาก LINE · คนแรกที่สแกนเป็นผู้เช่าหลัก · ล้างทั้งหมดเมื่อเปลี่ยนผู้เช่า | `qr` (ผูก / เพิ่มสมาชิก) | `rooms` (นับ `members`, `tenantName`, `memberNames`) |
 | `bill:<room>` | `kv/bill-<room>.json` | bill object | `run`, `seed`, `slip`, `webhook` | `webhook`, `bill`, `slip`, `slip-image`, `rooms` |
 | `meter:<room>` | `kv/meter-<room>.json` | `{ water, elec, at }` | `run` | `rooms` |
 | `room:<room>` | `kv/room-<room>.json` | `{ rent, waterRate, elecRate }` | `seed`, `rooms` (`POST` — merge เฉพาะฟิลด์ที่ส่งมา) | `_rooms.configFor` |

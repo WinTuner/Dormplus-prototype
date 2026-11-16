@@ -963,9 +963,10 @@ function ownerRooms() {
     if (r.bill?.period === O.period && r.bill.status === "void") pill = `<span class="pill">ยกเลิกแล้ว</span> ${pill}`;
     if (r.advance) pill = `<span class="pill warn">โอนล่วงหน้า</span> ${pill}`;
     const isNext = next && next.room === r.room;
-    const sub = isNext ? "ห้องถัดไป" : (r.linked ?? r.tenant) ? "" : "ยังไม่ผูก LINE";
+    const who = r.members > 1 ? `${r.tenantName || "ผู้เช่า"} +${r.members - 1}` : r.tenantName || "";
+    const sub = isNext ? "ห้องถัดไป" : who || ((r.linked ?? r.tenant) ? "ผู้เช่า (ไม่ทราบชื่อ)" : "ยังไม่ผูก LINE");
     return `<button class="roomcard${isNext ? " next" : ""}" data-room="${esc(r.room)}">
-      <span><b>ห้อง ${esc(r.room)}</b>${sub ? `<div class="m">${sub}</div>` : ""}</span>${pill}</button>`;
+      <span><b>ห้อง ${esc(r.room)}</b>${sub ? `<div class="m">${esc(sub)}</div>` : ""}</span>${pill}</button>`;
   };
 
   view.innerHTML = `
@@ -1036,6 +1037,15 @@ function ownerEntry(roomNo) {
         ${MYROLE !== "viewer" && r.bill.status !== "void" ? `<button class="btn" id="voidBtn">ยกเลิกบิล</button>` : ""}
       </div>
     </div>` : ""}
+    <div class="card">
+      <div class="m">ผู้เช่าในห้อง</div>
+      ${(r.memberNames || []).length
+        ? `${esc(r.tenantName || r.memberNames[0])} <span class="pill ok">หลัก</span>
+           ${[...new Set(r.memberNames)].filter((n) => n !== (r.tenantName || r.memberNames[0])).map((n) => `<div class="m">${esc(n)} <span class="pill">สมาชิก</span></div>`).join("")}`
+        : (r.linked ?? r.tenant)
+          ? `<div class="m">ผูก LINE แล้ว แต่ยังไม่มีชื่อ (ผู้ใช้ปิดการเข้าถึงโปรไฟล์)</div>`
+          : `<div class="m">ยังไม่มีผู้เช่าผูกห้องนี้</div>`}
+    </div>
     <div class="card">
       <div class="m">ให้ผู้เช่าผูกห้องนี้ด้วย QR</div>
       <button class="btn" id="qrBtn" style="margin-top:10px">QR ผู้เช่า (ปริ้นแปะหน้าห้อง)</button>
