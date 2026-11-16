@@ -1149,6 +1149,9 @@ function ownerEntry(roomNo) {
     if (u.water < 0 || u.elec < 0) warn.push("หน่วยติดลบไม่ได้");
     if (last.water > 0 && u.water > last.water * 3) warn.push("น้ำมากกว่าเดือนก่อนเกิน 3 เท่า");
     if (last.elec > 0 && u.elec > last.elec * 3) warn.push("ไฟมากกว่าเดือนก่อนเกิน 3 เท่า");
+    // A meter that went backwards is usually a typo, but it also means the tenant is billed 0 units.
+    if (last.water > 0 && u.water > 0 && u.water < last.water) warn.push(`น้ำน้อยกว่าเดือนก่อน (${fmt(last.water)} หน่วย)`);
+    if (last.elec > 0 && u.elec > 0 && u.elec < last.elec) warn.push(`ไฟน้อยกว่าเดือนก่อน (${fmt(last.elec)} หน่วย)`);
     $("hint").textContent = locked || !warn.length ? "" : warn.join(" · ") + " — ตรวจสอบก่อนบันทึก";
     return warn;
   };
@@ -1292,6 +1295,7 @@ function ownerReview(tab) {
         </div>
       </div>
       ${r.bill.slipPath ? `<button class="btn" style="margin-top:12px" data-open="${esc(r.room)}">ดูสลิป</button>` : ""}
+      ${MYROLE !== "viewer" ? `<button class="btn" style="margin-top:8px" data-reject="${esc(r.room)}">สลิปไม่ถูกต้อง (ตีกลับ)</button>` : ""}
     </div>`;
 
   const overdueCard = (r) => `
@@ -1318,6 +1322,10 @@ function ownerReview(tab) {
 
   view.querySelectorAll("[data-tab]").forEach((el) => (el.onclick = () => history.replaceState(null, "", "#review/" + el.dataset.tab) || ownerReview(el.dataset.tab)));
   view.querySelectorAll("[data-open]").forEach((el) => (el.onclick = () => showSlip(el.dataset.open)));
+  view.querySelectorAll("[data-reject]").forEach((el) => {
+    const room = el.dataset.reject;
+    el.onclick = () => rejectSlip(room, O.rooms.find((r) => r.room === room)?.bill);
+  });
   view.querySelectorAll(".thumb[data-slip]").forEach(async (el) => {
     const room = el.dataset.slip;
     if (!O.rooms.find((r) => r.room === room)?.bill?.slipPath) return;
@@ -1328,6 +1336,24 @@ function ownerReview(tab) {
 
 // Owner: cancel a bill. Asks for the reason, then confirms, because the tenant is told and a paid
 // bill loses its receipt; the only way back is to issue the bill again.
+async function rejectSlip(room, bill) {
+  const reason = (prompt(`เหตุผลที่ตีกลับสลิปห้อง ${room} (ผู้เช่าจะเห็นข้อความนี้)`) || "").trim();
+  if (!reason) return toast("ต้องใส่เหตุผลก่อนตีกลับ", true);
+  if (reason.length > 200) return toast("เหตุผลยาวได้ไม่เกิน 200 ตัวอักษร", true);
+  if (!confirm(`ตีกลับสลิปห้อง ${room}? ผู้เช่าจะได้รับแจ้งและแนบสลิปใหม่ได้`)) return;
+  try {
+    await api("/api/bill", {
+      method: "POST",
+      body: JSON.stringify({ action: "reject", room, period: bill.period, reason }),
+    });
+    toast(`ตีกลับสลิปห้อง ${room} แล้ว — แจ้งผู้เช่าให้แนบใหม่`);
+    await loadOwner();
+    ownerReview(O.reviewTab);
+  } catch (e) {
+    toast(e.message, true);
+  }
+}
+
 async function voidBill(room, bill) {
   const reason = (prompt(`เหตุผลที่ยกเลิกบิลห้อง ${room} รอบ ${periodTh(bill.period)} (ผู้เช่าจะเห็นข้อความนี้)`) || "").trim();
   if (!reason) return toast("ต้องใส่เหตุผลก่อนยกเลิกบิล", true);

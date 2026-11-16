@@ -95,7 +95,9 @@ async function voidBill(req, res, userId) {
   if (!await isOwner(userId)) return fail(res, 403, "FORBIDDEN", "เฉพาะเจ้าของหอ");
 
   const { action, room: askedRoom, period: askedPeriod, reason: askedReason } = req.body || {};
-  if (action !== "void") return fail(res, 400, "VALIDATION", "action ต้องเป็น void");
+  // Both actions are the owner's answer to a bill: cancel it, or send the slip back for another try.
+  if (action === "reject") return rejectSlip(req, res, userId);
+  if (action !== "void") return fail(res, 400, "VALIDATION", "action ต้องเป็น void หรือ reject");
   const room = String(askedRoom || "").trim();
   const period = String(askedPeriod || "").trim();
   const reason = typeof askedReason === "string" ? askedReason.trim() : "";
@@ -143,6 +145,46 @@ async function voidBill(req, res, userId) {
   }
 
   return res.status(200).json({ ok: true, room, period, status: "void", ...(voided.refundDue ? { refund: voided.refundDue } : {}) });
+}
+
+// The owner says the slip is wrong: the bill goes back to `unpaid` so the tenant can send another
+// one. The rejected slip stays on the record (path, verify result, reason) — it is evidence, and the
+// 5-slip limit still counts it.
+async function rejectSlip(req, res, userId) {
+  const { room: askedRoom, period: askedPeriod, reason: askedReason } = req.body || {};
+  const room = String(askedRoom || "").trim();
+  const period = String(askedPeriod || "").trim();
+  const reason = typeof askedReason === "string" ? askedReason.trim() : "";
+  if (!room) return fail(res, 400, "VALIDATION", "ต้องระบุ room");
+  if (!ROOMS.includes(room)) return fail(res, 404, "NOT_FOUND", `ไม่พบห้อง ${room}`);
+  if (!STRICT_PERIOD.test(period)) return fail(res, 400, "VALIDATION", "period ต้องเป็น YYYY-MM");
+  if (!reason || reason.length > MAX_REASON_LENGTH) {
+    return fail(res, 400, "VALIDATION", `ต้องระบุเหตุผลที่ตีกลับ (1-${MAX_REASON_LENGTH} ตัวอักษร)`);
+  }
+
+  const [stored, latest, tenancy] = await Promise.all([
+    store.get(`bill:${period}:${room}`),
+    store.get(`bill:${room}`),
+    tenancyOf(room),
+  ]);
+  const bill = stored || (latest && latest.period === period ? latest : null);
+  if (!bill) return fail(res, 404, "NOT_FOUND", `ไม่พบบิลห้อง ${room} รอบ ${period}`);
+  if (bill.status !== "pending") {
+    return fail(res, 409, "INVALID_STATE", `บิลนี้อยู่ในสถานะ ${bill.status} จึงตีกลับไม่ได้`);
+  }
+
+  const next = { ...bill, status: "unpaid", slipRejected: { at: new Date().toISOString(), by: userId, reason } };
+  await saveBill(next, { latest });
+
+  const tenant = await store.get(`room-user:${room}`);
+  if (tenant && visibleToTenant(bill, tenancy)) {
+    try {
+      await push(tenant, [{ type: "text", text: `สลิปห้อง ${room} รอบ ${period} ไม่ผ่าน — ${reason}\nกรุณาแนบสลิปใหม่` }]);
+    } catch (err) {
+      console.error("reject notice failed", room, err.message);
+    }
+  }
+  return res.status(200).json({ ok: true, room, period, status: "unpaid", rejected: reason });
 }
 
 // Bills written before this change only have `bill:<room>` (the latest). Include it so history is

@@ -1486,7 +1486,52 @@ const { saveBill } = require("./api/_bills");
   await call(rooms, { body: { dorm: { promptpay: null } }, user: "Uowner" });
   data.delete("bill:201"); data.delete("bill:2026-11:201");
 
-  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings, PromptPay QR");
+  // ---------------------------------------------------------------- owner rejects a slip
+  const pendingBill = { room: "212", period: "2026-11", total: 3000, rent: 3000, water: 0, elec: 0, waterUnits: 0, elecUnits: 0, due: "2026-11-09", status: "pending", slipPath: "slips/212-x.jpg", slipAt: new Date(Date.now() - 120000).toISOString(), slipCount: 1, issuedAt: new Date().toISOString() };
+  data.set("bill:212", { ...pendingBill });
+  data.set("bill:2026-11:212", { ...pendingBill });
+  data.set("room-user:212", "UtenantA");
+  data.set("user-room:UtenantA", "212");
+
+  r = await call(bill, { body: { action: "reject", room: "212", period: "2026-11", reason: "ยอดในสลิปไม่ตรง" }, user: "Uowner" });
+  assert.deepStrictEqual([r.status, r.body.status], [200, "unpaid"], "the owner sends the slip back");
+  let rej = data.get("bill:2026-11:212");
+  assert.deepStrictEqual([rej.status, rej.slipRejected.reason, rej.slipRejected.by], ["unpaid", "ยอดในสลิปไม่ตรง", "Uowner"]);
+  assert.strictEqual(rej.slipPath, "slips/212-x.jpg", "the rejected slip stays as evidence");
+  assert.strictEqual(rej.slipCount, 1, "and still counts toward the slip limit");
+
+  r = await call(bill, { body: { action: "reject", room: "212", period: "2026-11", reason: "ซ้ำ" }, user: "Uowner" });
+  assert.deepStrictEqual([r.status, r.body.error.code], [409, "INVALID_STATE"], "only a pending bill can be rejected");
+  assert.strictEqual((await call(bill, { body: { action: "reject", room: "212", period: "2026-11" }, user: "Uowner" })).status, 400, "a reason is required");
+  assert.strictEqual((await call(bill, { body: { action: "reject", room: "212", period: "2026-11", reason: "x" }, user: "Uhelper" })).status, 403, "a viewer cannot reject");
+  assert.strictEqual((await call(bill, { body: { action: "reject", room: "212", period: "2026-11", reason: "x" }, user: "UtenantA" })).status, 403, "a tenant cannot reject");
+
+  // The tenant sends a new slip after the rejection, and it is pending again.
+  r = await call(slip, { body: { room: "212", note: "ส่งใหม่" }, user: "UtenantA" });
+  assert.deepStrictEqual([r.status, data.get("bill:2026-11:212").status], [200, "pending"], "a new slip is accepted");
+
+  data.delete("bill:212"); data.delete("bill:2026-11:212"); data.delete("user-room:UtenantA"); data.delete("room-user:212");
+
+  // ---------------------------------------------------------------- small guards
+  // ROOMS from env: blanks and spaces never become rooms.
+  const roomsModule = require.resolve("./api/_rooms");
+  const beforeRooms = process.env.ROOMS;
+  delete require.cache[roomsModule];
+  process.env.ROOMS = " 101, ,102 ";
+  assert.deepStrictEqual(require("./api/_rooms").ROOMS, ["101", "102"], "ROOMS trims and drops blanks");
+  if (beforeRooms === undefined) delete process.env.ROOMS; else process.env.ROOMS = beforeRooms;
+  delete require.cache[roomsModule];
+  require("./api/_rooms"); // the suites below keep using the array they already hold
+
+  // A role in the body cannot upgrade an invite: the code decides.
+  data.set("owner-invite:VIEW123", { role: "viewer", createdBy: "Uowner", expiresAt: new Date(Date.now() + 600000).toISOString() });
+  r = await call(owner, { body: { code: "VIEW123", role: "owner" }, user: "Unewbie" });
+  assert.deepStrictEqual([r.status, r.body.role, r.body.owner], [200, "viewer", false], "a viewer code stays a viewer code");
+  assert.strictEqual(data.get("owner:Unewbie").role, "viewer");
+  data.delete("owner-invite:VIEW123");
+  data.delete("owner:Unewbie");
+
+  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings, PromptPay QR, slip rejection");
 })().catch((err) => {
   console.error(err);
   process.exit(1);
