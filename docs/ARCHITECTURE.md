@@ -139,7 +139,7 @@ webhook ของ OA ยังชี้ที่ `line-app`
 | สลิปโอนล่วงหน้าของผู้เช่าเดิม | `prepay-old:<room>` (ใบล่าสุด) · `prepay-old:<room>:<slipAt>` (รายใบ) | `kv/prepay-old-<room>.json` |
 | เริ่มสัญญาเช่าปัจจุบันของห้อง | `tenancy:<room>` (`{ since: ISO }`) | `kv/tenancy-<room>.json` |
 | มิเตอร์ล่าสุด | `meter:<room>` | `kv/meter-<room>.json` |
-| config ต่อห้อง (ทับค่า default) | `room:<room>` (อ่านโดย `configFor()`) | `kv/room-<room>.json` |
+| config ต่อห้อง (ทับค่า default) | `room:<room>` (อ่านโดย `configFor()`, เขียนโดย `POST /api/rooms`) | `kv/room-<room>.json` |
 | สิทธิ์เจ้าของ/ผู้ช่วย | `owner:<userId>` | `kv/owner-<userId>.json` |
 | QR ผูกห้อง | `room-qr:<room>` / `qr-code:<code>` | `kv/room-qr-<room>.json` ฯลฯ |
 | ส่งเตือนไปแล้ว | `reminded:<room>:<period>:<kind>:<rev>` (+ key เดิมที่ไม่มี rev ซึ่งยังถูกอ่าน) | `kv/reminded-<room>-<period>-<kind>-<rev>.json` |

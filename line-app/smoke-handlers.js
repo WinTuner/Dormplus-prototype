@@ -1298,7 +1298,46 @@ const { saveBill } = require("./api/_bills");
   delete process.env.SLIPOK_API_KEY;
   delete process.env.SLIPOK_BRANCH_ID;
 
-  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK)");
+  // ---------------------------------------------------------------- room pricing (owner edits rent/rates)
+  data.set("owner:Uhelper", { role: "viewer", addedBy: "Uowner" });
+  const setRoom = (body, user = "Uowner") => call(rooms, { body, user });
+
+  r = await setRoom({ room: "211", rent: 1, waterRate: 0, elecRate: 0 });
+  assert.strictEqual(r.status, 200, "the owner can set a room's price");
+  assert.deepStrictEqual([r.body.room, r.body.config.rent, r.body.config.waterRate], ["211", 1, 0]);
+
+  r = await call(rooms, { method: "GET", user: "Uowner" });
+  const room211 = r.body.rooms.find((x) => x.room === "211");
+  const room201 = r.body.rooms.find((x) => x.room === "201");
+  assert.strictEqual(room211.config.rent, 1, "the new rent shows in the room list");
+  assert.strictEqual(room201.config.rent, 3500, "another room keeps the default");
+  assert.strictEqual(room211.config.elecRate, 0);
+
+  // A partial edit keeps the fields it did not mention.
+  r = await setRoom({ room: "211", waterRate: 9 });
+  assert.deepStrictEqual([r.body.config.rent, r.body.config.waterRate, r.body.config.elecRate], [1, 9, 0]);
+
+  assert.strictEqual((await setRoom({ room: "211", rent: 1 }, "Uhelper")).status, 403, "a viewer cannot change prices");
+  assert.strictEqual((await setRoom({ room: "211", rent: 1 }, "Ucarol")).status, 403, "a tenant cannot change prices");
+  assert.strictEqual((await setRoom({ room: "999", rent: 1 })).status, 404, "unknown room");
+  assert.strictEqual((await setRoom({ room: "211" })).status, 400, "nothing to change");
+  assert.strictEqual((await setRoom({ room: "211", rent: -1 })).status, 400, "negative rent");
+  assert.strictEqual((await setRoom({ room: "211", rent: 1.5 })).status, 400, "baht with satang");
+  assert.strictEqual((await setRoom({ room: "211", waterRate: "abc" })).status, 400, "not a number");
+
+  // The bill really is 1 baht: rent 1, no units.
+  data.delete("bill:211"); data.delete("bill:2026-11:211"); data.delete("bills:211");
+  data.set("meter:211", { water: 0, elec: 0, at: new Date().toISOString() });
+  r = await call(run, { body: { period: "2026-11", readings: [{ room: "211", water: 0, elec: 0 }] }, user: "Uowner" });
+  assert.strictEqual(r.status, 200);
+  const cheap = data.get("bill:2026-11:211");
+  assert.deepStrictEqual([cheap?.total, cheap?.rent, cheap?.status], [1, 1, "unpaid"], "a 1-baht bill for the demo");
+
+  // Put it back so later cases see the prototype prices again.
+  await setRoom({ room: "211", rent: 3500, waterRate: 25, elecRate: 7 });
+  data.delete("bill:211"); data.delete("bill:2026-11:211"); data.delete("bills:211"); data.delete("meter:211");
+
+  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing");
 })().catch((err) => {
   console.error(err);
   process.exit(1);
