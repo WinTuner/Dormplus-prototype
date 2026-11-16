@@ -642,7 +642,10 @@ function renderOwner() {
   window.scrollTo(0, 0);
   if (r === "rooms") return ownerRooms();
   if (r.startsWith("entry/")) return ownerEntry(decodeURIComponent(r.slice(6)));
-  if (r.startsWith("qr/")) return ownerQr(decodeURIComponent(r.slice(3)));
+  if (r.startsWith("qr/")) {
+    const [, room, kind] = r.split("/");
+    return ownerQr(decodeURIComponent(room), kind === "add");
+  }
   if (r.startsWith("receipt/")) {
     const [, period, room = ""] = r.split("/");
     return receiptScreen(decodeURIComponent(room), period, `entry/${room}`);
@@ -865,25 +868,29 @@ async function acceptOwner(code, me) {
 }
 
 // Owner-only: the QR printed for a room's door, so a tenant binds by scanning it.
-function ownerQr(room) {
-  header(`ห้อง ${room}`, "QR ผู้เช่า", "rooms");
+function ownerQr(room, addMode = false) {
+  header(`ห้อง ${room}`, addMode ? "เพิ่มผู้เช่า (สมาชิก)" : "QR ผู้เช่า", "rooms");
   bottom("");
   view.innerHTML = `<div class="card"><div class="m">กำลังสร้าง QR…</div></div>`;
 
   const show = (r) => {
     view.innerHTML = `
       <div class="card">
-        <div class="m">ให้ผู้เช่าสแกนในแอป LINE — ผูกกับห้องนี้ทันที (ไม่ต้องพิมพ์เลขห้อง)</div>
+        <div class="m">${addMode
+          ? "ให้ผู้เช่าคนที่สองของห้องสแกน — เพิ่มเป็นสมาชิกโดยไม่เปลี่ยนผู้เช่าหลัก"
+          : "ให้ผู้เช่าสแกนในแอป LINE — ผูกกับห้องนี้ทันที (ไม่ต้องพิมพ์เลขห้อง)"}</div>
         ${r.qr ? `<div class="qr">${r.qr}</div>` : `<div class="m warnText">ยังไม่ได้ตั้ง LIFF_ID — สร้าง QR ไม่ได้</div>`}
-        <div class="row" style="margin-top:10px"><span class="m">รหัสห้อง</span><b style="letter-spacing:2px">${esc(r.code)}</b></div>
+        <div class="row" style="margin-top:10px"><span class="m">รหัส${addMode ? "เชิญ" : "ห้อง"}</span><b style="letter-spacing:2px">${esc(r.code)}</b></div>
         ${r.url ? `<div class="m" style="margin-top:6px;word-break:break-all">${esc(r.url)}</div>` : ""}
       </div>
       <div class="card">
-        <div class="m">ปริ้นแปะหน้าห้องได้เลย · QR นี้ผูกได้เฉพาะตอนที่ห้องยังไม่มีผู้เช่าผูกอยู่ คนที่ถ่ายรูปไปจึงแย่งห้องที่มีคนอยู่แล้วไม่ได้</div>
-        ${MYROLE === "viewer" ? "" : `<button class="btn" id="rotate" style="margin-top:12px">เปลี่ยนผู้เช่า (ถอดคนเดิม + สร้าง QR ใหม่)</button>`}
+        ${addMode
+          ? `<div class="m">QR นี้ <b>เพิ่มสมาชิก</b> เท่านั้น (ใช้ได้หลายคนจนกว่าจะยกเลิก) · สมาชิกเห็นบิลและแนบสลิปได้ แต่การ์ดบิล/ข้อความทวง/ใบเสร็จยังส่งหาผู้เช่าหลักคนเดียว · ออก QR ใหม่อีกครั้ง = รหัสเก่าใช้ไม่ได้</div>`
+          : `<div class="m">ปริ้นแปะหน้าห้องได้เลย · QR นี้ผูกได้เฉพาะตอนที่ห้องยังไม่มีผู้เช่าผูกอยู่ คนที่ถ่ายรูปไปจึงแย่งห้องที่มีคนอยู่แล้วไม่ได้</div>
+        ${MYROLE === "viewer" ? "" : `<button class="btn" id="rotate" style="margin-top:12px">เปลี่ยนผู้เช่า (ถอดคนเดิม + สร้าง QR ใหม่)</button>`}`}
       </div>`;
 
-    if (!MYROLE || MYROLE === "owner") $("rotate").onclick = async () => {
+    if (!addMode && (!MYROLE || MYROLE === "owner")) $("rotate").onclick = async () => {
       if (!confirm(`เปลี่ยนผู้เช่าห้อง ${room}? ผู้เช่าที่ผูกอยู่จะถูกถอดออก และ QR ที่แปะอยู่จะใช้ไม่ได้ทันที`)) return;
       try {
         const r = await api(`/api/qr?room=${encodeURIComponent(room)}`, { method: "POST" });
@@ -896,7 +903,7 @@ function ownerQr(room) {
     };
   };
 
-  api(`/api/qr?room=${encodeURIComponent(room)}`)
+  api(`/api/qr?room=${encodeURIComponent(room)}${addMode ? "&mode=add" : ""}`, addMode ? { method: "POST" } : undefined)
     .then(show)
     .catch((e) => {
       view.innerHTML = `<div class="card"><div class="err">${esc(e.message)}</div></div>`;
@@ -1029,6 +1036,7 @@ function ownerEntry(roomNo) {
     <div class="card">
       <div class="m">ให้ผู้เช่าผูกห้องนี้ด้วย QR</div>
       <button class="btn" id="qrBtn" style="margin-top:10px">QR ผู้เช่า (ปริ้นแปะหน้าห้อง)</button>
+      ${MYROLE !== "viewer" ? `<button class="btn" id="memberBtn" style="margin-top:8px">เพิ่มผู้เช่า (สมาชิกในห้อง)</button>` : ""}
     </div>
     ${MYROLE !== "viewer" ? `<div class="card">
       <div class="m">ค่าเช่า/ค่าน้ำ/ค่าไฟของห้องนี้</div>
@@ -1037,6 +1045,7 @@ function ownerEntry(roomNo) {
     </div>` : ""}`;
 
   $("qrBtn").onclick = () => go(`qr/${encodeURIComponent(r.room)}`);
+  if ($("memberBtn")) $("memberBtn").onclick = () => go(`qr/${encodeURIComponent(r.room)}/add`);
   if ($("priceBtn")) $("priceBtn").onclick = () => editRoom(r.room, c);
   if ($("rcptBtn")) $("rcptBtn").onclick = () => go(`receipt/${r.bill.period}/${encodeURIComponent(r.room)}`);
   if ($("voidBtn")) $("voidBtn").onclick = () => voidBill(r.room, r.bill);
