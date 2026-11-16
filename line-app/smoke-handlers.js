@@ -1287,6 +1287,13 @@ const { saveBill } = require("./api/_bills");
   );
   assert.strictEqual(data.get("bill:2026-11:210").status, "pending", "a verified group still waits for the owner");
 
+  // The real SlipOK error body has no `success: false` — it is { code, message, data }. Treating
+  // that as a success would mark an unreadable slip as verified. (Shape taken from a live call.)
+  resetV();
+  slipok = { status: 200, body: { code: 1007, message: "รูปภาพไม่มี QR Code", data: { message: "รูปภาพไม่มี QR Code" } } };
+  await call(slip, { body: { image: png }, user: "Udave" });
+  assert.deepStrictEqual([verifyOf().ok, /QR/.test(verifyOf().reason)], [null, true], `real error shape: ${JSON.stringify(verifyOf())}`);
+
   slipok = null;
   delete process.env.SLIPOK_API_KEY;
   delete process.env.SLIPOK_BRANCH_ID;
