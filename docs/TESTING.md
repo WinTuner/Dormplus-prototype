@@ -23,7 +23,7 @@ repo นี้แยกเป็นสองครึ่งที่ deploy แ�
 
 > ไม่มี Jest/Vitest/Playwright และไม่มี coverage tool ใน repo นี้ — ทุกอย่างข้างบนคือทั้งหมดที่มี
 
-**catalogue ของเคสคือ [`docs/TEST-CASES.md`](TEST-CASES.md)**: 265 เคสใน 19 use case โดยแบ่งเป็น ✅ 222 เคสที่ automation แตะ, 🖐 23 เคสที่ต้องทำมือกับ LINE/LIFF จริง และ ⏳ 20 เคสที่ **ยังไม่สร้างฟีเจอร์** (จึงยังไม่มี test) — ใน 222 เคสนั้น 156 เคสมี id ของตัวเองใน `smoke-usecases.js`, 50 เคสชี้ไปที่ backend pytest, 8 เคสชี้ไปเคสที่ automate ไว้แล้วใน UC อื่น, 1 เคสชี้ไป `smoke-cron.js` และ 7 เคสอ้าง `smoke-handlers.js` (ตรวจสลิปผ่าน SlipOK)
+**catalogue ของเคสคือ [`docs/TEST-CASES.md`](TEST-CASES.md)**: 266 เคสใน 19 use case โดยแบ่งเป็น ✅ 223 เคสที่ automation แตะ, 🖐 23 เคสที่ต้องทำมือกับ LINE/LIFF จริง และ ⏳ 20 เคสที่ **ยังไม่สร้างฟีเจอร์** (จึงยังไม่มี test) — ใน 223 เคสนั้น 156 เคสมี id ของตัวเองใน `smoke-usecases.js`, 50 เคสชี้ไปที่ backend pytest, 8 เคสชี้ไปเคสที่ automate ไว้แล้วใน UC อื่น, 1 เคสชี้ไป `smoke-cron.js` และ 8 เคสอ้าง `smoke-handlers.js` (ตรวจสลิปผ่าน SlipOK + สมาชิกห้อง)
 
 ---
 
@@ -92,7 +92,7 @@ stub ทั้งหมด: Blob store เป็น `Map` ในหน่วย�
 | assert | ค่า |
 |---|---|
 | อ่านห้อง 42 ห้องแล้วได้ครบตาม `ROOMS` และลำดับคงที่ | 200 |
-| การอ่านซ้อนกันจริงแต่มีขอบเขต | peak > 1 และ ≤ 60 (12 ห้อง × 5 read) |
+| การอ่านซ้อนกันจริงแต่มีขอบเขต | peak > 1 และ ≤ 72 (12 ห้อง × 6 read) |
 | `/api/rooms` ไม่พา LINE userId ของผู้เช่าออกไป | assert ว่าไม่มี `Usecret-tenant-id` ใน response |
 | แสดงแค่ว่าห้องถูกผูกหรือไม่ | `linked` true/false |
 | history เรียงใหม่→เก่า, ข้ามเดือนที่ไม่มีบิล, รองรับบิล legacy และ `hasSlip` | 200 |
@@ -285,7 +285,7 @@ cd ..\backend; $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@lo
 
 **ไม่มีการตั้ง coverage threshold ที่ไหนเลย** — ไม่มี `.coveragerc`, `.nycrc`, `pytest-cov`, หรือ `--cov` ใน CI และ `line-app` ไม่มี coverage tool (ทดสอบด้วย `assert` ตรง ๆ) ดังนั้นตัวเลข coverage ที่ "ควรมี" ไม่มีอยู่ใน repo นี้
 
-สิ่งที่พอวัดได้คือ **ความครอบของ use case** จาก [`docs/TEST-CASES.md`](TEST-CASES.md) (265 เคส / 19 UC):
+สิ่งที่พอวัดได้คือ **ความครอบของ use case** จาก [`docs/TEST-CASES.md`](TEST-CASES.md) (266 เคส / 19 UC):
 
 | สถานะในเอกสาร | จำนวน | ใครตรวจ |
 |---|---|---|
@@ -293,10 +293,10 @@ cd ..\backend; $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@lo
 | ✅ automated — ชี้ไป backend pytest | 50 | `backend/tests/*.py` |
 | ✅ automated — ชี้ไปเคสที่ automate แล้วใน UC อื่น | 8 | `smoke-usecases.js` (เช่น `TC-14-3` → `TC-10-5`) |
 | ✅ automated — ชี้ไป `smoke-cron.js` | 1 | `line-app/smoke-cron.js` |
-| ✅ automated — ตรวจสลิปผ่าน SlipOK (`smoke-handlers.js`, stub provider) | 7 | `line-app/smoke-handlers.js` |
+| ✅ automated — ตรวจสลิปผ่าน SlipOK + สมาชิกห้อง (`smoke-handlers.js`) | 8 | `line-app/smoke-handlers.js` |
 | 🖐 manual | 23 | คนกดกับ LINE OA + LIFF จริง (ข้อ 7) |
 | ⏳ ยังไม่สร้าง | 20 | ยังไม่มีฟีเจอร์ จึงยังไม่มี test |
-| **รวม** | **265** | |
+| **รวม** | **266** | |
 
 ตัวเลข 222 ไม่ได้แปลว่าโค้ดทุกบรรทัดถูกตรวจ — เคสหนึ่งอาจ assert หลายอย่างหรือแค่ทางเดียวของ handler
 
@@ -405,7 +405,7 @@ test อัตโนมัติที่ครอบส่วนนี้: `lin
 5. **cron เป็น at-least-once ไม่ใช่ exactly-once** — `api/cron.js` อ่าน `cron-lock` แล้วค่อยเขียน (ไม่มี CAS) จึงแค่ *ลด* ช่วงที่สองรอบซ้อนกัน ไม่ได้ปิดสนิท และ mark `reminded:*` ถูกเขียนหลัง push สำเร็จ: ถ้า process ตายระหว่าง push กับ mark ผู้เช่าจะได้เตือนซ้ำในรอบถัดไป (ยอมรับได้ แต่ต้องรู้) `TC-16-23` (สองรอบซ้อนกันจริง) ยังเป็น ⏳ เพราะจำลองใน-process ไม่ได้
 6. **backend กัน race ได้แค่บางจุด** — ยืนยันการชำระมี lock ระดับหอ (`test_confirm_waits_for_the_dorm_lock`) และ DB กันบิลซ้ำด้วย `UNIQUE(room_id, period)` แต่ไม่มี test ของ concurrent request จริงจากหลายโปรเซส (TestClient เป็น single-process)
 7. **`test_rls.py` พิสูจน์เฉพาะ policy ในทรานแซกชันเดียว** — ไม่ครอบว่า connection ทุกเส้นของแอปตั้ง `app.property_id` ก่อนใช้ (ถ้าลืม set ค่าจะ fail closed แต่จะเห็นเป็น 0 แถว ซึ่ง debug ยาก)
-8. **ไม่มี load/performance test** — ขอบเขต concurrency ของ read ถูก pin ด้วย `assert` (peak ≤ 60 และประวัติ ≤ 6) แต่ไม่ได้วัดเวลา
+8. **ไม่มี load/performance test** — ขอบเขต concurrency ของ read ถูก pin ด้วย `assert` (peak ≤ 72 และประวัติ ≤ 6) แต่ไม่ได้วัดเวลา
 9. **ไม่มี coverage measurement** — ดูข้อ 6
 10. **`prod-smoke.mjs` เป็น manual** — ไม่มี schedule หรือ workflow เรียก มันจึงเขียวค้างได้แม้ production พัง
 11. **`npm test` ไม่ได้รันทั้ง 5 ชุด** — `smoke-usecases.js` และ `smoke-cron.js` ต้องเรียกเอง (CI เรียกครบ แต่คนที่รัน `npm test` ก่อน push จะพลาด 156 + 1 ชุด)
@@ -436,7 +436,7 @@ test อัตโนมัติที่ครอบส่วนนี้: `lin
 
 ## เอกสารที่เกี่ยวข้อง
 
-- [`docs/TEST-CASES.md`](TEST-CASES.md) — catalogue 265 เคส / 19 UC พร้อมสถานะ ✅/🖐/⏳ และโค้ดที่แต่ละเคสอ้างถึง
+- [`docs/TEST-CASES.md`](TEST-CASES.md) — catalogue 266 เคส / 19 UC พร้อมสถานะ ✅/🖐/⏳ และโค้ดที่แต่ละเคสอ้างถึง
 - [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — โครงสร้างสองครึ่ง, data flow, state machine ของบิล
 - [`docs/CONFIGURATION.md`](CONFIGURATION.md) — env ทุกตัว (`TEST_DATABASE_URL`, `CRON_SECRET`, `DEV_AUTH`, `SLIPOK_API_KEY`/`SLIPOK_BRANCH_ID`)
 - [`backend/README.md`](../backend/README.md) — วิธีรัน backend และ seed

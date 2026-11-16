@@ -301,6 +301,7 @@ UC-07 และ UC-08 เพิ่มเข้ามาหลังแผนภ�
 | TC-09-15 | backend: 1 LINE ต่อ 1 ห้อง · เพิ่มรูมเมต · 503 ถ้ายังไม่ตั้ง LINE · เดารหัสถูกจำกัด | — | — | ตามสัญญา | ✅ `backend/tests/test_line_link.py::test_one_line_account_cannot_hold_two_rooms`<br>`backend/tests/test_line_link.py::test_an_invite_for_a_room_whose_tenant_is_linked_adds_a_roommate`<br>`backend/tests/test_line_link.py::test_link_answers_503_until_line_is_configured`<br>`backend/tests/test_line_link.py::test_guessing_codes_is_rate_limited` |
 | TC-09-16 | backend: ถอนผูก LINE / ย้ายออก ทำให้ session เดิมหมดสิทธิ์ · หอพักอื่นถอนไม่ได้ | ผูกแล้ว | `DELETE /v1/tenants/{id}/line` | session เดิมใช้ไม่ได้ · ข้ามหอ 404/403 | ✅ `backend/tests/test_line_link.py::test_unlink_makes_the_next_login_not_linked`<br>`backend/tests/test_line_link.py::test_unlinking_ends_the_tenants_existing_session`<br>`backend/tests/test_line_link.py::test_moving_out_ends_the_tenants_existing_session`<br>`backend/tests/test_line_link.py::test_another_dorm_cannot_unlink` |
 | TC-09-17 | backend: idToken ของ LINE — ถูก channel / ผิด channel / session หมดอายุ / ถูกแก้ | — | `POST /v1/auth/line` | รับ/ปฏิเสธตามสัญญา | ✅ `backend/tests/test_session_and_line.py::test_verify_id_token_accepts_matching_channel`<br>`backend/tests/test_session_and_line.py::test_verify_id_token_rejects_other_channel`<br>`backend/tests/test_session_and_line.py::test_tampered_token_is_rejected`<br>`backend/tests/test_session_and_line.py::test_expired_token_is_rejected` |
+| TC-09-18 | 1 ห้องมีผู้เช่ามากกว่า 1 คน (รูมเมท) | ผู้เช่าหลักผูกห้องอยู่แล้ว | เจ้าของกด "เพิ่มผู้เช่า (สมาชิก)" → คนที่สองสแกน · สแกนซ้ำ · บัญชีที่สามลองสแกน QR ประตู · เปลี่ยนผู้เช่า | สมาชิกถูกเพิ่มโดยไม่เปลี่ยนคนหลัก · `room-users` มี 2 บัญชี · สแกนซ้ำได้ `already:true` · QR ประตูยัง `409 ROOM_TAKEN` · เปลี่ยนผู้เช่าแล้วสมาชิกและรหัสเชิญถูกล้าง · การ์ด/ทวง/ใบเสร็จยังส่งหาคนหลัก | ✅ `line-app/smoke-handlers.js` (room members) |
 
 ## UC-10 ดูบิล
 
@@ -592,7 +593,7 @@ endpoint พร้อมและตรวจ signature จริง แต่ *
 | UC-06 | ดูรายรับ | 8 | 6 | 1 | 1 |
 | UC-07 | เพิ่ม/ถอนเจ้าของและผู้ช่วย | 16 | 14 | 1 | 1 |
 | UC-08 | เปลี่ยนผู้เช่า / หมุน QR ห้อง | 17 | 15 | 2 | 0 |
-| UC-09 | ผูกบัญชี LINE กับห้อง | 17 | 16 | 1 | 0 |
+| UC-09 | ผูกบัญชี LINE กับห้อง | 18 | 17 | 1 | 0 |
 | UC-10 | ดูบิล | 15 | 14 | 1 | 0 |
 | UC-11 | แจ้งชำระ (แนบสลิป) | 16 | 14 | 1 | 1 |
 | UC-12 | ตรวจสลิปอัตโนมัติ | 8 | 6 | 1 | 1 |
@@ -603,7 +604,7 @@ endpoint พร้อมและตรวจ signature จริง แต่ *
 | UC-17 | แจ้งชำระก่อนบิลออก (โอนก่อน) | 26 | 20 | 4 | 2 |
 | UC-18 | ยกเลิกบิล (void) และออกบิลใหม่ | 13 | 11 | 1 | 1 |
 | UC-19 | รับ event จาก LINE (webhook ฝั่ง backend) | 6 | 6 | 0 | 0 |
-| **รวม** | | **265** | **222** | **23** | **20** |
+| **รวม** | | **266** | **223** | **23** | **20** |
 
 หมายเหตุ: คอลัมน์ ✅ รวมทั้ง test ใน `line-app/smoke-usecases.js` (156 ข้อ) และ test ที่มีอยู่แล้วใน `backend/tests/` ที่ผูกกับกรณีนั้น (บางแถวอ้างหลายฟังก์ชัน นับเป็น 1 TC) แถว ✅ ที่อ้าง pytest ไม่ได้ถูกรันโดยชุดนี้ — รันด้วย `cd backend && pytest -q`
 

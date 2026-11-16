@@ -1346,7 +1346,55 @@ const { saveBill } = require("./api/_bills");
   await setRoom({ room: "211", rent: 3500, waterRate: 25, elecRate: 7 });
   data.delete("bill:211"); data.delete("bill:2026-11:211"); data.delete("bills:211"); data.delete("meter:211");
 
-  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing");
+  // ---------------------------------------------------------------- room members (roommates)
+  // A room keeps one primary tenant (cards/reminders) plus members who may see the bill and pay.
+  data.delete("room-user:201");
+  data.delete("room-users:201");
+  data.delete("user-room:Uowner");
+  data.delete("user-room:UtenantA");
+  data.delete("user-room:UtenantB");
+
+  r = await call(qr, { method: "POST", query: { room: "201", mode: "add" }, user: "Uowner" });
+  assert.strictEqual(r.status, 200, "the owner can mint an add-member QR");
+  const addCode = r.body.code;
+  assert.strictEqual(r.body.mode, "add");
+
+  r = await call(qr, { body: { code: addCode }, user: "UtenantA" });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(r.body.room, "201");
+  assert.strictEqual(data.get("room-user:201"), "UtenantA", "the first arrival becomes the primary");
+  assert.deepStrictEqual(data.get("room-users:201"), ["UtenantA"]);
+
+  r = await call(qr, { body: { code: addCode }, user: "UtenantB" });
+  assert.strictEqual(r.status, 200, "a second account joins as a member");
+  assert.strictEqual(data.get("room-user:201"), "UtenantA", "the primary does not change");
+  assert.deepStrictEqual([...data.get("room-users:201")].sort(), ["UtenantA", "UtenantB"]);
+  assert.strictEqual(data.get("user-room:UtenantB"), "201", "the member can reach the room");
+
+  r = await call(qr, { body: { code: addCode }, user: "UtenantB" });
+  assert.deepStrictEqual([r.status, r.body.already], [200, true], "scanning the same add QR again is harmless");
+
+  // The normal door QR still refuses a second account: a photo of the sticker cannot join a room.
+  const doorCode = (await call(qr, { method: "GET", query: { room: "201" }, user: "Uowner" })).body.code;
+  assert.strictEqual((await call(qr, { body: { code: doorCode }, user: "UtenantC" })).status, 409, "ROOM_TAKEN");
+
+  // A member can read the bill of the room, and the owner still sees one room, not two.
+  data.set("bill:201", { room: "201", period: "2026-11", total: 3500, status: "unpaid" });
+  data.set("bill:2026-11:201", { room: "201", period: "2026-11", total: 3500, status: "unpaid" });
+  r = await call(bill, { method: "GET", user: "UtenantB" });
+  assert.strictEqual(r.status, 200, "a member sees the room's bill");
+  r = await call(rooms, { method: "GET", user: "Uowner" });
+  assert.strictEqual(r.body.rooms.find((x) => x.room === "201").members, 2, "the owner sees how many accounts");
+
+  // Changing the tenant clears everybody and kills the add QR.
+  r = await call(qr, { method: "POST", query: { room: "201" }, user: "Uowner" });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(data.get("room-user:201"), null);
+  assert.strictEqual(data.get("room-users:201"), null);
+  assert.strictEqual(data.get("user-room:UtenantB"), null, "the member is unbound too");
+  assert.strictEqual((await call(qr, { body: { code: addCode }, user: "UtenantD" })).status, 404, "the add QR died with the tenancy");
+
+  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members");
 })().catch((err) => {
   console.error(err);
   process.exit(1);

@@ -34,13 +34,23 @@ async function ensureCode(room, rotate) {
   return entry;
 }
 
-// Forget whoever is bound to the room, in both directions.
+// Forget every account bound to the room, in both directions (the primary and any members).
 async function unbindRoom(room) {
-  const tenant = await store.get(`room-user:${room}`);
-  if (!tenant) return null;
-  await store.set(`room-user:${room}`, null);
-  if ((await store.get(`user-room:${tenant}`)) === room) await store.set(`user-room:${tenant}`, null);
-  return tenant;
+  const primary = await store.get(`room-user:${room}`);
+  const members = (await store.get(`room-users:${room}`)) || [];
+  const all = [...new Set([...(primary ? [primary] : []), ...members])];
+  for (const userId of all) {
+    if ((await store.get(`user-room:${userId}`)) === room) await store.set(`user-room:${userId}`, null);
+  }
+  await store.set("room-user:" + room, null);
+  await store.set("room-users:" + room, null);
+  return primary || null;
+}
+
+// Roommates: extra accounts that may see the bill and pay. They never receive the cards or reminders —
+// those go to the primary account, so one room cannot burn two shares of the OA quota.
+async function membersOf(room) {
+  return (await store.get(`room-users:${room}`)) || [];
 }
 
 // The tenant has left: the room's next tenancy starts now (bills issued before it stay hidden from
@@ -70,10 +80,35 @@ module.exports = async (req, res) => {
 
   const room = String(req.query.room || "").trim();
   const code = String((req.body && req.body.code) || "").trim().toUpperCase();
+  const mode = String(req.query.mode || "").trim();
 
+  if (room && mode === "add") return addMemberQr(req, res, userId, room);
   if (room) return roomQr(req, res, userId, room);
   if (code) return bind(req, res, userId, code);
   return res.status(400).json({ error: { code: "VALIDATION", message: "ต้องระบุ room หรือ code" } });
+}
+
+// A second account in the same room (roommates). A separate code on purpose: the door sticker must
+// keep refusing a second account, or a photo of it would let anyone join a room.
+async function addMemberQr(req, res, userId, room) {
+  if (!(await isOwner(userId))) {
+    return res.status(403).json({ error: { code: "FORBIDDEN", message: "เฉพาะเจ้าของหอ" } });
+  }
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: { code: "METHOD_NOT_ALLOWED", message: "POST only" } });
+  }
+  if (!ROOMS.includes(room)) {
+    return res.status(404).json({ error: { code: "NOT_FOUND", message: `ไม่พบห้อง ${room}` } });
+  }
+
+  const previous = await store.get(`room-qr-add:${room}`);
+  if (previous?.code) await store.set(`qr-code:${previous.code}`, null); // one live invite at a time
+  const entry = { code: newCode(), createdAt: new Date().toISOString() };
+  await store.set(`room-qr-add:${room}`, entry);
+  await store.set(`qr-code:${entry.code}`, room);
+  await store.set(`qr-mode:${entry.code}`, "add");
+  const url = bindUrl(entry.code);
+  return res.status(200).json({ room, code: entry.code, url, qr: url ? qrSvg(url) : null, mode: "add" });
 };
 
 async function roomQr(req, res, userId, room) {
@@ -91,6 +126,12 @@ async function roomQr(req, res, userId, room) {
   // Rotate first: if a later step throws, the old sticker is already dead. Unbinding first would
   // leave a room with no tenant and a QR that still binds.
   const entry = await ensureCode(room, changing);
+  if (changing) {
+    // A member invite belongs to the tenancy that just ended.
+    const add = await store.get(`room-qr-add:${room}`);
+    if (add?.code) await store.set(`qr-code:${add.code}`, null);
+    await store.set(`room-qr-add:${room}`, null);
+  }
   const unbound = changing ? await unbindRoom(room) : null;
   // Always, even if nobody was bound: whoever binds next starts a fresh tenancy.
   const prepayArchived = changing ? await endTenancy(room) : false;
@@ -111,12 +152,20 @@ async function bind(req, res, userId, code) {
     return res.status(404).json({ error: { code: "NOT_FOUND", message: "QR นี้ใช้ไม่ได้แล้ว — ขอใหม่จากเจ้าของหอ" } });
   }
 
+  const addMode = (await store.get(`qr-mode:${code}`)) === "add";
   const holder = await store.get(`room-user:${room}`);
-  if (holder && holder !== userId) {
+  const members = await membersOf(room);
+  if (addMode) {
+    // Joining a room that already has someone is the whole point of this code, so it is idempotent
+    // rather than a ROOM_TAKEN refusal.
+    if (holder === userId || members.includes(userId)) {
+      return res.status(200).json({ ok: true, room, already: true, previous: null });
+    }
+  } else if (holder && holder !== userId) {
     // Not a failed code: the code was valid, the room is just occupied. Counting it as a guess would
     // lock a tenant out of their own valid QR for an hour after scanning a stale door sticker.
     return res.status(409).json({
-      error: { code: "ROOM_TAKEN", message: `ห้อง ${room} มีผู้เช่าผูกไว้แล้ว — ให้เจ้าของหอกด “เปลี่ยนผู้เช่า” ก่อน` },
+      error: { code: "ROOM_TAKEN", message: `ห้อง ${room} มีผู้เช่าผูกไว้แล้ว — ให้เจ้าของหอกด “เปลี่ยนผู้เช่า” หรือออก QR “เพิ่มผู้เช่า”` },
     });
   }
 
@@ -134,12 +183,22 @@ async function bind(req, res, userId, code) {
       },
     });
   }
-  if (previous && previous !== room && (await store.get(`room-user:${previous}`)) === userId) {
-    await store.set(`room-user:${previous}`, null);
-    await endTenancy(previous); // the room left behind starts a new tenancy
+  if (previous && previous !== room) {
+    if ((await store.get(`room-user:${previous}`)) === userId) {
+      await store.set(`room-user:${previous}`, null);
+      await store.set(`room-users:${previous}`, null);
+      await endTenancy(previous); // the room left behind starts a new tenancy
+    } else {
+      // A member moving out: only their own name leaves the list.
+      const old = await membersOf(previous);
+      if (old.includes(userId)) await store.set(`room-users:${previous}`, old.filter((u) => u !== userId));
+    }
   }
   await store.set(`user-room:${userId}`, room);
-  await store.set(`room-user:${room}`, userId);
+  if (!holder) await store.set(`room-user:${room}`, userId); // first arrival is the primary
+  const joined = new Set(members);
+  joined.add(userId);
+  await store.set(`room-users:${room}`, [...joined]);
 
   if (process.env.RICHMENU_TENANT_ID) {
     await linkRichMenu(userId, process.env.RICHMENU_TENANT_ID).catch((err) =>
@@ -149,13 +208,15 @@ async function bind(req, res, userId, code) {
   // The owner hears about every binding that changes something, so a wrong one is noticed the same
   // day. Re-scanning the QR of the room you already live in changes nothing and sends no notice.
   const moved = previous && previous !== room;
-  if ((!holder || moved) && process.env.OWNER_USER_ID) {
+  if ((!holder || moved || addMode) && process.env.OWNER_USER_ID) {
     const text = moved
       ? `มีผู้เช่าย้ายจากห้อง ${previous} มาห้อง ${room} แล้ว`
-      : `มีผู้เช่าผูก LINE กับห้อง ${room} แล้ว`;
+      : addMode
+        ? `มีผู้เช่าเพิ่มเข้าห้อง ${room} แล้ว (สมาชิกในห้อง)`
+        : `มีผู้เช่าผูก LINE กับห้อง ${room} แล้ว`;
     await push(process.env.OWNER_USER_ID, [{ type: "text", text }]).catch((err) =>
       console.error("owner notice failed", err.message)
     );
   }
-  return res.status(200).json({ ok: true, room, previous: previous || null });
+  return res.status(200).json({ ok: true, room, previous: previous || null, member: addMode || undefined });
 }
