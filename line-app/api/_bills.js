@@ -78,4 +78,21 @@ function receiptNoOf(bill) {
   return `R${String(bill.period).replace("-", "")}-${bill.room}${rev}`;
 }
 
-module.exports = { indexBill, indexBills, saveBill, saveBills, archiveVoid, tenancyOf, visibleToTenant, receiptNoOf, PERIOD };
+// The bill with an advance slip (`prepay:<room>`) attached: it starts `pending`. Both /api/run and
+// /api/slip can attach the same slip when they race (see saveAdvance), so this must give the same
+// content whoever builds it; the owner's card is deduped by its retry key.
+const prepaidCopy = (bill, prepay) => ({
+  ...bill,
+  status: "pending",
+  slipPath: prepay.slipPath || null,
+  slipNote: prepay.slipNote || null,
+  slipAt: prepay.slipAt,
+  slipCount: prepay.slipCount || 1,
+  slipVerify: prepay.slipVerify || null,
+  prepaid: true,
+});
+
+// One owner card per attached slip, however many requests attach it.
+const confirmKey = (bill) => `confirm:${bill.room}:${bill.period}:${bill.slipAt}`;
+
+module.exports = { prepaidCopy, confirmKey, indexBill, indexBills, saveBill, saveBills, archiveVoid, tenancyOf, visibleToTenant, receiptNoOf, PERIOD };

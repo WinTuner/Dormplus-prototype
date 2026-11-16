@@ -96,4 +96,20 @@ async function verifySlip({ bytes, mime, amount }) {
   };
 }
 
-module.exports = { verifySlip };
+const DAY_MS = 86400000;
+
+// A slip whose transfer is older than `maxDays` is probably last month's receipt (or a reused
+// screenshot), not this payment. It is kept, but "verified" is downgraded to "cannot tell" so the
+// owner reads the date before confirming. Never blocks: an old transfer can be a real late bill.
+// Call it AFTER the transRef has been remembered, so the reference still guards against reuse.
+function markStale(verify, now = Date.now(), maxDays = 30) {
+  if (!verify || verify.ok !== true || !verify.paidAt) return verify;
+  const at = new Date(verify.paidAt).getTime();
+  if (!Number.isFinite(at)) return verify;
+  const age = Number(now) - at;
+  if (age <= maxDays * DAY_MS) return verify;
+  const days = Math.floor(age / DAY_MS);
+  return { ...verify, ok: null, reason: `สลิปเก่า — โอนเมื่อ ${days} วันก่อน`, stale: true, staleDays: days };
+}
+
+module.exports = { verifySlip, markStale };

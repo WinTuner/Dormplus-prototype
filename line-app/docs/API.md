@@ -206,11 +206,38 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 
 `advance` = `{ slipAt, hasSlip, note }` จาก `prepay:<room>` เมื่อผู้เช่าโอนก่อนบิลออกแล้วยังไม่มีบิลมารับ มิฉะนั้น `null` · อ่านคู่กับบิลแบบขนาน · ไม่มีใน `period=` และ `history=1`
 
-field ที่มีจริงขึ้นกับว่าเขียนผ่าน path ไหน: `run` สร้าง `room, period, rent, water, elec, waterUnits, elecUnits, total, due, status, rev, issuedAt` และถ้าผูกสลิปโอนล่วงหน้าเพิ่ม `slipPath, slipNote, slipAt, slipCount, prepaid: true`; `slip` เพิ่ม `slipPath, slipNote, slipAt, slipCount` (และ `slipGroup` เมื่อส่ง `periods`); webhook เพิ่ม `paidAt, confirmedBy, receiptNo` (ดู §13); `POST /api/bill` เพิ่ม `voidedAt, voidedBy, voidReason, statusBefore` — `hasSlip` คำนวณสด (`!!bill.slipPath`) ไม่ได้เก็บลง Blob
+field ที่มีจริงขึ้นกับว่าเขียนผ่าน path ไหน: `run` สร้าง `room, period, rent, water, elec, waterUnits, elecUnits, total, due, status, rev, issuedAt` และถ้าผูกสลิปโอนล่วงหน้าเพิ่ม `slipPath, slipNote, slipAt, slipCount, slipVerify, prepaid: true`; `slip` เพิ่ม `slipPath, slipNote, slipAt, slipCount` (และ `slipGroup` เมื่อส่ง `periods`); webhook เพิ่ม `paidAt, confirmedBy, receiptNo` (ดู §13); `POST /api/bill` เพิ่ม `voidedAt, voidedBy, voidReason, statusBefore` — `hasSlip` คำนวณสด (`!!bill.slipPath`) ไม่ได้เก็บลง Blob
 - **Error:** `400 VALIDATION` (ไม่มี `room` และยังไม่ผูกห้อง, `period` ผิดรูป), `403 FORBIDDEN` (ผูกห้องอื่น, หรือผู้เช่าขอ `voided=1`), `404 NOT_FOUND` (ไม่มีบิล — กรณีเรียกแบบบิลล่าสุด body เป็น `{ error: { code, message, advance } }` โดย `advance` เป็นรูปเดียวกับข้างบนหรือ `null` เพื่อให้หน้า LIFF แสดง "โอนแล้ว รอบิลออก"), `401`/`403` จาก `requireUser`
 - **อ่าน Blob:** `user-room:<userId>`, `bill:<room>`, `prepay:<room>` (เฉพาะแบบบิลล่าสุด), `tenancy:<room>` (เฉพาะผู้เช่า — อ่านพร้อมกับบิล ไม่ใช่ก่อน), `bill-voids:<room>` + `bill-void:<period>:<room>:<rev>` (เฉพาะ `voided=1`)
 - **Side effect:** ไม่มี
 - **หมายเหตุ:** GET ไม่ตรวจ `req.method` (ยกเว้น POST ที่เข้า path ยกเลิกบิลด้านล่าง)
+
+### `GET /api/bill?overdue=1` — ยอดค้างชำระ (นับที่เซิร์ฟเวอร์)
+
+บิล `unpaid` ที่มี `due` และ `due` **น้อยกว่า** วันนี้ (เวลา Asia/Bangkok — `_ledger.bangkokToday()`) · `due` = วันนี้ยังไม่ถือว่าค้าง · `pending` / `paid` / `void` / ไม่มี `due` ไม่นับ · อ่านบิลล่าสุด + ย้อนหลังอีก 12 งวดต่อห้อง (เท่ากับที่ cron ทวงใช้) · `daysOverdue` = จำนวนวันปฏิทินจาก `due` ถึงวันนี้ (ข้ามเดือน/ปีถูกต้อง)
+
+- **ผู้เช่า:** เฉพาะห้องที่ผูก (ส่ง `room` ห้องอื่น → `403`; ยังไม่ผูก → `400`) และกรองตามสัญญาเช่าเหมือน `history` → `{ today, room, count, total, maxDaysOverdue, items: [{ period, total, due, daysOverdue }] }` เรียง `due` เก่าสุดก่อน
+- **เจ้าของ/ผู้ช่วย:** ทุกห้องใน `ROOMS` (`room=` เลือกห้องเดียว, ไม่มีห้องนั้น → `404`) → `{ today, count, total, rooms: [{ room, count, total, maxDaysOverdue, items }] }` เฉพาะห้องที่ `count > 0` เรียง `maxDaysOverdue` มาก→น้อย แล้วเลขห้อง
+- **อ่าน Blob:** `bill:<room>`, `bills:<room>`, `bill:<period>:<room>` (ต่อห้อง อ่านพร้อมกันแบบจำกัดจำนวน), `tenancy:<room>` (ผู้เช่า)
+
+### `GET /api/bill?income=YYYY-MM` — รายรับของเดือน (ตามวันที่ชำระ)
+
+เจ้าของ/ผู้ช่วยเท่านั้น (ผู้เช่า → `403`, เดือนผิดรูป → `400`) · นับบิล `status:"paid"` ที่ `paidAt` ตกในเดือนนั้นตามเวลา Asia/Bangkok **ไม่ว่าบิลจะเป็นของรอบไหน** (บิล ต.ค. ที่จ่าย 2 พ.ย. = รายรับ พ.ย.; `2026-10-31T17:30:00Z` คือ 1 พ.ย. ในไทย) · บิล `void` ไม่นับ (เป็นเงินที่ต้องคืน ดู `refundDue`) · ต่อห้องอ่านเฉพาะรอบ [เดือน−12, เดือน] ตามดัชนี · → `{ month, total, count, items: [{ room, period, total, paidAt, receiptNo }] }` เรียงตาม `paidAt`
+
+### `GET /api/bill?voided=1&refunds=1` — เงินที่ยังต้องคืน
+
+เจ้าของ/ผู้ช่วยเท่านั้น (ผู้เช่า → `403`) · ทุกห้อง (`room=` เลือกห้องเดียว) · คืนเฉพาะรายการ void ที่มี `refundDue` และยังไม่มี `refundedAt` → `{ room?, count, total, items: [บิล void ...] }`
+
+### `POST /api/bill` — บันทึกว่าคืนเงินแล้ว (`refunded`)
+
+นโยบาย: ระบบไม่โอนเงินเอง เจ้าของคืนเงินนอกระบบแล้วกดบันทึก
+
+- **Auth:** `isOwner` เท่านั้น (ผู้ช่วย/ผู้เช่า → `403`)
+- **Body:** `{ "action": "refunded", "room": "203", "period": "2026-11", "rev": 1, "note": "โอนคืนแล้ว" }` — `rev` จำนวนเต็ม ≥ 1 · `note` ไม่บังคับ ≤ 200 ตัวอักษร
+- **200:** `{ ok: true, room, period, rev, refundedAt, refundDue }`
+- **Error:** `400 VALIDATION` · `404` (ห้องไม่อยู่ใน `ROOMS` หรือไม่มี `bill-void:<period>:<room>:<rev>`) · `409 INVALID_STATE` (ไม่มี `refundDue` = ไม่เคยจ่าย, หรือ `refundedAt` มีแล้ว)
+- **เขียน Blob:** `bill-void:<period>:<room>:<rev>` += `refundedAt` (ISO), `refundedBy` (userId เจ้าของ), `refundNote` · ถ้า `bill:<period>:<room>` ยังเป็น void ของ `rev` เดียวกัน อัปเดตด้วย `saveBill` (`bill:<room>` ตามไปด้วย) — ถ้าออกบิลใหม่ (rev ถัดไป) แล้ว บิลใหม่ไม่รับ field เหล่านี้
+- **ผู้เช่าไม่เห็น `refundedBy`** (ตัดออกพร้อม `confirmedBy`/`voidedBy`) แต่เห็น `refundDue`/`refundedAt` ในบิลของตัวเอง
 
 ### `POST /api/bill` — ยกเลิกบิล (void)
 
@@ -219,7 +246,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 - **Auth:** Bearer idToken + `isOwner` (ผู้ช่วยดูอย่างเดียวและผู้เช่า → `403 FORBIDDEN`)
 - **Body:** `{ "action": "void", "room": "203", "period": "2026-11", "reason": "กรอกยอดผิด" }` — `reason` บังคับ 1–200 ตัวอักษร (ตัดช่องว่างหัวท้าย) · `period` รูป `YYYY-MM` ที่เดือน 01–12
 - **200:** `{ "ok": true, "room": "203", "period": "2026-11", "status": "void" }` · ถ้าบิลนั้นจ่ายแล้ว เพิ่ม `"refund": <total>` = ยอดที่หอต้องคืนผู้เช่า
-- **Error:** `403 FORBIDDEN` → `400 VALIDATION` (action ไม่ใช่ `void`, ไม่มี room, period ผิดรูป, reason ว่าง/ยาวเกิน) → `404 NOT_FOUND` (room ไม่อยู่ใน `ROOMS`, หรือไม่มี `bill:<period>:<room>`) → `409 INVALID_STATE` (`void` อยู่แล้ว)
+- **Error:** `403 FORBIDDEN` → `400 VALIDATION` (action ไม่ใช่ `void`/`reject`/`refunded`, ไม่มี room, period ผิดรูป, reason ว่าง/ยาวเกิน) → `404 NOT_FOUND` (room ไม่อยู่ใน `ROOMS`, หรือไม่มี `bill:<period>:<room>`) → `409 INVALID_STATE` (`void` อยู่แล้ว)
 - **เขียน Blob:** `bill:<period>:<room>` = บิลเดิม + `status:"void"`, `voidedAt` (ISO), `voidedBy` (userId เจ้าของ), `voidReason`, `statusBefore` (สถานะก่อนยกเลิก) และ `refundDue` (ยอดที่ต้องคืน เมื่อยกเลิกบิลที่จ่ายแล้ว) ผ่าน `saveBill` — `bill:<room>` ตามไปด้วยเมื่อเป็นรอบล่าสุด · `receiptNo` และ field สลิปคงไว้เป็นหลักฐาน · **เก็บเข้าคลังทันที** ที่ `bill-void:<period>:<room>:<rev>` + `bill-voids:<room>` (idempotent — `/api/run` เก็บซ้ำได้)
 - **Side effect:** push ข้อความหาผู้เช่า `บิลห้อง <room> รอบ <period> ถูกยกเลิก — <reason>` เฉพาะเมื่อมีผู้เช่าผูกอยู่และบิลนั้นเป็นของสัญญาเช่าปัจจุบัน (push พังแค่ log)
 - **ผลต่อส่วนอื่น:** `/api/run` ออกบิลรอบที่ `void` ใหม่ได้ (`rev = เดิม + 1`; ออกบิล `unpaid` ซ้ำคง `rev` เดิม) · webhook ยืนยันบิล `void` → "บิลนี้ถูกยกเลิกแล้ว" ไม่เปลี่ยนอะไร · `/api/slip` ถือบิลล่าสุดที่ `void` เป็น "ไม่มีบิลที่ต้องจ่าย" (ทางโอนก่อนบิลออก) · แชท "บิล" ตอบข้อความยกเลิกแทนการ์ดจ่ายเงิน
@@ -235,7 +262,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 
 ## 6. `POST /api/slip`
 
-`api/slip.js` — ผู้เช่าแนบสลิป (ไม่บังคับรูป) แล้วแจ้งเจ้าของให้ยืนยัน
+`api/slip.js` — ผู้เช่าแนบสลิปแล้วแจ้งเจ้าของให้ยืนยัน · **ผู้เช่าต้องแนบรูป** (ไม่มี `image` → `400 VALIDATION` "ต้องแนบรูปสลิป" ทุกทาง: บิลเดียว · `periods` · โอนก่อนบิลออก) · เจ้าของ/ผู้ช่วยบันทึกโดยไม่มีรูปได้ (เช่นรับเงินสด) — การ์ดยืนยันของสลิปที่ไม่มีรูปจะไม่มีปุ่ม "ดูสลิป" และมีบรรทัดเตือน "ไม่มีรูปสลิป — ตรวจยอดเงินเข้าเองก่อนยืนยัน"
 
 **สองทางตามสถานะบิลล่าสุด** (สำหรับผู้เช่า บิลล่าสุดที่ไม่ใช่ของสัญญาเช่าปัจจุบัน — ดู §5 — นับเป็น "ไม่มีบิล" จึงเข้าทางโอนก่อนบิลออก และไม่แตะบิลเก่า · เจ้าของไม่ถูกกรอง): ถ้า `bill:<room>` เป็น `unpaid`/`pending` สลิปผูกกับบิลนั้น (ทางปกติ) · ถ้าไม่มีบิลเลย หรือบิลล่าสุด `paid` / `void` แล้ว ถือว่าเป็น **สลิปโอนก่อนบิลออก** เก็บเป็น `prepay:<room>` และ `/api/run` จะผูกให้กับบิลรอบถัดไปเอง (ไม่มี `409 INVALID_STATE` สำหรับบิลที่ชำระแล้วอีกต่อไป)
 
@@ -246,7 +273,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 |---|---|---|---|
 | `room` | string | ไม่ (fallback = ห้องที่ผูกไว้) | |
 | `note` | string | ไม่ | เก็บเป็น `slipNote` (ค่าว่าง → `null`) · ยาวไม่เกิน 500 ตัวอักษร |
-| `image` | string (data URL) | ไม่ | ต้องตรง `/^data:(image\/(jpeg\|png\|webp));base64,(.+)$/` |
+| `image` | string (data URL) | **ผู้เช่า: บังคับ** · เจ้าของ: ไม่ | ต้องตรง `/^data:(image\/(jpeg\|png\|webp));base64,(.+)$/` |
 | `periods` | string[] | ไม่ | **จ่ายหลายงวดในสลิปเดียว** — `YYYY-MM` ไม่ซ้ำ 1–12 รอบ · ไม่ส่ง = พฤติกรรมเดิมทุกอย่าง (ดูหัวข้อด้านล่าง) |
 
 ขนาดรูปสูงสุด **3 MiB** (`MAX_BYTES = 3 * 1024 * 1024`) นับหลัง decode base64; นามสกุลไฟล์มาจาก mime (`jpeg` → `jpg`)
@@ -263,6 +290,8 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 - `false` — `reason` บอกเหตุ: ยอดไม่ตรง · บัญชีผู้รับไม่ใช่ของหอ · สลิปซ้ำ (ของผู้ให้บริการหรือ `slip-ref:<transRef>` ของเรา)
 - `null` — **ตรวจไม่ได้** (ไม่ได้ตั้ง `SLIPOK_API_KEY`/`SLIPOK_BRANCH_ID`, ผู้ให้บริการล่ม, หรืออ่านสลิปไม่ได้) — ไม่ใช่ "ปลอม"
   - รูปแบบ error จริงของผู้ให้บริการคือ `{ code, message, data }` **ไม่มี `success:false`** → โค้ดถือว่า "success ต้องเป็น `true` อย่างชัดเจน" และต้องมี `transRef` ถึงจะนับว่าผ่าน
+- **สลิปเก่า (`stale`)** — ถ้าเวลาโอน (`paidAt`) เก่ากว่า 30 วันจากตอนส่ง สลิปยังถูกเก็บและบิลยังเป็น `pending` แต่ `ok:true` ถูกลดเป็น `ok:null` + `reason: "สลิปเก่า — โอนเมื่อ N วันก่อน"` + `stale:true` + `staleDays:N` (คง `amount`, `transRef`, `paidAt`, `bank`) · ลดหลังบันทึก `slip-ref:<transRef>` แล้ว สลิปเก่าที่ถูกใช้ซ้ำจึงยังถูกจับเป็นสลิปซ้ำ · ใช้ทั้งบิลเดียว หลายงวด และโอนก่อนบิลออก · ไม่เคยปฏิเสธสลิป (`markStale` ใน `api/_verify.js`)
+- **ยอดเกิน/ไม่ตรง** — ติดธง `ok:false` "ยอดในสลิปไม่ตรงกับบิล" (ส่ง `amount` = ยอดบิล หรือผลรวมของ `periods` ให้ผู้ให้บริการ; รหัส 1013 หรือเทียบเอง) · **ไม่เก็บเป็นเครดิต** · บิลยัง `pending` เจ้าของยืนยันหรือปฏิเสธเอง
 
 **`pay`** = QR พร้อมเพย์สำหรับบิลนี้ (มีเมื่อเจ้าของใส่พร้อมเพย์ในหน้าตั้งค่าหอ **และ** บิลยัง `unpaid`/`pending`):
 `{ "payload": "000201010212...6304XXXX", "qr": "<svg …>" }` · `payload` เป็น EMVCo มาตรฐาน (tag 00/01/29/53/54/58 + CRC16) · `qr` เป็น SVG พร้อมแสดง · `null` เมื่อไม่มีพร้อมเพย์หรือบิลจ่ายแล้ว/ถูกยกเลิก
@@ -274,17 +303,20 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 { "ok": true, "status": "advance", "hasSlip": true, "verify": { "provider": "slipok", "ok": null, "reason": "not_configured" } }
 ```
 
+ถ้าเจ้าของออกบิลระหว่างที่คำขอนี้กำลังทำงาน (`/api/run` อ่าน `prepay:` ไปก่อนที่จะถูกเขียน) หลังเขียน `prepay:<room>` โค้ดอ่าน `bill:<room>` อีกครั้ง — ถ้าตอนนี้มีบิล `unpaid` ที่ผู้เช่าจ่ายได้ (ผู้ส่งต้องเป็นผู้เช่าปัจจุบัน และไม่ใช่บิลของผู้เช่าเก่า) จะผูกสลิปเข้าบิลนั้นเลย (บิล `pending`, `prepaid:true`, ล้าง `prepay:` ถ้า `slipAt` ยังตรง, push การ์ดยืนยันหาเจ้าของ) แล้วตอบ `{ "ok": true, "status": "pending", "attached": true, "total": 3532, "hasSlip": true, "verify": {...} }` แทน `status:"advance"` · `/api/run` ทำการตรวจซ้ำแบบกลับด้านหลังเขียนบิล (§9) — ฝั่งใดช้ากว่าจะเห็นอีกฝั่ง ถ้าทั้งคู่ผูกพร้อมกันเนื้อหาเหมือนกันและการ์ดถึงเจ้าของใบเดียว (retry key ด้านล่าง)
+
 - **200 แบบหลายงวด (`periods`):**
 
 ```json
 { "ok": true, "status": "pending", "periods": ["2026-10", "2026-11"], "total": 7491, "hasSlip": true }
 ```
 
-- **Error (ตามลำดับที่โค้ดเช็ก — ไม่มี `404` แล้ว เพราะห้องที่ไม่มีบิลเข้าทางโอนก่อนบิลออก):** `405 METHOD_NOT_ALLOWED` → `401`/`403` จาก `requireUser` → `400 VALIDATION` (`note` ไม่ใช่ข้อความหรือยาวเกิน 500) → `400 VALIDATION` (ไม่มี room) → `403 FORBIDDEN` (ไม่ได้ผูกห้อง) → `404 NOT_FOUND` (เจ้าของระบุ `room` ที่ไม่อยู่ใน `ROOMS`) → `429 SLIP_LIMIT` / `429 SLIP_TOO_SOON` → `400 VALIDATION` (mime ไม่อยู่ใน 3 ชนิด) → `413 TOO_LARGE`
+- **Error (ตามลำดับที่โค้ดเช็ก — ไม่มี `404` แล้ว เพราะห้องที่ไม่มีบิลเข้าทางโอนก่อนบิลออก):** `405 METHOD_NOT_ALLOWED` → `401`/`403` จาก `requireUser` → `400 VALIDATION` (`note` ไม่ใช่ข้อความหรือยาวเกิน 500) → `400 VALIDATION` (ไม่มี room) → `403 FORBIDDEN` (ไม่ได้ผูกห้อง) → `404 NOT_FOUND` (เจ้าของระบุ `room` ที่ไม่อยู่ใน `ROOMS`) → `400 VALIDATION` (ผู้เช่าไม่แนบ `image`) → `429 SLIP_LIMIT` / `429 SLIP_TOO_SOON` → `400 VALIDATION` (mime ไม่อยู่ใน 3 ชนิด) → `413 TOO_LARGE`
 - **จำกัดการส่ง (ผู้เช่าเท่านั้น เจ้าของไม่ติด):** ไม่เกิน 5 ครั้งต่อบิล และห่างกันอย่างน้อย 30 วินาที — ทุกสลิป push การ์ดหาเจ้าของ ซึ่งกินโควตาข้อความของ LINE OA · สลิปที่ถูกปฏิเสธไม่ส่งข้อความ · นับใน `slipCount` ของบิล (ทางโอนก่อนบิลออกนับใน `slipCount` / `slipAt` ของ `prepay:<room>` ด้วยกติกาเดียวกัน)
   - ⚠️ เป็น **best-effort**: Blob ไม่มี atomic counter ถ้ายิงหลาย request พร้อมกันอาจมีบางตัวหลุดเกิน 5 (ตัวนับกันสแปม ไม่ใช่ด่านความปลอดภัย)
   - การออกบิล `unpaid` รอบเดิมใหม่ (`/api/run`) จะสร้างบิลใหม่และรีเซ็ต `slipCount`
 - **เขียน Blob:** `slips/<room>-<Date.now()>.<ext>` (เฉพาะเมื่อมี `image`), `bill:<room>` และ `bill:<period>:<room>` = บิลเดิม + `status:"pending"`, `slipPath`, `slipNote`, `slipAt` (ISO), `slipCount`
+- **LINE retry key (กัน push ซ้ำเมื่อคำขอแข่งกัน):** `push(to, messages, { retryKey })` ใน `api/_line.js` ส่ง header `X-Line-Retry-Key` (UUID ที่แฮชจากสตริง `retryKey` แบบคงที่) — LINE จำคีย์ 24 ชั่วโมงและตอบ `409` เมื่อซ้ำ ซึ่งโค้ดนับเป็นสำเร็จ (`{ duplicate: true }`) ถ้ามี retry key · ไม่มี retry key แล้วได้ 409 ยัง throw เหมือนเดิม · คีย์ที่ใช้: ใบเสร็จ `receipt:<room>:<userId ผู้เช่า>:<period:rev,...>` · เตือนรายวัน `remind:<room>:<วันที่>:<period:kind:rev,...>` · สรุปถึงเจ้าของ `remind-summary:<วันที่>` · การ์ดยืนยันของสลิปล่วงหน้าที่ผูกกับบิล `confirm:<room>:<period>:<slipAt>`
 - **Side effect อื่น:** `push()` การ์ด `confirmBubble` ไปที่ `OWNER_USER_ID` — ถ้า push ล้มเหลวแค่ `console.error("owner push failed")` แล้วยังตอบ 200
 - ถ้าไม่ได้แนบรูปใหม่ `slipPath` เดิมถูกคงไว้ · ถ้าแนบรูปใหม่ รูปเดิมถูกลบหลังบันทึกบิลแล้ว (ลบไม่สำเร็จแค่ `console.error`)
 - **ทางโอนก่อนบิลออก:** ตรวจสิทธิ์ ตรวจ note และจำกัดการส่งเหมือนทางปกติ · เขียนรูปที่ `slips/<room>-advance-<Date.now()>.<ext>` และ `prepay:<room>` = `{ room, slipPath, slipNote, slipAt, slipCount, by }` (`slipCount` = ครั้งก่อน + 1, `by` = userId ผู้ส่ง) · **รูปของ prepay ที่ถูกแทนจะไม่ถูกลบ** (บิลที่กำลังถูกเขียนอยู่อาจอ้างถึง path นั้น) · ไม่แตะ `bill:*` · push ข้อความ text หา `OWNER_USER_ID`: `ห้อง <room> แจ้งโอนก่อนบิลออก — <note> · ระบบจะผูกสลิปนี้กับบิลรอบถัดไปให้เอง` (ไม่มี ` — <note>` ถ้าไม่มีหมายเหตุ · push ล้มเหลวไม่ fail request)
@@ -371,7 +403,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 
 ห้องที่ข้อมูลเสียจะถูกใส่เป็น `{room, error}` **โดยไม่ทำให้ request ล้ม** — ข้อความที่เป็นไปได้: `ไม่มีห้องนี้ในหอ`, `ต้องกรอกหน่วยน้ำและไฟ` (ขาดหน่วยใดหน่วยหนึ่ง — ไม่เขียนมิเตอร์/บิลของห้องนั้น), `หน่วยมิเตอร์ต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป` (ไม่ใช่จำนวนเต็ม, ติดลบ, เกิน 100000, หรือไม่ใช่ตัวเลข/ข้อความ), `ห้องนี้ซ้ำในคำขอเดียวกัน`, `บิลรอบนี้…แก้ไม่ได้` · ลำดับตรวจ: ห้อง → หน่วยขาด → หน่วยผิดรูป → สถานะบิล (สถานะยัง 200) · ห้องเดียวกันซ้ำใน `readings` → ตัวแรกออกบิล ตัวที่ซ้ำได้ `error` · ห้องทำงานพร้อมกันทีละ 6 ห้อง (`rooms` ยังเรียงตาม `readings`) — 12 ห้องจาก ~12 วินาทีเหลือ ~1 วินาทีเมื่อแต่ละ round trip 80ms
 - **Error:** `405`, `401`/`403` จาก `requireUser`, `403 FORBIDDEN` (ไม่ใช่ owner), `400 VALIDATION` (`readings` ไม่ใช่ array/ว่าง), `400 VALIDATION` (ไม่มี period)
-- **เขียน Blob:** `meter:<room>` = `{water, elec, at}` และ `bill:<room>` = บิลใหม่ทั้งใบ (มี `issuedAt` = ISO ตอนออก/ออกซ้ำ ใช้แยกบิลของผู้เช่าปัจจุบันออกจากผู้เช่าคนก่อน) `status:"unpaid"` (ถ้ามี `prepay:<room>` บิลใหม่เริ่มที่ `status:"pending"` พร้อม `slipPath`, `slipNote`, `slipAt`, `slipCount` ที่คัดลอกจาก prepay และ `prepaid:true` แล้วตั้ง `prepay:<room>` เป็น `null` หลัง `saveBill` สำเร็จ · ข้ามห้องที่บิลรอบนั้นแจ้งชำระหรือชำระแล้ว (ไม่แตะ prepay) · บิล `unpaid` ออกใหม่ทับได้เพื่อแก้เลขผิด (คง `rev`) · บิล `void` ออกใหม่ได้ด้วย `rev` = เดิม + 1 (บิลใหม่เริ่มสะอาด ไม่ติด `receiptNo`/`void*`) **และก่อนเขียนทับ บิล `void` เดิมถูกเก็บไว้ที่ `bill-void:<period>:<room>:<rev เดิม>` ทั้งก้อน** พร้อมเพิ่ม `<period>:<rev>` ใน `bill-voids:<room>` (อ่านคืนได้ที่ `GET /api/bill?voided=1`, §5) · `paid` แก้ไม่ได้ ต้อง void ก่อน · หน่วยต้องเป็นจำนวนเต็ม ≥ 0 และห้องต้องอยู่ใน `ROOMS`)
+- **เขียน Blob:** `meter:<room>` = `{water, elec, at}` และ `bill:<room>` = บิลใหม่ทั้งใบ (มี `issuedAt` = ISO ตอนออก/ออกซ้ำ ใช้แยกบิลของผู้เช่าปัจจุบันออกจากผู้เช่าคนก่อน) `status:"unpaid"` (ถ้ามี `prepay:<room>` บิลใหม่เริ่มที่ `status:"pending"` พร้อม `slipPath`, `slipNote`, `slipAt`, `slipCount`, `slipVerify` ที่คัดลอกจาก prepay และ `prepaid:true` แล้วตั้ง `prepay:<room>` เป็น `null` หลัง `saveBill` สำเร็จ · ถ้าตอนอ่านแรกยังไม่มี prepay ที่ใช้ได้ หลังเขียนบิลจะอ่าน `prepay:<room>` ซ้ำอีกครั้ง — ถ้ามีสลิปโผล่มาระหว่างนั้น (ผู้ส่งเป็นผู้เช่าปัจจุบัน และบิลรอบนี้ยัง `unpaid` ตัวเดิม) จะผูกให้ทันทีแบบเดียวกัน (`POST /api/slip` ตรวจซ้ำกลับด้าน ดู §6) · การ์ดยืนยันถึงเจ้าของใช้ retry key `confirm:<room>:<period>:<slipAt>` (ไม่ซ้ำแม้ทั้งสองฝั่งผูก) · ข้ามห้องที่บิลรอบนั้นแจ้งชำระหรือชำระแล้ว (ไม่แตะ prepay) · บิล `unpaid` ออกใหม่ทับได้เพื่อแก้เลขผิด (คง `rev`) · บิล `void` ออกใหม่ได้ด้วย `rev` = เดิม + 1 (บิลใหม่เริ่มสะอาด ไม่ติด `receiptNo`/`void*`) **และก่อนเขียนทับ บิล `void` เดิมถูกเก็บไว้ที่ `bill-void:<period>:<room>:<rev เดิม>` ทั้งก้อน** พร้อมเพิ่ม `<period>:<rev>` ใน `bill-voids:<room>` (อ่านคืนได้ที่ `GET /api/bill?voided=1`, §5) · `paid` แก้ไม่ได้ ต้อง void ก่อน · หน่วยต้องเป็นจำนวนเต็ม ≥ 0 และห้องต้องอยู่ใน `ROOMS`)
 - **Side effect อื่น:** `push()` การ์ด `billBubble` ให้ `room-user:<room>` ถ้ามีผู้เช่า (บิลที่ไม่มี `due` ไม่มีบรรทัด "ครบกำหนด" บนการ์ด) — การ์ดผู้เช่ากับการ์ดยืนยันของเจ้าของส่งพร้อมกัน; push ล้มเหลว → `pushed:false` + `console.error` (ไม่ fail request) · ถ้าบิลมีสลิปจาก prepay จะ push การ์ด `confirmBubble` หา `OWNER_USER_ID` ด้วย เพื่อให้กดยืนยันได้ทันที (พังก็กลืน) และแถวผลลัพธ์ของห้องนั้นมี `prepaid:true`
 - การคำนวณ: `water = Math.round(waterUnits * waterRate)`, `elec = Math.round(elecUnits * elecRate)`, `total = rent + water + elec`
 

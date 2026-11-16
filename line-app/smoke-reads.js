@@ -81,5 +81,59 @@ function call(handler, { query = {}, user = "owner" } = {}) {
 
   result = await call(bill, { query: { room: "204" }, user: "tenant" });
   assert.strictEqual(result.status, 403, "tenant cannot read another room");
-  console.log("reads OK — bounded concurrency, ordering, legacy history, binding and auth");
+  // ---- overdue: counted on the server from the Bangkok date, which the test pins through _ledger
+  require("./api/_ledger").bangkokToday = () => "2026-11-02";
+  const putRoom = (room, bills) => {
+    values.set(`bills:${room}`, bills.map((b) => b.period));
+    for (const b of bills) values.set(`bill:${b.period}:${room}`, { room, ...b });
+    values.set(`bill:${room}`, { room, ...bills[0] });
+  };
+  putRoom("205", [
+    { period: "2026-11", total: 400, status: "unpaid", due: "2026-11-16", issuedAt: "2026-11-01T00:00:00Z" },
+    { period: "2026-10", total: 300, status: "unpaid", due: "2026-10-31", issuedAt: "2026-10-16T00:00:00Z" },
+    { period: "2026-09", total: 200, status: "unpaid", due: "2026-09-16", issuedAt: "2026-09-16T00:00:00Z" },
+    { period: "2026-08", total: 100, status: "pending", due: "2026-08-16", issuedAt: "2026-08-16T00:00:00Z" },
+  ]);
+  putRoom("206", [{ period: "2026-11", total: 500, status: "unpaid", due: "2026-11-02" }]); // due today: not late
+  putRoom("207", [{ period: "2026-11", total: 500, status: "unpaid", due: null }]);
+  putRoom("208", [{ period: "2026-10", total: 500, status: "void", due: "2026-10-01" }]);
+  putRoom("209", [{ period: "2026-10", total: 700, status: "unpaid", due: "2026-11-01" }]);
+  values.set("user-room:tenant205", "205");
+  values.set("tenancy:205", { since: "2026-10-01T00:00:00Z" }); // the September bill is the previous tenant's
+
+  result = await call(bill, { query: { overdue: "1" }, user: "owner" });
+  assert.strictEqual(result.status, 200);
+  assert.strictEqual(result.body.today, "2026-11-02");
+  assert.deepStrictEqual(result.body.rooms.map((r) => [r.room, r.count, r.total, r.maxDaysOverdue]), [["205", 2, 500, 47], ["209", 1, 700, 1]], "pending, due today, no due and void are not overdue");
+  assert.deepStrictEqual(result.body.rooms[0].items.map((i) => [i.period, i.daysOverdue]), [["2026-09", 47], ["2026-10", 2]], "oldest due first; 31 Oct to 2 Nov is 2 days across the month boundary");
+  assert.deepStrictEqual([result.body.count, result.body.total], [3, 1200]);
+  result = await call(bill, { query: { overdue: "1", room: "209" }, user: "owner" });
+  assert.deepStrictEqual(result.body.rooms.map((r) => r.room), ["209"], "room= narrows");
+  assert.strictEqual((await call(bill, { query: { overdue: "1", room: "999" }, user: "owner" })).status, 404);
+
+  result = await call(bill, { query: { overdue: "1" }, user: "tenant205" });
+  assert.strictEqual(result.status, 200);
+  assert.deepStrictEqual([result.body.room, result.body.count, result.body.total, result.body.maxDaysOverdue], ["205", 1, 300, 2], "the previous tenant's September bill is hidden");
+  assert.deepStrictEqual(result.body.items, [{ period: "2026-10", total: 300, due: "2026-10-31", daysOverdue: 2 }]);
+  assert.strictEqual((await call(bill, { query: { overdue: "1", room: "209" }, user: "tenant205" })).status, 403, "not another room");
+
+  // ---- income: by the day it was paid in Bangkok, whatever the bill's period
+  putRoom("210", [{ period: "2026-10", total: 4000, status: "paid", paidAt: "2026-10-31T17:30:00Z" }]); // 1 Nov 00:30 in Bangkok
+  putRoom("211", [{ period: "2026-11", total: 3000, status: "paid", paidAt: "2026-11-01T05:00:00Z" }]);
+  putRoom("212", [{ period: "2026-10", total: 2000, status: "void", paidAt: "2026-11-02T05:00:00Z" }]);
+  putRoom("213", [{ period: "2026-10", total: 1000, status: "paid", paidAt: "2026-10-31T16:59:59Z" }]); // still October there
+  putRoom("214", [{ period: "2025-11", total: 900, status: "paid", paidAt: "2026-11-03T05:00:00Z" }]); // paid a year late: still looked up
+  putRoom("215", [{ period: "2025-10", total: 800, status: "paid", paidAt: "2026-11-03T06:00:00Z" }]); // 13 months back: out of the window
+  result = await call(bill, { query: { income: "2026-11" }, user: "owner" });
+  assert.strictEqual(result.status, 200);
+  assert.deepStrictEqual(result.body.items.map((i) => [i.room, i.period]), [["210", "2026-10"], ["211", "2026-11"], ["214", "2025-11"]], "sorted by paidAt; October bill counts in November, void does not");
+  assert.deepStrictEqual([result.body.month, result.body.count, result.body.total], ["2026-11", 3, 7900]);
+  assert.ok(result.body.items[0].receiptNo, "each row carries a receipt number");
+  result = await call(bill, { query: { income: "2026-10" }, user: "owner" });
+  assert.deepStrictEqual(result.body.items.map((i) => i.room), ["213"], "the 17:00Z payment is October in Bangkok");
+  assert.strictEqual((await call(bill, { query: { income: "2026-11" }, user: "tenant205" })).status, 403);
+  for (const bad of ["2026-13", "abc", "2026-1"]) {
+    assert.strictEqual((await call(bill, { query: { income: bad }, user: "owner" })).status, 400, bad);
+  }
+  console.log("reads OK — bounded concurrency, ordering, legacy history, binding, auth, overdue and income");
 })().catch((error) => { console.error(error); process.exit(1); });

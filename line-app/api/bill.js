@@ -4,12 +4,21 @@
 // `voided=1` (owner and helper only) lists the cancelled bills (`bill-void:` archive): { items: [...] },
 // newest first; add `period=` to narrow.
 //
+// `voided=1&refunds=1` (owner and helper) lists only the cancelled bills whose refund is still owed,
+// across all rooms unless `room=` narrows.
+// `overdue=1`: unpaid bills past their due date, counted on the server (Bangkok date). A tenant gets
+// their own room; the owner and helpers get every room that has any (`room=` narrows).
+// `income=YYYY-MM` (owner and helper): money received in that Bangkok month by `paidAt`.
+//
 // POST /api/bill { action: "void", room, period, reason } — the owner cancels a bill (ยกเลิกบิล).
 // A paid bill is never edited in place: void it, then re-issue it from /api/run (which bumps `rev`).
+// POST /api/bill { action: "refunded", room, period, rev, note? } — the owner marks the money of a
+// voided paid bill as given back.
 const store = require("./_store");
 const { requireUser, canView, isOwner } = require("./_auth");
 const { ROOMS } = require("./_rooms");
 const { mapLimit } = require("./_async");
+const ledger = require("./_ledger"); // used through the module object so tests can set "today"
 const { push } = require("./_line");
 const { payloadFor } = require("./_promptpay");
 const { qrSvg } = require("./_qr");
@@ -18,6 +27,8 @@ const { saveBill, archiveVoid, tenancyOf, visibleToTenant, receiptNoOf, PERIOD: 
 const PERIOD = /^\d{4}-\d{2}$/;
 const HISTORY_READ_CONCURRENCY = 6;
 const MAX_REASON_LENGTH = 200;
+const ROOMS_AT_ONCE = 4;
+const INCOME_LOOKBACK_MONTHS = 12; // a bill is paid at most about a year after its period
 
 const fail = (res, status, code, message) => res.status(status).json({ error: { code, message } });
 
@@ -28,7 +39,7 @@ const withReceipt = (bill) => ({ ...bill, receiptNo: bill.receiptNo || (bill.sta
 // A tenant gets the bill without the LINE userIds of the staff who confirmed or voided it.
 const forCaller = (bill, staff) => {
   if (staff) return bill;
-  const { confirmedBy, voidedBy, ...rest } = bill;
+  const { confirmedBy, voidedBy, refundedBy, ...rest } = bill;
   return rest;
 };
 
@@ -39,6 +50,18 @@ module.exports = async (req, res) => {
   if (req.method === "POST") return voidBill(req, res, userId);
 
   const [bound, staff] = await Promise.all([store.get(`user-room:${userId}`), canView(userId)]);
+
+  // Cross-room reads for the owner come before the single-room checks: they need no `room`.
+  if (req.query.income) {
+    if (!staff) return fail(res, 403, "FORBIDDEN", "เฉพาะเจ้าของหอ");
+    return income(res, String(req.query.income).trim());
+  }
+  if (req.query.overdue) return overdue(res, { staff, bound, asked: String(req.query.room || "").trim() });
+  if (req.query.voided && req.query.refunds) {
+    if (!staff) return fail(res, 403, "FORBIDDEN", "เฉพาะเจ้าของหอ");
+    return outstandingRefunds(res, String(req.query.room || "").trim());
+  }
+
   const room = String(req.query.room || bound || "").trim();
   if (!room) return res.status(400).json({ error: { code: "VALIDATION", message: "ต้องระบุ room หรือผูกห้องก่อน" } });
 
@@ -97,7 +120,8 @@ async function voidBill(req, res, userId) {
   const { action, room: askedRoom, period: askedPeriod, reason: askedReason } = req.body || {};
   // Both actions are the owner's answer to a bill: cancel it, or send the slip back for another try.
   if (action === "reject") return rejectSlip(req, res, userId);
-  if (action !== "void") return fail(res, 400, "VALIDATION", "action ต้องเป็น void หรือ reject");
+  if (action === "refunded") return markRefunded(req, res, userId);
+  if (action !== "void") return fail(res, 400, "VALIDATION", "action ต้องเป็น void, reject หรือ refunded");
   const room = String(askedRoom || "").trim();
   const period = String(askedPeriod || "").trim();
   const reason = typeof askedReason === "string" ? askedReason.trim() : "";
@@ -218,13 +242,110 @@ async function history(res, room, staff, tenancyP) {
   return res.status(200).json({ room, items });
 }
 
-// The cancelled bills of a room that were re-issued, newest first. `bill-voids:<room>` lists them as
+// The archived void records of a room, newest first. `bill-voids:<room>` lists them as
 // "<period>:<rev>"; the index is capped, so this reads a bounded number of keys.
-async function voided(res, room, period) {
+async function readVoids(room, period) {
   const tags = ((await store.get(`bill-voids:${room}`)) || [])
     .filter((t) => typeof t === "string" && /^\d{4}-\d{2}:\d+$/.test(t) && (!period || t.startsWith(`${period}:`)))
     .map((t) => t.split(":"))
     .sort((a, b) => (a[0] < b[0] ? 1 : a[0] > b[0] ? -1 : Number(b[1]) - Number(a[1]))); // period, then rev, newest first
   const records = await mapLimit(tags, HISTORY_READ_CONCURRENCY, ([p, rev]) => store.get(`bill-void:${p}:${room}:${rev}`));
-  return res.status(200).json({ room, items: records.filter(Boolean) });
+  return records.filter(Boolean);
+}
+
+async function voided(res, room, period) {
+  return res.status(200).json({ room, items: await readVoids(room, period) });
+}
+
+// Voided paid bills whose money has not been given back yet (`refundDue` set, no `refundedAt`).
+// This is the owner's to-do list, so it spans all rooms unless one is asked for.
+async function outstandingRefunds(res, room) {
+  if (room && !ROOMS.includes(room)) return fail(res, 404, "NOT_FOUND", `ไม่พบห้อง ${room}`);
+  const perRoom = await mapLimit(room ? [room] : ROOMS, ROOMS_AT_ONCE, (r) => readVoids(r));
+  const items = perRoom.flat().filter((v) => v.refundDue && !v.refundedAt);
+  return res.status(200).json({
+    ...(room ? { room } : {}),
+    count: items.length,
+    total: items.reduce((sum, v) => sum + v.refundDue, 0),
+    items,
+  });
+}
+
+// The owner records that a voided paid bill's money went back to the tenant. The system never moves
+// money; this only closes the to-do that `refundDue` opened. The archive record is the source of
+// truth, and the bill itself is updated too while it is still that same void revision (a re-issue
+// has replaced it otherwise, and the new bill must not inherit a refund).
+async function markRefunded(req, res, userId) {
+  const { room: askedRoom, period: askedPeriod, rev: askedRev, note: askedNote } = req.body || {};
+  const room = String(askedRoom || "").trim();
+  const period = String(askedPeriod || "").trim();
+  const rev = Number(askedRev);
+  const note = typeof askedNote === "string" ? askedNote.trim() : "";
+  if (!room) return fail(res, 400, "VALIDATION", "ต้องระบุ room");
+  if (!ROOMS.includes(room)) return fail(res, 404, "NOT_FOUND", `ไม่พบห้อง ${room}`);
+  if (!STRICT_PERIOD.test(period)) return fail(res, 400, "VALIDATION", "period ต้องเป็น YYYY-MM");
+  if (!Number.isInteger(rev) || rev < 1) return fail(res, 400, "VALIDATION", "rev ต้องเป็นจำนวนเต็ม ≥ 1");
+  if (note.length > MAX_REASON_LENGTH) return fail(res, 400, "VALIDATION", `หมายเหตุยาวเกิน ${MAX_REASON_LENGTH} ตัวอักษร`);
+
+  const archiveKey = `bill-void:${period}:${room}:${rev}`;
+  const [record, stored, latest] = await Promise.all([
+    store.get(archiveKey),
+    store.get(`bill:${period}:${room}`),
+    store.get(`bill:${room}`),
+  ]);
+  if (!record) return fail(res, 404, "NOT_FOUND", `ไม่พบบิลที่ยกเลิกห้อง ${room} รอบ ${period} ครั้งที่ ${rev}`);
+  if (!record.refundDue) return fail(res, 409, "INVALID_STATE", "บิลนี้ไม่มียอดที่ต้องคืนเงิน");
+  if (record.refundedAt) return fail(res, 409, "INVALID_STATE", "บันทึกว่าคืนเงินแล้วก่อนหน้านี้");
+
+  const mark = { refundedAt: new Date().toISOString(), refundedBy: userId, refundNote: note };
+  const current = stored || (latest && latest.period === period ? latest : null);
+  const writes = [store.set(archiveKey, { ...record, ...mark })];
+  if (current && current.status === "void" && (current.rev || 1) === rev) {
+    writes.push(saveBill({ ...current, ...mark }, { latest }));
+  }
+  await Promise.all(writes);
+  return res.status(200).json({ ok: true, room, period, rev, refundedAt: mark.refundedAt, refundDue: record.refundDue });
+}
+
+// Unpaid bills past their due date, from the server's Bangkok date. A tenant sees only their own
+// room and only bills of their own tenancy; the owner and helpers see every room that has any,
+// longest overdue first.
+async function overdue(res, { staff, bound, asked }) {
+  const today = ledger.bangkokToday();
+  if (!staff) {
+    if (!bound) return fail(res, 400, "VALIDATION", "ต้องผูกห้องก่อน");
+    if (asked && asked !== bound) return fail(res, 403, "FORBIDDEN", `บัญชีนี้ยังไม่ได้ผูกกับห้อง ${asked}`);
+    const [bills, tenancy] = await Promise.all([ledger.recentBills(bound), tenancyOf(bound)]);
+    const { count, total, maxDaysOverdue, items } = ledger.overdueOf(bills.filter((b) => visibleToTenant(b, tenancy)), today);
+    return res.status(200).json({ today, room: bound, count, total, maxDaysOverdue, items });
+  }
+  if (asked && !ROOMS.includes(asked)) return fail(res, 404, "NOT_FOUND", `ไม่พบห้อง ${asked}`);
+  const perRoom = await mapLimit(asked ? [asked] : ROOMS, ROOMS_AT_ONCE, async (room) => ({
+    room,
+    ...ledger.overdueOf(await ledger.recentBills(room), today),
+  }));
+  const rooms = perRoom
+    .filter((r) => r.count > 0)
+    .sort((a, b) => b.maxDaysOverdue - a.maxDaysOverdue || a.room.localeCompare(b.room));
+  return res.status(200).json({
+    today,
+    count: rooms.reduce((s, r) => s + r.count, 0),
+    total: rooms.reduce((s, r) => s + r.total, 0),
+    rooms,
+  });
+}
+
+// Money received in a Bangkok month, by the day it was paid (`paidAt`), not by the bill's period:
+// an October bill paid on 2 November is November income. A void bill is money owed back, so only
+// `paid` counts. Per room only the periods that could have been paid in that month are read.
+async function income(res, month) {
+  if (!STRICT_PERIOD.test(month)) return fail(res, 400, "VALIDATION", "income ต้องเป็น YYYY-MM");
+  const from = ledger.shiftMonth(month, -INCOME_LOOKBACK_MONTHS);
+  const perRoom = await mapLimit(ROOMS, ROOMS_AT_ONCE, async (room) => (await ledger.billsInPeriods(room, from, month)).map((b) => ({ ...b, room })));
+  const items = perRoom
+    .flat()
+    .filter((b) => b.status === "paid" && ledger.bangkokMonth(b.paidAt) === month)
+    .map((b) => ({ room: b.room, period: b.period, total: b.total, paidAt: b.paidAt, receiptNo: withReceipt(b).receiptNo }))
+    .sort((a, b) => (a.paidAt < b.paidAt ? -1 : a.paidAt > b.paidAt ? 1 : a.room.localeCompare(b.room)));
+  return res.status(200).json({ month, total: items.reduce((s, i) => s + (Number(i.total) || 0), 0), count: items.length, items });
 }

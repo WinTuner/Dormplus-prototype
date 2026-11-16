@@ -127,8 +127,12 @@ async function remindRoom(room, today, baseUrl, out) {
   // so the next run tries those again.
   for (let i = 0; i < mine.length; i += PUSH_MAX_MESSAGES) {
     const batch = mine.slice(i, i + PUSH_MAX_MESSAGES);
+    let sent;
     try {
-      await push(userId, batch.map(({ bill, daysLeft }) => messageFor(bill, daysLeft, baseUrl)));
+      // Two cron runs on the same day (a retry, a double trigger) can both see "not reminded yet":
+      // the mark is written after the push. The retry key makes LINE drop the second batch.
+      const retryKey = `remind:${room}:${today}:${batch.map((w) => `${w.bill.period}:${w.kind}:${w.bill.rev || 1}`).join(",")}`;
+      sent = await push(userId, batch.map(({ bill, daysLeft }) => messageFor(bill, daysLeft, baseUrl)), { retryKey });
     } catch (err) {
       console.error("reminder push failed", room, batch.map((w) => `${w.bill.period}/${w.kind}`).join(","), err.message);
       out.failed += batch.length;
@@ -137,7 +141,9 @@ async function remindRoom(room, today, baseUrl, out) {
     const at = new Date().toISOString();
     await Promise.all(
       batch.map(async ({ bill, kind }) => {
-        out.sent.push({ room, period: bill.period, kind });
+        // A duplicate was delivered by the other run, which reports it; counting it twice would
+        // inflate the owner's summary.
+        if (!sent?.duplicate) out.sent.push({ room, period: bill.period, kind });
         // The tenant already has the message. If the mark is lost we only risk a repeat tomorrow,
         // so it must not abort the rest of the room's reminders.
         await store.set(markKey(room, bill, kind), at).catch((err) =>
@@ -167,7 +173,7 @@ async function runReminders({ today, baseUrl } = {}) {
     const rooms = [...new Set(late.map((s) => s.room))];
     const text = `สรุปทวงวันนี้: เลยกำหนด ${rooms.length} ห้อง (${rooms.join(", ")}) · ส่งเตือนแล้ว ${late.length} ข้อความ`;
     try {
-      await push(owner, [{ type: "text", text }]);
+      await push(owner, [{ type: "text", text }], { retryKey: `remind-summary:${today}` });
     } catch (err) {
       console.error("reminder summary push failed", err.message);
     }

@@ -23,10 +23,15 @@ async function sendReceipts(room, paidBills, userId, baseUrl) {
     // The two reads do not depend on each other.
     const [tenant, tenancy] = await Promise.all([store.get(`room-user:${room}`), tenancyOf(room)]);
     if (!tenant || tenant === userId) return;
-    const messages = paidBills.filter((b) => visibleToTenant(b, tenancy)).map((b) => receiptBubble(b, baseUrl));
-    for (let i = 0; i < messages.length; i += PUSH_MAX_MESSAGES) {
+    const mine = paidBills.filter((b) => visibleToTenant(b, tenancy));
+    for (let i = 0; i < mine.length; i += PUSH_MAX_MESSAGES) {
+      const chunk = mine.slice(i, i + PUSH_MAX_MESSAGES);
+      // Two owner taps can both read the bill as pending before either writes it (Blob has no
+      // compare-and-set), and both would send the receipt. The key names this exact receipt, so LINE
+      // drops the second push instead of the tenant getting two.
+      const retryKey = `receipt:${room}:${tenant}:${chunk.map((b) => `${b.period}:${b.rev || 1}`).join(",")}`;
       try {
-        await push(tenant, messages.slice(i, i + PUSH_MAX_MESSAGES));
+        await push(tenant, chunk.map((b) => receiptBubble(b, baseUrl)), { retryKey });
       } catch (err) {
         console.error("receipt push failed", room, err.message);
       }

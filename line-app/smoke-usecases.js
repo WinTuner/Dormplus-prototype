@@ -25,9 +25,13 @@ for (const k of ["VERCEL_ENV", "ALLOW_SEED_BYPASS", "ROOMS", "DEFAULT_RENT", "WA
 const data = new Map();
 const files = new Map();
 const pathOf = (k) => `kv/${String(k).replace(/[^a-zA-Z0-9._-]/g, "-")}.json`;
+// A test can set `gate` to hold a store call until it decides to let it through: that is how the
+// race tests force "both requests read before either writes" (a real Blob store has no
+// transactions, so the order is up to the network).
+let gate = null; // async (op, key) => void
 const store = {
-  get: async (k) => (data.has(k) ? data.get(k) : null),
-  set: async (k, v) => data.set(k, v),
+  get: async (k) => { if (gate) await gate("get", k); return data.has(k) ? data.get(k) : null; },
+  set: async (k, v) => { if (gate) await gate("set", k); data.set(k, v); if (gate) await gate("set-done", k); },
   keysWith: async (prefix) => {
     const pathPrefix = pathOf(prefix).replace(/\.json$/, "");
     return [...data.keys()]
@@ -54,6 +58,10 @@ const replies = []; // { replyToken, messages }
 const menuLinks = []; // { user, menu }
 const unlinked = [];
 const failPushTo = new Set();
+const retryKeys = new Set(); // X-Line-Retry-Key values LINE has accepted
+const conflicts = []; // pushes LINE answered 409 (dropped as duplicates)
+let slipok = null; // what SlipOK answers: { status, body }
+const slipokCalls = [];
 let failRichMenu = false;
 global.fetch = async (url, opts = {}) => {
   const ok = (body) => ({ ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) });
@@ -64,10 +72,21 @@ global.fetch = async (url, opts = {}) => {
       ? ok({ sub: token, exp: Math.floor(Date.now() / 1000) + 3600 })
       : { ok: false, status: 400, json: async () => ({}) };
   }
+  if (u.includes("api.slipok.com")) {
+    slipokCalls.push({ url: u, init: opts });
+    if (!slipok) return { ok: false, status: 500, json: async () => ({}), text: async () => "{}" };
+    return { ok: slipok.status === 200, status: slipok.status, json: async () => slipok.body, text: async () => JSON.stringify(slipok.body) };
+  }
   if (u.includes("/message/push")) {
     const body = JSON.parse(opts.body);
     if (failPushTo.has(body.to)) return { ok: false, status: 500, text: async () => "push down", json: async () => ({}) };
-    pushed.push(body);
+    // Like LINE: a push whose X-Line-Retry-Key was already accepted is answered 409 and not delivered.
+    const key = opts.headers && opts.headers["X-Line-Retry-Key"];
+    if (key) {
+      if (retryKeys.has(key)) { conflicts.push(body); return { ok: false, status: 409, text: async () => "conflict", json: async () => ({}) }; }
+      retryKeys.add(key);
+    }
+    pushed.push(body); // only accepted pushes are recorded, so pushed.length is what the tenant received
   }
   if (u.includes("/message/reply")) replies.push(JSON.parse(opts.body));
   const link = /\/v2\/bot\/user\/([^/]+)\/richmenu\/([^/]+)$/.exec(u);
@@ -131,6 +150,10 @@ const bill = require("./api/bill");
 const hook = require("./api/webhook");
 const cron = require("./api/cron");
 const { runReminders } = require("./api/_remind");
+// Tests pin "today" through the ledger module (bill.js reads it from there); tc() restores it.
+const ledger = require("./api/_ledger");
+const realToday = ledger.bangkokToday;
+const atDate = (ymd) => { ledger.bangkokToday = () => ymd; };
 const { saveBill } = require("./api/_bills");
 const { MAX_FAILURES } = require("./api/_limit");
 
@@ -142,7 +165,14 @@ async function tc(id, title, fn) {
   files.clear();
   pushed.length = replies.length = menuLinks.length = unlinked.length = 0;
   failPushTo.clear();
+  retryKeys.clear();
+  conflicts.length = slipokCalls.length = 0;
+  slipok = null;
+  gate = null;
+  delete process.env.SLIPOK_API_KEY;
+  delete process.env.SLIPOK_BRANCH_ID;
   failRichMenu = false;
+  ledger.bangkokToday = realToday;
   process.env.OWNER_USER_ID = "Uowner";
   try {
     await fn();
@@ -170,6 +200,41 @@ const ago = (ms) => new Date(Date.now() - ms).toISOString();
 const prepayOf = (room) => data.get(`prepay:${room}`) ?? null;
 // A bill the owner already issued (both copies), so a block can start from "bill exists".
 const putBill = (b) => { data.set(`bill:${b.period}:${b.room}`, b); data.set(`bill:${b.room}`, b); };
+// Race helpers. `barrier(n)`: the first n callers wait for each other (n requests all read before any writes).
+const barrier = (n) => {
+  let arrived = 0;
+  let open;
+  const all = new Promise((r) => { open = r; });
+  return () => { if (++arrived >= n) open(); return all; };
+};
+// `holds` freeze one store call each (the first unused hold that matches, in the order created) until
+// released: that pins the interleaving of two requests instead of hoping for it.
+const mkHolds = () => {
+  const list = [];
+  gate = async (op, key) => {
+    const h = list.find((x) => !x.done && x.match(op, key));
+    if (!h) return;
+    h.done = true;
+    h.hit();
+    await h.open;
+  };
+  return (match) => {
+    const h = { match, done: false };
+    h.reached = new Promise((r) => { h.hit = r; });
+    h.open = new Promise((r) => { h.release = r; });
+    list.push(h);
+    return h;
+  };
+};
+const ownerCards = () =>
+  pushed.filter((p) => p.to === "Uowner" && JSON.stringify(p.messages).includes("action=confirm"));
+const okSlip = (amount, transRef, paidAt) => ({
+  status: 200,
+  body: { success: true, data: { success: true, message: "ok", amount, transRef, transTimestamp: paidAt, receivingBank: "006" } },
+});
+const withSlipok = () => { process.env.SLIPOK_API_KEY = "test-key"; process.env.SLIPOK_BRANCH_ID = "1234"; };
+const DAY = 86400000;
+
 const mkBill = (room, period, status = "unpaid", extra = {}) => ({
   room, period, rent: 3500, water: 250, elec: 700, total: 4450, due: `${period}-16`, status, ...extra,
 });
@@ -619,6 +684,52 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
     assert.deepStrictEqual(h.body.items.map((i) => [i.period, i.status]), [["2026-11", "unpaid"], ["2026-10", "unpaid"]]);
   });
 
+  const overdueOf = (user, query = {}) => call(bill, { method: "GET", user, query: { overdue: "1", ...query } });
+
+  await tc("TC-05-7", "เจ้าของเห็นค้างกี่งวด/ยอดรวม/เกินกี่วันต่อห้อง: ห้องที่ค้างนานสุดขึ้นก่อน · ไม่ใส่ห้องที่ไม่ค้าง · pending/กำหนดวันนี้/ไม่มี due/void ไม่นับ · ผู้ช่วยดูได้", async () => {
+    atDate("2026-11-20");
+    await asOwner("Uhelper", "viewer");
+    data.set("bills:201", ["2026-11", "2026-10"]);
+    putBill(mkBill("201", "2026-11", "unpaid", { due: "2026-11-05" })); // 15 days
+    data.set("bill:2026-10:201", mkBill("201", "2026-10", "unpaid", { total: 4000, due: "2026-10-16" })); // 35 days
+    putBill(mkBill("202", "2026-11", "unpaid", { due: "2026-11-18" })); // 2 days
+    putBill(mkBill("203", "2026-11", "unpaid", { due: "2026-11-20" })); // due today
+    putBill(mkBill("204", "2026-11", "pending", { due: "2026-11-01" }));
+    putBill(mkBill("205", "2026-11", "unpaid", { due: null }));
+    putBill(mkBill("206", "2026-11", "void", { due: "2026-11-01" }));
+    putBill(mkBill("207", "2026-11", "paid", { due: "2026-11-01" }));
+    const r = await overdueOf("Uowner");
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(r.body.rooms.map((x) => [x.room, x.count, x.total, x.maxDaysOverdue]), [["201", 2, 8450, 35], ["202", 1, 4450, 2]]);
+    assert.deepStrictEqual([r.body.today, r.body.count, r.body.total], ["2026-11-20", 3, 12900]);
+    assert.deepStrictEqual(r.body.rooms[0].items.map((i) => [i.period, i.due, i.daysOverdue]), [["2026-10", "2026-10-16", 35], ["2026-11", "2026-11-05", 15]]);
+    assert.deepStrictEqual((await overdueOf("Uowner", { room: "202" })).body.rooms.map((x) => x.room), ["202"]);
+    assert.strictEqual((await overdueOf("Uhelper")).status, 200);
+    assert.strictEqual((await overdueOf("Uowner", { room: "999" })).status, 404);
+    assert.strictEqual((await overdueOf(undefined)).status, 401);
+  });
+
+  await tc("TC-05-8", "จำนวนวันเกินกำหนดนับที่เซิร์ฟเวอร์ตามวันที่เวลาไทย: ข้ามเดือน/ข้ามปี/ก.พ. · กำหนดวันนี้ไม่เกิน · 17:00 UTC คือวันถัดไปในไทย", async () => {
+    putBill(mkBill("201", "2026-10", "unpaid", { due: "2026-10-31" }));
+    putBill(mkBill("202", "2026-02", "unpaid", { due: "2026-02-28" }));
+    putBill(mkBill("203", "2025-12", "unpaid", { due: "2025-12-31" }));
+    const days = async () => Object.fromEntries((await overdueOf("Uowner")).body.rooms.map((x) => [x.room, x.maxDaysOverdue]));
+    atDate("2026-11-02");
+    assert.deepStrictEqual(await days(), { 201: 2, 202: 247, 203: 306 });
+    atDate("2026-10-31");
+    assert.deepStrictEqual(await days(), { 202: 245, 203: 304 }, "due today is not overdue");
+    atDate("2026-03-01");
+    assert.deepStrictEqual(await days(), { 202: 1, 203: 60 }, "28 Feb to 1 Mar is one day (2026 is not a leap year)");
+    atDate("2026-01-01");
+    assert.deepStrictEqual(await days(), { 203: 1 }, "across the year end");
+    // the real clock helpers: the dorm's date, not the server's UTC one
+    assert.strictEqual(realToday(new Date("2026-10-31T17:30:00Z")), "2026-11-01");
+    assert.strictEqual(realToday(new Date("2026-10-31T16:59:00Z")), "2026-10-31");
+    assert.strictEqual(ledger.bangkokMonth("2026-10-31T17:30:00Z"), "2026-11");
+    assert.strictEqual(ledger.bangkokMonth("nonsense"), null);
+    assert.strictEqual(ledger.daysBetween("2026-10-31", "2026-11-02"), 2);
+  });
+
   // ================================================================ UC-06 ดูรายรับ
   await tc("TC-06-1", "ข้อมูลที่หน้ารายงานใช้: ยอดรับ = ผลรวม total ของบิล paid เท่านั้น (pending/unpaid ไม่นับ)", async () => {
     putBill(mkBill("201", "2026-11", "paid", { total: 4450, paidAt: ago(1) }));
@@ -649,6 +760,28 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
     assert.strictEqual(r.body.rooms[0].bill.period, "2026-11");
     const old = await call(bill, { method: "GET", query: { room: "201", period: "2026-10" }, user: "Uowner" });
     assert.deepStrictEqual([old.body.status, old.body.total], ["paid", 4000]);
+  });
+
+  await tc("TC-06-6", "รายรับตามวันที่ชำระ (paidAt, เวลาไทย) ไม่ใช่ตามงวด: บิล ต.ค. ที่จ่าย 2 พ.ย. นับเป็นรายรับ พ.ย. · void ไม่นับ · ผู้ช่วยดูได้ ผู้เช่า 403 · เดือนผิดรูป 400", async () => {
+    await asOwner("Uhelper", "viewer");
+    bindDirect("Utenant", "201");
+    putBill(mkBill("201", "2026-10", "paid", { total: 4450, paidAt: "2026-11-02T03:00:00.000Z", receiptNo: "R202610-201" }));
+    putBill(mkBill("202", "2026-10", "paid", { total: 3800, paidAt: "2026-10-31T17:30:00.000Z" })); // 1 Nov 00:30 in Bangkok
+    putBill(mkBill("203", "2026-10", "paid", { total: 3000, paidAt: "2026-10-31T16:00:00.000Z" })); // 31 Oct 23:00 in Bangkok
+    putBill(mkBill("204", "2026-11", "void", { total: 5000, paidAt: "2026-11-05T03:00:00.000Z", statusBefore: "paid", refundDue: 5000 }));
+    putBill(mkBill("205", "2026-11", "pending", { total: 6000 }));
+    const income = (user, month) => call(bill, { method: "GET", user, query: { income: month } });
+    let r = await income("Uowner", "2026-11");
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(r.body.items.map((i) => [i.room, i.period, i.total]), [["202", "2026-10", 3800], ["201", "2026-10", 4450]], "October bills count in November; sorted by paidAt");
+    assert.deepStrictEqual([r.body.month, r.body.count, r.body.total], ["2026-11", 2, 8250]);
+    assert.strictEqual(r.body.items[1].receiptNo, "R202610-201");
+    r = await income("Uhelper", "2026-10");
+    assert.deepStrictEqual([r.status, r.body.items.map((i) => i.room), r.body.total], [200, ["203"], 3000], "the same October bills are not October income");
+    assert.strictEqual((await income("Utenant", "2026-11")).status, 403);
+    assert.strictEqual((await income(undefined, "2026-11")).status, 401);
+    assert.strictEqual((await income("Uowner", "2026-13")).status, 400);
+    assert.deepStrictEqual((await income("Uowner", "2027-01")).body.items, []);
   });
 
   // ================================================================ UC-07 เพิ่ม/ถอนเจ้าของและผู้ช่วย
@@ -1241,11 +1374,20 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
     assert.ok(card.includes("action=confirm&room=201&period=2026-11"));
   });
 
-  await tc("TC-11-2", "แจ้งชำระโดยไม่แนบรูป (มีแต่หมายเหตุ) ได้ → pending, hasSlip=false (เจ้าของตัดสินจากหมายเหตุ/ยอดเงินเข้า)", async () => {
+  await tc("TC-11-2", "แจ้งชำระโดยไม่แนบรูป: ผู้เช่า 400 ต้องแนบรูปสลิป (ทุกเส้นทาง บิลไม่เปลี่ยน) · เจ้าของบันทึกโดยไม่มีรูปได้ → pending, hasSlip=false", async () => {
     bindDirect("Utenant", "201");
     putBill(mkBill("201", "2026-11", "unpaid"));
-    const r = await call(slip, { user: "Utenant", body: { note: "โอนผ่านพร้อมเพย์" } });
-    assert.deepStrictEqual([r.status, r.body.status, r.body.hasSlip], [200, "pending", false]);
+    const before = JSON.stringify([...data.entries()]);
+    for (const body of [{ note: "โอนผ่านพร้อมเพย์" }, {}, { periods: ["2026-11"], note: "x" }]) {
+      const r = await call(slip, { user: "Utenant", body });
+      assert.deepStrictEqual([r.status, r.body.error.code, r.body.error.message], [400, "VALIDATION", "ต้องแนบรูปสลิป"]);
+    }
+    assert.strictEqual(JSON.stringify([...data.entries()]), before, "a refused slip writes nothing");
+    assert.strictEqual(pushed.length, 0, "and costs no LINE message");
+    // Cash or a transfer seen in the bank app: the owner can still record it without a photo.
+    const o = await call(slip, { user: "Uowner", body: { room: "201", note: "เงินสด" } });
+    assert.deepStrictEqual([o.status, o.body.status, o.body.hasSlip], [200, "pending", false]);
+    assert.strictEqual(data.get("bill:2026-11:201").slipPath, null);
   });
 
   await tc("TC-11-3", "รูปที่ไม่ใช่ JPEG/PNG/WEBP → 400; ใหญ่เกิน 3MB → 413; ไม่เปลี่ยนบิล", async () => {
@@ -1351,6 +1493,79 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
     assert.deepStrictEqual([now.body.status, now.body.hasSlip], ["pending", true]);
     const h = await call(bill, { method: "GET", query: { history: "1" }, user: "Utenant" });
     assert.deepStrictEqual([h.body.items[0].status, h.body.items[0].hasSlip], ["pending", true]);
+  });
+
+  await tc("TC-11-13", "การ์ดเจ้าของของสลิปที่ไม่มีรูป: ไม่มีปุ่ม \"ดูสลิป\" มีคำเตือนให้ตรวจยอดเงินเข้าเอง (ยังกดยืนยันได้) · สลิปที่มีรูปไม่มีคำเตือน", async () => {
+    bindDirect("Utenant", "201");
+    putBill(mkBill("201", "2026-11", "unpaid"));
+    await call(slip, { user: "Uowner", body: { room: "201", note: "เงินสด" } });
+    const bare = JSON.stringify(lastTo("Uowner").messages[0]);
+    assert.ok(bare.includes("ไม่มีรูปสลิป — ตรวจยอดเงินเข้าเองก่อนยืนยัน"), "the warning is on the card");
+    assert.ok(!bare.includes("ดูสลิป"), "nothing to look at");
+    assert.ok(bare.includes("action=confirm&room=201&period=2026-11"), "the owner can still decide");
+
+    bindDirect("Utenant2", "202");
+    putBill(mkBill("202", "2026-11", "unpaid"));
+    await sendSlip("Utenant2");
+    const photo = JSON.stringify(lastTo("Uowner").messages[0]);
+    assert.ok(photo.includes("ดูสลิป") && !photo.includes("ไม่มีรูปสลิป"));
+  });
+
+  // ================================================================ UC-12 ตรวจสลิปอัตโนมัติ (นโยบายสลิปเก่า)
+  await tc("TC-12-7", "สลิปที่โอนเกิน 30 วัน: เก็บไว้แต่ ok:true → ok:null \"สลิปเก่า — โอนเมื่อ N วันก่อน\" (stale, staleDays) · ทั้งบิลเดียว/หลายงวด/ล่วงหน้า · ไม่บล็อก · transRef ยังกันสลิปซ้ำ", async () => {
+    withSlipok();
+    const { markStale } = require("./api/_verify");
+    // boundary: exactly 30 days is still fine, a bit more is old; unusable input is left alone
+    const base = { ok: true, amount: 1, transRef: "R", paidAt: new Date(1000 * DAY).toISOString(), provider: "slipok" };
+    assert.strictEqual(markStale(base, 1030 * DAY), base, "30 days exactly: untouched");
+    assert.strictEqual(markStale(base, 1031 * DAY).staleDays, 31);
+    assert.strictEqual(markStale({ ...base, ok: false }, 2000 * DAY).stale, undefined, "a failed check is not rewritten");
+    assert.strictEqual(markStale({ ...base, paidAt: "garbage" }, 2000 * DAY).ok, true);
+    assert.strictEqual(markStale(null, 0), null);
+
+    // single bill
+    bindDirect("Utenant", "201");
+    putBill(mkBill("201", "2026-11", "unpaid"));
+    slipok = okSlip(4450, "REF-OLD", new Date(Date.now() - 45 * DAY - 3600000).toISOString());
+    let r = await sendSlip("Utenant");
+    assert.strictEqual(r.status, 200, "an old slip is never refused");
+    const v = r.body.verify;
+    assert.deepStrictEqual(
+      [v.ok, v.reason, v.stale, v.staleDays, v.amount, v.transRef, v.bank, !!v.paidAt],
+      [null, "สลิปเก่า — โอนเมื่อ 45 วันก่อน", true, 45, 4450, "REF-OLD", "006", true]
+    );
+    assert.strictEqual(r.body.status, "pending");
+    assert.deepStrictEqual(data.get("bill:2026-11:201").slipVerify, v);
+    assert.ok(data.get("slip-ref:REF-OLD"), "the reference is remembered before the downgrade");
+
+    // the same old slip on another room is still caught as a reuse
+    bindDirect("Utenant2", "202");
+    putBill(mkBill("202", "2026-11", "unpaid"));
+    r = await sendSlip("Utenant2");
+    assert.deepStrictEqual([r.body.verify.ok, r.body.verify.reason], [false, "สลิปนี้ถูกใช้ไปแล้ว (ห้อง 201)"]);
+
+    // a recent slip is untouched
+    bindDirect("Utenant3", "203");
+    putBill(mkBill("203", "2026-11", "unpaid"));
+    slipok = okSlip(4450, "REF-NEW", new Date(Date.now() - 5 * DAY).toISOString());
+    r = await sendSlip("Utenant3");
+    assert.deepStrictEqual([r.body.verify.ok, r.body.verify.stale], [true, undefined]);
+
+    // several periods at once
+    bindDirect("Utenant4", "204");
+    putBill(mkBill("204", "2026-10", "unpaid"));
+    putBill(mkBill("204", "2026-11", "unpaid"));
+    slipok = okSlip(8900, "REF-OLD-G", new Date(Date.now() - 40 * DAY).toISOString());
+    r = await sendSlip("Utenant4", { periods: ["2026-10", "2026-11"] });
+    assert.deepStrictEqual([r.status, r.body.verify.ok, r.body.verify.stale, r.body.verify.staleDays], [200, null, true, 40]);
+    assert.strictEqual(data.get("bill:2026-10:204").status, "pending");
+
+    // an advance slip
+    bindDirect("Utenant5", "205");
+    slipok = okSlip(4450, "REF-OLD-A", new Date(Date.now() - 31 * DAY).toISOString());
+    r = await sendSlip("Utenant5");
+    assert.deepStrictEqual([r.body.status, r.body.verify.ok, r.body.verify.stale], ["advance", null, true]);
+    assert.strictEqual(prepayOf("205").slipVerify.stale, true);
   });
 
   // ================================================================ UC-13 ชำระหลายงวดในสลิปเดียว
@@ -1568,6 +1783,71 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
     assert.strictEqual(data.get("bill:2026-10:201").status, "unpaid");
   });
 
+  await tc("TC-13-3", "ยอดเกิน: นโยบายคือติดธงอย่างเดียว ไม่เก็บเครดิต — ok:false \"ยอดในสลิปไม่ตรงกับบิล\" (ส่ง amount ไปตรวจ; ทั้งเทียบเองและรหัส 1013; บิลเดียวและหลายงวด) บิลยัง pending เจ้าของยืนยัน/ปฏิเสธได้", async () => {
+    withSlipok();
+    // The slip shows 5,000 against a 4,450 bill and SlipOK did not object (older branch settings).
+    bindDirect("Utenant", "201");
+    putBill(mkBill("201", "2026-11", "unpaid"));
+    slipok = okSlip(5000, "REF-OVER", new Date().toISOString());
+    let r = await sendSlip("Utenant");
+    assert.strictEqual(r.status, 200);
+    assert.strictEqual(slipokCalls[0].init.body.get("amount"), "4450", "the bill total is what SlipOK is asked to match");
+    assert.deepStrictEqual([r.body.status, r.body.verify.ok, r.body.verify.reason, r.body.verify.amount], ["pending", false, "ยอดในสลิปไม่ตรงกับบิล", 5000]);
+    assert.strictEqual(data.get("bill:2026-11:201").status, "pending", "flagged, not rejected");
+    assert.strictEqual(data.get("slip-ref:REF-OVER"), undefined, "a failed check does not claim the reference");
+
+    // SlipOK itself answers 1013 for a wrong amount (here a larger one)
+    bindDirect("Utenant2", "202");
+    putBill(mkBill("202", "2026-11", "unpaid"));
+    slipok = { status: 400, body: { code: 1013, message: "amount mismatch" } };
+    r = await sendSlip("Utenant2");
+    assert.deepStrictEqual([r.body.status, r.body.verify.ok, r.body.verify.reason], ["pending", false, "ยอดในสลิปไม่ตรงกับบิล"]);
+
+    // a slip that covers more than the selected periods is checked against their sum too
+    bindDirect("Utenant3", "203");
+    putBill(mkBill("203", "2026-10", "unpaid"));
+    putBill(mkBill("203", "2026-11", "unpaid"));
+    slipok = okSlip(13350, "REF-OVER-G", new Date().toISOString()); // three months for two
+    r = await sendSlip("Utenant3", { periods: ["2026-10", "2026-11"] });
+    assert.strictEqual(slipokCalls[slipokCalls.length - 1].init.body.get("amount"), "8900");
+    assert.deepStrictEqual([r.status, r.body.verify.ok, r.body.verify.reason], [200, false, "ยอดในสลิปไม่ตรงกับบิล"]);
+
+    // the owner decides: confirm one, reject another
+    await tap("Uowner", "action=confirm&room=201&period=2026-11");
+    assert.strictEqual(data.get("bill:2026-11:201").status, "paid");
+    const rej = await call(bill, { user: "Uowner", body: { action: "reject", room: "202", period: "2026-11", reason: "ยอดเกิน" } });
+    assert.strictEqual(rej.status, 200);
+    assert.notStrictEqual(data.get("bill:2026-11:202").status, "pending");
+  });
+
+  // ================================================================ UC-14 ดูยอดค้างชำระ
+  await tc("TC-14-2", "ผู้เช่าเห็นยอดค้างรวมทุกงวด: จำนวนงวด · ยอดรวม · เกินกำหนดสูงสุด (เซิร์ฟเวอร์นับ) · ไม่นับ pending/จ่ายแล้ว/กำหนดวันนี้ · ไม่เห็นบิลของผู้เช่าเก่า · ห้องอื่น 403", async () => {
+    atDate("2026-11-20");
+    bindDirect("Utenant", "201");
+    data.set("tenancy:201", { since: "2026-09-20T00:00:00.000Z" });
+    data.set("bills:201", ["2026-11", "2026-10", "2026-09", "2026-08", "2026-07"]);
+    putBill(mkBill("201", "2026-11", "unpaid", { due: "2026-11-20", issuedAt: "2026-11-01T00:00:00.000Z" })); // due today
+    data.set("bill:2026-10:201", mkBill("201", "2026-10", "unpaid", { total: 4000, issuedAt: "2026-10-01T00:00:00.000Z" })); // due 10-16: 35 days
+    data.set("bill:2026-09:201", mkBill("201", "2026-09", "unpaid", { total: 3900, issuedAt: "2026-09-25T00:00:00.000Z" })); // due 09-16: 65 days
+    data.set("bill:2026-08:201", mkBill("201", "2026-08", "unpaid", { total: 9999, issuedAt: "2026-08-01T00:00:00.000Z" })); // previous tenant's
+    data.set("bill:2026-07:201", mkBill("201", "2026-07", "paid", { issuedAt: "2026-09-25T00:00:00.000Z" }));
+    let r = await call(bill, { method: "GET", user: "Utenant", query: { overdue: "1" } });
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(
+      [r.body.today, r.body.room, r.body.count, r.body.total, r.body.maxDaysOverdue],
+      ["2026-11-20", "201", 2, 7900, 65]
+    );
+    assert.deepStrictEqual(r.body.items.map((i) => [i.period, i.total, i.due, i.daysOverdue]), [["2026-09", 3900, "2026-09-16", 65], ["2026-10", 4000, "2026-10-16", 35]]);
+    putBill(mkBill("201", "2026-11", "pending", { due: "2026-11-01", issuedAt: "2026-11-01T00:00:00.000Z", slipPath: "s.png" }));
+    data.set("bill:2026-10:201", mkBill("201", "2026-10", "paid", { issuedAt: "2026-10-01T00:00:00.000Z" }));
+    r = await call(bill, { method: "GET", user: "Utenant", query: { overdue: "1" } });
+    assert.deepStrictEqual([r.body.count, r.body.total, r.body.maxDaysOverdue], [1, 3900, 65], "paid and pending drop out");
+    assert.strictEqual((await call(bill, { method: "GET", user: "Utenant", query: { overdue: "1", room: "202" } })).status, 403);
+    assert.strictEqual((await call(bill, { method: "GET", query: { overdue: "1" } })).status, 401);
+    data.set("user-room:Uother", null);
+    assert.strictEqual((await call(bill, { method: "GET", user: "Uother", query: { overdue: "1" } })).status, 400, "not bound to a room");
+  });
+
   // ================================================================ UC-15 ดูใบเสร็จ
   await tc("TC-15-2", "ผู้เช่าเปิดใบเสร็จของงวดที่จ่ายแล้ว: เลขที่ · วันที่ชำระ · ยอดและรายการ (ไม่เห็น userId คนยืนยัน) · บิลเก่าที่ยังไม่มีเลขได้เลขที่คำนวณตรงกัน", async () => {
     bindDirect("Utenant", "201");
@@ -1648,6 +1928,37 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
     const b = data.get("bill:2026-11:205");
     assert.deepStrictEqual([b.status, b.receiptNo], ["paid", "R202611-205"]);
     assert.ok(JSON.stringify(replies.pop().messages).includes("ยืนยันห้อง 205"));
+  });
+
+  await tc("TC-15-10", "เจ้าของสองคน/ดับเบิลแท็ปกดยืนยันพร้อมกัน (ทั้งคู่อ่านบิลเป็น pending ก่อนใครเขียน): ผู้เช่าได้ใบเสร็จใบเดียว — LINE ตอบ 409 ให้ push ที่ซ้ำ (X-Line-Retry-Key)", async () => {
+    bindDirect("Utenant", "201");
+    await asOwner("Uowner2", "owner");
+    await issue([{ room: "201", water: 1, elec: 1 }]);
+    await sendSlip("Utenant");
+    pushed.length = replies.length = 0;
+    // Both taps must read the bill before either one writes: that is the window a real Blob store leaves open.
+    const meet = barrier(2);
+    gate = async (op, key) => { if (op === "get" && key === "bill:2026-11:201") await meet(); };
+    const pb = "action=confirm&room=201&period=2026-11";
+    await Promise.all([tap("Uowner", pb), tap("Uowner2", pb)]);
+    gate = null;
+
+    assert.strictEqual(conflicts.length, 1, "both taps tried to send the receipt and LINE dropped the second");
+    const receipts = pushed.filter((p) => p.to === "Utenant");
+    assert.strictEqual(receipts.length, 1, "the tenant got exactly one receipt push");
+    assert.strictEqual(receipts[0].messages.length, 1);
+    assert.ok(receipts[0].messages[0].altText.includes("ใบเสร็จรับเงิน ห้อง 201"));
+    assert.strictEqual(data.get("bill:2026-11:201").status, "paid");
+    assert.strictEqual(replies.length, 2, "and both owners still got their answer");
+    assert.ok(retryKeys.size >= 1 && [...retryKeys].every((k) => /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(k)), "LINE gets a UUID retry key");
+
+    // A later, genuine receipt is not blocked: a re-issued bill has another rev, so another key.
+    await call(bill, { user: "Uowner", body: { action: "void", room: "201", period: "2026-11", reason: "ผิดยอด" } });
+    await issue([{ room: "201", water: 2, elec: 2 }]);
+    await sendSlip("Utenant");
+    pushed.length = 0;
+    await tap("Uowner", pb);
+    assert.strictEqual(pushed.filter((p) => p.to === "Utenant").length, 1, "the new revision's receipt is delivered");
   });
 
   // ================================================================ UC-16 ทวงอัตโนมัติ (line-app: cron รายวัน)
@@ -1858,6 +2169,34 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
     assert.deepStrictEqual([remKinds(r), r.failed], [["201:2026-11:before_3"], 0], "retried on the next run");
   });
 
+  await tc("TC-16-23", "runReminders สองรอบซ้อนกันวันเดียว (ทั้งคู่อ่าน reminded: ยังไม่มีก่อนใครเขียน): ผู้เช่าได้เตือนครั้งเดียว · รอบที่ซ้ำไม่นับว่าส่ง · วันถัดไปส่งตามขั้นปกติ", async () => {
+    bindDirect("Utenant", "201");
+    bindDirect("Utenant2", "202");
+    await unpaidBill("201", "2026-11"); // due 2026-11-16: 6 days late on the 22nd -> after_5
+    await unpaidBill("202", "2026-11");
+    // Both runs must read the marks before either writes one (the mark is written after the push).
+    const meet = { 201: barrier(2), 202: barrier(2) };
+    gate = async (op, key) => {
+      const m = /^reminded:(\d+):2026-11:after_5:1$/.exec(key);
+      if (op === "get" && m) await meet[m[1]]();
+    };
+    const [a, b] = await Promise.all([remind("2026-11-22"), remind("2026-11-22")]);
+    gate = null;
+
+    assert.strictEqual(pushed.filter((p) => p.to === "Utenant").length, 1, "one reminder for room 201");
+    assert.strictEqual(pushed.filter((p) => p.to === "Utenant2").length, 1, "and one for room 202");
+    assert.strictEqual(conflicts.length, 2, "the second run's push was dropped by LINE for each room");
+    assert.strictEqual(a.sent.length + b.sent.length, 2, "the duplicate is not reported as sent");
+    assert.strictEqual(a.failed + b.failed, 0, "a dropped duplicate is not a failure");
+    assert.ok(data.get("reminded:201:2026-11:after_5:1"), "the mark is written");
+    assert.strictEqual(pushed.filter((p) => p.to === "Uowner").length, 1, "one owner summary");
+
+    // The next day is a different batch: nothing is blocked, and nothing repeats.
+    pushed.length = 0;
+    assert.deepStrictEqual((await remind("2026-11-23")).sent, [], "already reminded for this window");
+    assert.strictEqual(pushed.length, 0);
+  });
+
   // ================================================================ UC-17 แจ้งชำระก่อนบิลออก (โอนก่อน)
   const backdatePrepay = (room) => data.set(`prepay:${room}`, { ...prepayOf(room), slipAt: ago(60 * 1000) });
 
@@ -1983,7 +2322,11 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
 
   await tc("TC-17-8", "โอนล่วงหน้าโดยไม่แนบรูป (มีแต่หมายเหตุ) → advance, hasSlip=false", async () => {
     bindDirect("Utenant", "201");
-    const r = await call(slip, { user: "Utenant", body: { note: "โอนพร้อมเพย์" } });
+    // A tenant must attach the photo (TC-11-2); the owner may record an advance payment without one.
+    const t = await call(slip, { user: "Utenant", body: { note: "โอนพร้อมเพย์" } });
+    assert.deepStrictEqual([t.status, t.body.error.code], [400, "VALIDATION"]);
+    assert.strictEqual(prepayOf("201"), null);
+    const r = await call(slip, { user: "Uowner", body: { room: "201", note: "โอนพร้อมเพย์" } });
     assert.deepStrictEqual([r.status, r.body.status, r.body.hasSlip], [200, "advance", false]);
     assert.strictEqual(prepayOf("201").slipPath, null);
   });
@@ -2069,7 +2412,9 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
 
   await tc("TC-17-15", "prepay แบบไม่มีรูป → บิลใหม่ pending hasSlip=false; ส่งการ์ดหาเจ้าของล้มเหลวก็ออกบิลได้และ prepay ถูกล้าง", async () => {
     bindDirect("Utenant", "201");
-    await call(slip, { user: "Utenant", body: { note: "โอนแล้วไม่มีรูป" } });
+    // Tenants can no longer send a photo-less slip, so the record is written as an older client or
+    // an owner-side tool would have left it.
+    data.set("prepay:201", { room: "201", slipPath: null, slipNote: "โอนแล้วไม่มีรูป", slipAt: ago(60000), slipCount: 1, by: "Utenant" });
     failPushTo.add("Uowner");
     const r = await issue([{ room: "201", water: 1, elec: 1 }]);
     assert.strictEqual(r.status, 200);
@@ -2101,6 +2446,96 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
     assert.strictEqual(dec.body.rooms[0].prepaid, true);
     assert.strictEqual(data.get("bill:2026-11:201").status, "paid");
     assert.strictEqual(data.get("bill:2026-12:201").status, "pending");
+  });
+
+  await tc("TC-17-18", "แข่งกัน: สลิปล่วงหน้ากับการออกบิลสลับกันทุกแบบ — ผูกสลิปเข้าบิลเสมอ (pending, prepay ถูกล้าง, การ์ดยืนยันถึงเจ้าของใบเดียว) ไม่ค้างรอรอบหน้า", async () => {
+    const final = () => {
+      const b = data.get("bill:2026-11:201");
+      assert.deepStrictEqual([b.status, b.prepaid, !!b.slipPath, b.slipCount], ["pending", true, true, 1]);
+      assert.deepStrictEqual(data.get("bill:201"), b, "both copies agree");
+      assert.strictEqual(prepayOf("201"), null, "the advance record is consumed");
+      assert.strictEqual(ownerCards().length, 1, "the owner got exactly one accepted confirm card");
+      assert.ok(ownerCards()[0].messages[0].altText.includes("3,532"));
+      return b;
+    };
+    const billWrite = (after) => (op, key) => op === "set" && key === "bill:2026-11:201" && (!after || after.done);
+
+    // A) run read prepay (none) -> the slip lands whole -> run writes the bill: run's second look attaches it.
+    bindDirect("Utenant", "201");
+    let hold = mkHolds();
+    const firstWrite = hold(billWrite());
+    const issuing = issue([{ room: "201", water: 1, elec: 1 }]);
+    await firstWrite.reached;
+    let s = await sendSlip("Utenant");
+    assert.strictEqual(s.body.status, "advance", "no bill yet when the slip looked");
+    assert.ok(prepayOf("201"), "so it waited as a prepay");
+    firstWrite.release();
+    await issuing;
+    final();
+
+    // B) the slip read the bill (none) -> run issues the bill whole -> the slip writes prepay: the slip's second look attaches it.
+    data.clear(); files.clear(); pushed.length = 0; retryKeys.clear(); conflicts.length = 0;
+    bindDirect("Utenant", "201");
+    hold = mkHolds();
+    const beforePrepay = hold((op, key) => op === "set" && key === "prepay:201");
+    const sending = sendSlip("Utenant");
+    await beforePrepay.reached;
+    await issue([{ room: "201", water: 1, elec: 1 }]);
+    assert.strictEqual(data.get("bill:2026-11:201").status, "unpaid", "run saw no slip");
+    beforePrepay.release();
+    s = await sending;
+    assert.deepStrictEqual([s.status, s.body.status, s.body.attached, s.body.total, s.body.hasSlip], [200, "pending", true, 3532, true]);
+    final();
+
+    // C) both look at the same moment and both attach: identical writes, and LINE drops the second owner card.
+    data.clear(); files.clear(); pushed.length = 0; retryKeys.clear(); conflicts.length = 0;
+    bindDirect("Utenant", "201");
+    hold = mkHolds();
+    const runWrite1 = hold(billWrite());
+    const runAttach = hold(billWrite(runWrite1)); // run's own attach write, held until the slip has attached too
+    const slipWrote = hold((op, key) => op === "set-done" && key === "prepay:201");
+    const issuing2 = issue([{ room: "201", water: 1, elec: 1 }]);
+    await runWrite1.reached;
+    const sending2 = sendSlip("Utenant");
+    await slipWrote.reached; // prepay is stored; the slip has not looked at the bill yet
+    runWrite1.release(); // the bill is written, run's second look finds the prepay and is about to attach
+    await runAttach.reached;
+    slipWrote.release(); // the slip now sees the unpaid bill and attaches first
+    s = await sending2;
+    assert.deepStrictEqual([s.body.status, s.body.attached], ["pending", true]);
+    assert.strictEqual(ownerCards().length, 1, "the slip's card went out");
+    runAttach.release();
+    await issuing2;
+    assert.strictEqual(conflicts.length, 1, "run's identical card was dropped by LINE (same retry key)");
+    final();
+
+    // D) run attached before the slip's second look: the slip sees it is already on the bill and sends no card of its own.
+    data.clear(); files.clear(); pushed.length = 0; retryKeys.clear(); conflicts.length = 0;
+    bindDirect("Utenant", "201");
+    hold = mkHolds();
+    const w1 = hold(billWrite());
+    const wrote = hold((op, key) => op === "set-done" && key === "prepay:201");
+    const issuing3 = issue([{ room: "201", water: 1, elec: 1 }]);
+    await w1.reached;
+    const sending3 = sendSlip("Utenant");
+    await wrote.reached;
+    w1.release();
+    await issuing3; // run attached everything and finished
+    wrote.release();
+    s = await sending3;
+    assert.deepStrictEqual([s.body.status, s.body.attached], ["pending", true]);
+    assert.strictEqual(conflicts.length, 0, "no second card was even tried");
+    final();
+
+    // E) a previous tenant's unpaid bill is not the new tenant's: the slip stays an advance.
+    data.clear(); files.clear(); pushed.length = 0; retryKeys.clear(); conflicts.length = 0;
+    bindDirect("Utenant", "201");
+    data.set("tenancy:201", { since: "2026-11-05T00:00:00.000Z" });
+    putBill(mkBill("201", "2026-10", "unpaid", { issuedAt: "2026-10-01T00:00:00.000Z" }));
+    s = await sendSlip("Utenant");
+    assert.strictEqual(s.body.status, "advance");
+    assert.ok(prepayOf("201"));
+    assert.strictEqual(data.get("bill:2026-10:201").status, "unpaid", "the old bill is untouched");
   });
 
   // ================================================================ UC-18 ยกเลิกบิล (void) และออกบิลใหม่
@@ -2314,6 +2749,66 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
     await issue([{ room: "201", water: 1, elec: 1 }]);
     assert.deepStrictEqual([data.get("bill:2026-11:201").rev, data.get("bill:2026-11:201").status], [2, "unpaid"]);
     assert.strictEqual(data.get("bill-void:2026-11:201:1").statusBefore, "paid");
+  });
+
+  await tc("TC-18-13", "ยกเลิกบิลที่จ่ายแล้ว: เจ้าของบันทึก 'คืนเงินแล้ว' (refunded) · รายการค้างคืนเงินข้ามห้อง · ติดตามได้ว่าคืนหรือยัง · ผู้เช่า/ผู้ช่วยทำไม่ได้ · ไม่ซ้ำ · ผู้เช่าไม่เห็นผู้บันทึก", async () => {
+    bindDirect("Utenant", "201");
+    await asOwner("Uhelper", "viewer");
+    putBill(mkBill("201", "2026-11", "paid", { receiptNo: "R202611-201", paidAt: ago(1000), confirmedBy: "Uowner" }));
+    putBill(mkBill("202", "2026-11", "unpaid"));
+    putBill(mkBill("203", "2026-11", "paid", { paidAt: ago(1000), total: 3000 }));
+    assert.strictEqual((await voidIt("201", "2026-11", "ออกผิด")).body.refund, 4450);
+    await voidIt("202", "2026-11", "ผิดห้อง"); // never paid: no refund owed
+    await voidIt("203", "2026-11", "ผิดห้อง");
+    const refunds = (user, query = {}) => call(bill, { method: "GET", user, query: { voided: "1", refunds: "1", ...query } });
+    const mark = (body, user = "Uowner") => call(bill, { user, body: { action: "refunded", ...body } });
+
+    let r = await refunds("Uowner");
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(r.body.items.map((i) => [i.room, i.refundDue]).sort(), [["201", 4450], ["203", 3000]], "all rooms, only the ones that were paid");
+    assert.deepStrictEqual([r.body.count, r.body.total], [2, 7450]);
+    assert.deepStrictEqual((await refunds("Uhelper", { room: "203" })).body.items.map((i) => i.room), ["203"], "a viewer reads, room= narrows");
+    assert.strictEqual((await refunds("Utenant")).status, 403);
+    assert.strictEqual((await refunds("Utenant", { room: "201" })).status, 403);
+
+    // who may record it, and what must be valid
+    assert.strictEqual((await mark({ room: "201", period: "2026-11", rev: 1 }, "Uhelper")).status, 403);
+    assert.strictEqual((await mark({ room: "201", period: "2026-11", rev: 1 }, "Utenant")).status, 403);
+    assert.strictEqual((await mark({ room: "999", period: "2026-11", rev: 1 })).status, 404);
+    assert.strictEqual((await mark({ room: "201", period: "2026-11", rev: 7 })).status, 404, "no such void record");
+    assert.strictEqual((await mark({ room: "201", period: "2026-11", rev: 0 })).status, 400);
+    assert.strictEqual((await mark({ room: "201", period: "2026-1", rev: 1 })).status, 400);
+    assert.strictEqual((await mark({ room: "201", period: "2026-11", rev: 1, note: "x".repeat(201) })).status, 400);
+    const unpaidVoid = await mark({ room: "202", period: "2026-11", rev: 1 });
+    assert.deepStrictEqual([unpaidVoid.status, unpaidVoid.body.error.code], [409, "INVALID_STATE"], "nothing was paid, nothing to refund");
+    assert.strictEqual(data.get("bill-void:2026-11:201:1").refundedAt, undefined, "nothing changed yet");
+
+    // the owner records it
+    r = await mark({ room: "201", period: "2026-11", rev: 1, note: "  โอนคืนแล้ว  " });
+    assert.deepStrictEqual([r.status, r.body.ok, r.body.refundDue], [200, true, 4450]);
+    const archived = data.get("bill-void:2026-11:201:1");
+    assert.deepStrictEqual([archived.refundNote, archived.refundedBy, archived.refundDue], ["โอนคืนแล้ว", "Uowner", 4450]);
+    assert.ok(archived.refundedAt);
+    assert.deepStrictEqual(data.get("bill:2026-11:201"), { ...data.get("bill:201") }, "both bill copies agree");
+    assert.strictEqual(data.get("bill:201").refundedAt, archived.refundedAt, "the bill itself is marked while it is still that void");
+    assert.deepStrictEqual((await refunds("Uowner")).body.items.map((i) => i.room), ["203"], "201 is no longer outstanding");
+    const again = await mark({ room: "201", period: "2026-11", rev: 1 });
+    assert.deepStrictEqual([again.status, again.body.error.code], [409, "INVALID_STATE"]);
+
+    // the tenant sees the refund state but never the owner's userId
+    const t = await call(bill, { method: "GET", user: "Utenant" });
+    assert.ok(t.body.refundedAt && t.body.refundDue === 4450);
+    assert.ok(!("refundedBy" in t.body) && !("voidedBy" in t.body) && !("confirmedBy" in t.body));
+    assert.strictEqual((await call(bill, { method: "GET", user: "Uowner", query: { room: "201" } })).body.refundedBy, "Uowner");
+
+    // a re-issued bill (rev 2) is a fresh bill: refunding rev 1 later must not touch it
+    await issue([{ room: "203", water: 1, elec: 1 }]);
+    assert.strictEqual(data.get("bill:2026-11:203").rev, 2);
+    assert.strictEqual((await mark({ room: "203", period: "2026-11", rev: 1 })).status, 200);
+    assert.ok(data.get("bill-void:2026-11:203:1").refundedAt);
+    assert.strictEqual(data.get("bill:2026-11:203").refundedAt, undefined, "the new bill does not inherit the refund");
+    assert.strictEqual(data.get("bill:2026-11:203").status, "unpaid");
+    assert.deepStrictEqual((await refunds("Uowner")).body.items, []);
   });
 
   // ================================================================ report

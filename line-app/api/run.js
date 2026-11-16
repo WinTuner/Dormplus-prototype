@@ -14,7 +14,7 @@
 // - units must be whole numbers ≥ 0 and the room must be one of ROOMS; a missing water or elec
 //   reading is refused (an explicit 0 is fine), never billed as 0 units
 const store = require("./_store");
-const { saveBill, archiveVoid, PERIOD } = require("./_bills");
+const { saveBill, archiveVoid, prepaidCopy, confirmKey, PERIOD } = require("./_bills");
 const { push, billBubble, confirmBubble } = require("./_line");
 const { requireUser, isOwner } = require("./_auth");
 const { ROOMS, configFor, baseDefaults } = require("./_rooms");
@@ -133,25 +133,36 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl, base) {
     // An unpaid re-issue is the same bill (same rev); only a void one starts a new revision.
     rev: existing ? (existing.status === "void" ? (existing.rev || 1) + 1 : existing.rev || 1) : 1,
     issuedAt: new Date().toISOString(), // lets a new tenant be told apart from the previous tenant's bills
-    status: usable ? "pending" : "unpaid",
-    ...(usable && {
-      slipPath: usable.slipPath || null,
-      slipNote: usable.slipNote || null,
-      slipAt: usable.slipAt,
-      slipCount: usable.slipCount || 1,
-      prepaid: true,
-    }),
+    status: "unpaid",
   };
+  const first = usable ? prepaidCopy(bill, usable) : bill;
 
   await Promise.all([
     store.set(`meter:${room}`, { water: waterUnits, elec: elecUnits, at: new Date().toISOString() }),
-    saveBill(bill, { latest }), // `latest` was read above: no second read inside
+    saveBill(first, { latest }), // `latest` was read above: no second read inside
   ]);
+
+  // A slip may have landed between the first read and this write (the tenant paid in that
+  // instant): look once more. /api/slip does the mirror-image check after it writes `prepay:`, so
+  // whichever side is later sees the other and the slip is never left waiting for next month.
+  let final = first;
+  let used = usable;
+  if (!usable) {
+    const late = await store.get(`prepay:${room}`);
+    if (late && isNextBill && (!late.by || late.by === tenant)) {
+      const cur = await store.get(`bill:${billPeriod}:${room}`);
+      if (cur && cur.status === "unpaid" && cur.issuedAt === bill.issuedAt) {
+        final = prepaidCopy(cur, late);
+        used = late;
+        await saveBill(final, { latest });
+      }
+    }
+  }
   // Clear only the record this bill consumed. A slip that arrived while the bill was being written
   // has a different slipAt and must survive for the next bill (Blob has no compare-and-set).
-  if (usable) {
+  if (used) {
     const still = await store.get(`prepay:${room}`);
-    if (still && still.slipAt === usable.slipAt) await store.set(`prepay:${room}`, null);
+    if (still && still.slipAt === used.slipAt) await store.set(`prepay:${room}`, null);
   }
 
   // The card goes out only after the bill is stored, so its button never opens a missing bill.
@@ -166,9 +177,9 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl, base) {
           (err) => console.error("bill push failed", room, err.message)
         )
       : null,
-    usable && ownerId
-      ? push(ownerId, [confirmBubble(bill)]).catch((err) => console.error("owner push failed", room, err.message))
+    used && ownerId
+      ? push(ownerId, [confirmBubble(final)], { retryKey: confirmKey(final) }).catch((err) => console.error("owner push failed", room, err.message))
       : null,
   ]);
-  return { room, total: bill.total, pushed, reissued: !!existing, ...(usable && { prepaid: true }) };
+  return { room, total: bill.total, pushed, reissued: !!existing, ...(used && { prepaid: true }) };
 }

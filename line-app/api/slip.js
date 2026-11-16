@@ -12,12 +12,12 @@
 // One transfer may cover several months: `periods: ["2026-10", "2026-11"]` puts the same slip on
 // each of those bills (all become `pending`, each with `slipGroup`) and sends the owner ONE card.
 const store = require("./_store");
-const { saveBills, tenancyOf, visibleToTenant, PERIOD } = require("./_bills");
+const { saveBills, tenancyOf, visibleToTenant, prepaidCopy, confirmKey, PERIOD } = require("./_bills");
 const { ROOMS } = require("./_rooms");
 const { mapLimit } = require("./_async");
 const { push, confirmBubble } = require("./_line");
 const { requireUser, isOwner } = require("./_auth");
-const { verifySlip } = require("./_verify");
+const { verifySlip, markStale } = require("./_verify");
 
 const MAX_BYTES = 3 * 1024 * 1024;
 const MAX_NOTE_LENGTH = 500;
@@ -43,6 +43,11 @@ module.exports = async (req, res) => {
   if (!owner && bound !== room) return fail(res, 403, "FORBIDDEN", `บัญชีนี้ยังไม่ได้ผูกกับห้อง ${room}`);
   // An owner may name any room, so it must be a real one: otherwise `prepay:<anything>` piles up.
   if (owner && !ROOMS.includes(room)) return fail(res, 404, "NOT_FOUND", `ไม่พบห้อง ${room}`);
+
+  // A tenant's claim is only worth something with the photo: it is all the owner has to check
+  // against the bank. The owner may still record a payment without one (cash, a transfer seen in
+  // the bank app).
+  if (!owner && !image) return fail(res, 400, "VALIDATION", "ต้องแนบรูปสลิป");
 
   if (periods != null) {
     const ok = Array.isArray(periods) && periods.length >= 1 && periods.length <= MAX_PERIODS &&
@@ -87,9 +92,10 @@ module.exports = async (req, res) => {
   }
 
   // A new photo is checked; a note-only update keeps whatever the last photo was checked as.
-  const verify = shot ? await rememberRef(await shot.pending, room) : prev?.slipVerify || null;
+  // markStale runs after rememberRef so an old slip still records its reference against reuse.
+  const verify = shot ? markStale(await rememberRef(await shot.pending, room)) : prev?.slipVerify || null;
 
-  if (advance) return saveAdvance({ res, room, userId, note, slipPath, sent, verify });
+  if (advance) return saveAdvance({ res, room, userId, owner, latest, note, slipPath, sent, verify });
 
   const next = {
     ...bill,
@@ -130,12 +136,25 @@ async function rememberRef(verify, room) {
 }
 
 // The advance path: one `prepay:<room>` record per room, replaced by each new slip.
-async function saveAdvance({ res, room, userId, note, slipPath, sent, verify }) {
+async function saveAdvance({ res, room, userId, owner, latest, note, slipPath, sent, verify }) {
   const prepay = {
     room, slipPath, slipNote: note || null, slipAt: new Date().toISOString(), slipCount: sent + 1, by: userId,
     slipVerify: verify || null,
   };
   await store.set(`prepay:${room}`, prepay);
+
+  // The owner may have issued the bill while this request was running: /api/run read `prepay:`
+  // before it was written, so nobody would attach the slip until next month. Look at the room's
+  // latest bill once more (Blob has no compare-and-set, so a second look is the only guard) and, if
+  // a bill this tenant can pay has appeared, attach the slip to it exactly as /api/run does. /api/run
+  // makes the mirror-image check after writing its bill; if both attach, the content is identical
+  // and the owner's card is deduped by its retry key.
+  const attached = await attachToNewBill({ room, userId, owner, latest, prepay });
+  if (attached) {
+    return res.status(200).json({
+      ok: true, status: "pending", attached: true, total: attached.total, hasSlip: !!slipPath, verify: verify || null,
+    });
+  }
 
   // A replaced photo is deliberately NOT deleted: /api/run may have just copied that path onto a
   // bill (the slip arrived while the bill was being written) and Blob cannot tell us whether a file
@@ -153,6 +172,30 @@ async function saveAdvance({ res, room, userId, note, slipPath, sent, verify }) 
   }
 
   return res.status(200).json({ ok: true, status: "advance", hasSlip: !!slipPath, verify: verify || null });
+}
+
+// -> the bill the advance slip was attached to, or null when none appeared since the first read.
+async function attachToNewBill({ room, userId, owner, latest, prepay }) {
+  const fresh = await store.get(`bill:${room}`);
+  // /api/run was quicker and already attached this very slip: nothing to do, and no second card.
+  if (fresh && fresh.status === "pending" && fresh.prepaid && fresh.slipAt === prepay.slipAt) return fresh;
+  // Only an unpaid bill is waiting for a slip; the first read saw none, so this one is new.
+  if (!fresh || fresh.status !== "unpaid" || (latest && fresh.period < latest.period)) return null;
+  // Same rules as /api/run: the slip is the current tenant's, and the previous tenant's bill is not.
+  const [tenant, tenancy] = await Promise.all([store.get(`room-user:${room}`), owner ? null : tenancyOf(room)]);
+  if (tenant !== userId || (!owner && !visibleToTenant(fresh, tenancy))) return null;
+
+  const next = prepaidCopy(fresh, prepay);
+  await saveBills([next], { latest: fresh });
+  const still = await store.get(`prepay:${room}`);
+  if (still && still.slipAt === prepay.slipAt) await store.set(`prepay:${room}`, null);
+  const ownerId = process.env.OWNER_USER_ID;
+  if (ownerId) {
+    await push(ownerId, [confirmBubble(next)], { retryKey: confirmKey(next) }).catch((err) =>
+      console.error("owner push failed", err.message)
+    );
+  }
+  return next;
 }
 
 // Delete a replaced photo only when no bill of the room still points to it. `holders` are the
@@ -232,7 +275,7 @@ async function saveGroup({ res, room, owner, userId, note, image, periods }) {
 
   // One transfer for several months: the slip must be for the sum, not for one month.
   const verify = shot
-    ? await rememberRef(await shot.pending, room)
+    ? markStale(await rememberRef(await shot.pending, room))
     : found.map((b) => b.slipVerify).find(Boolean) || null;
   const slipAt = new Date().toISOString();
   const next = found.map((b) => ({
