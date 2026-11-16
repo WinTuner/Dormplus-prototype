@@ -298,11 +298,12 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 
 ## 8. `GET /api/rooms` · `POST /api/rooms`
 
-`api/rooms.js` — หน้าจดมิเตอร์ของเจ้าของ: ทุกห้อง + config + มิเตอร์ล่าสุด + บิล + ผู้เช่า · และ `POST` สำหรับแก้ราคาของห้องเดียว
+`api/rooms.js` — หน้าจดมิเตอร์ของเจ้าของ: ทุกห้อง + config + มิเตอร์ล่าสุด + บิล + ผู้เช่า · `?settings=1` ขอค่าตั้งของหอ · `POST` บันทึกค่าตั้งของหอ (`{dorm}`) หรือราคาของห้องเดียว (`{room, rent, waterRate, elecRate}`)
 
 - **Auth:** Bearer idToken + owner หรือ viewer (`canView` · `403 FORBIDDEN` "เฉพาะเจ้าของหอ") — **`POST` เป็นของเจ้าของเท่านั้น** (viewer/ผู้เช่า → 403)
-- **Query/body:** `GET` ไม่มี · `POST` `{ "room": "211", "rent": 1, "waterRate": 0, "elecRate": 0 }` (ส่งอย่างน้อยหนึ่งค่า; ค่าที่ไม่ส่ง = คงค่าเดิม)
-- **200 (`POST`):** `{ "room": "211", "config": { "rent": 1, "waterRate": 0, "elecRate": 0 } }`
+- **Query/body:** `GET` ไม่มี · `GET ?settings=1` คืน `{ dorm, defaults, rooms }` · `POST { "dorm": { "name", "rent", "waterRate", "elecRate", "dueDay" } }` (ส่งเฉพาะฟิลด์ที่จะแก้; `null` = ล้างค่ากลับไปใช้ env) · `POST { "room": "211", "rent": 1, ... }`
+- **200 (`GET ?settings=1`):** `{ "dorm": { "name": "หอพักบ้านสวน", "rent": 3000, "dueDay": 5 } | null, "defaults": { "rent": 3000, "waterRate": 25, "elecRate": 7 }, "rooms": 12 }`
+- **200 (`POST`):** `{ "dorm": {...}, "defaults": {...} }` หรือ `{ "room": "211", "config": {...} }`
 - **200:**
 
 ```json
@@ -324,7 +325,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 
 `period` = `BILL_PERIOD || null`; `meter`/`bill` เป็น `null` ถ้ายังไม่มี; `advance` = `{ slipAt, hasSlip, verify }` ถ้าห้องนั้นมีสลิปโอนก่อนบิลออกรออยู่ (`prepay:<room>`) มิฉะนั้น `null` (`verify` = ผลตรวจของสลิปนั้น หรือ `null` ถ้ายังไม่ได้ตรวจ); `linked` บอกแค่ว่ามีผู้เช่าผูกห้องอยู่หรือไม่ (`tenant` เป็นค่าเดียวกัน เก็บไว้ให้หน้าเก่า); **`members`** = จำนวนบัญชีที่ผูกห้อง (`room-users:<room>`), **`tenantName`** = ชื่อผู้เช่าหลัก (จาก LINE ตอนผูก; `null` ถ้า LINE ไม่ให้ชื่อ), **`memberNames`** = ชื่อทุกบัญชีในห้อง — **ไม่ส่ง LINE userId ของผู้เช่า** เพราะหน้าจอไม่ได้ใช้ และผู้ช่วยแบบดูอย่างเดียวไม่ควรได้; จำนวนห้องมาจาก `ROOMS` (default `201`–`212`)
 - **Error:** `POST` → `400 VALIDATION` (ค่าไม่ใช่จำนวนเต็ม ≥ 0 หรือไม่ส่งค่าใดเลย) · `404 NOT_FOUND` (ห้องไม่อยู่ใน `ROOMS`) · `403 FORBIDDEN` (ผู้ช่วย/ผู้เช่า) · `GET` → `403 FORBIDDEN` (ไม่ใช่ owner/viewer), `401`/`403` จาก `requireUser`
-- **Side effect (`POST`):** เขียน `room:<room>` = ค่าเดิมทั้งชุดทับด้วยค่าที่ส่งมา — **มีผลกับบิลที่ออกหลังจากนี้เท่านั้น** บิลที่ออกแล้วเก็บยอดเดิม (แก้บิลที่พิมพ์ไปแล้วต้องยกเลิก + ออกใหม่)
+- **Side effect (`POST`):** เขียน `dorm` (ค่าตั้งของหอ: `name`, `rent`, `waterRate`, `elecRate`, `dueDay`) หรือ `room:<room>` — **มีผลกับบิลที่ออกหลังจากนี้เท่านั้น** บิลที่ออกแล้วเก็บยอดเดิม (แก้บิลที่พิมพ์ไปแล้วต้องยกเลิก + ออกใหม่) · `dueDay` (1–28) ใช้สร้างวันครบกำหนดของบิล = วันที่นั้นของเดือนที่ออกบิล (แทน `BILL_DUE`)
 - **อ่าน Blob:** `room:<room>`, `meter:<room>`, `bill:<room>`, `room-user:<room>`, `prepay:<room>` ต่อทุกห้อง (12 ห้อง default = 60 อ่านต่อ request · อ่านพร้อมกันทีละไม่เกิน 12 ห้อง)
 - **Side effect:** ไม่มี
 

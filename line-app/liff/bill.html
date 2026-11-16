@@ -623,6 +623,7 @@ async function loadOwner() {
   try {
     const data = await api("/api/rooms");
     O.rooms = data.rooms;
+    O.dormName = data.dorm || null;
     O.cfg = Object.fromEntries(data.rooms.map((r) => [r.room, r.config]));
     if (!O.period) {
       O.period = currentRound(data.rooms, data.period);
@@ -655,13 +656,14 @@ function renderOwner() {
   }
   if (r === "bill") return ownerBill();
   if (r === "report") return ownerReport();
+  if (r === "settings") return ownerSettings();
   if (r === "owners") return ownerInvite();
   if (r.startsWith("review")) return ownerReview(r.split("/")[1] || O.reviewTab);
   return ownerHome();
 }
 
 function ownerHome() {
-  header(`รอบบิล ${periodTh(O.period)}`, "หอพัก");
+  header(`รอบบิล ${periodTh(O.period)}`, O.dormName || "หอพัก");
   bottom("");
   const total = O.rooms.length;
   const read = O.rooms.filter(isRead).length;
@@ -693,7 +695,66 @@ function ownerHome() {
     </div>`;
 
   view.querySelectorAll("[data-go]").forEach((el) => (el.onclick = () => go(el.dataset.go)));
-  $("settings").onclick = () => toast("ตั้งค่าหอยังไม่เปิดใช้งานในเวอร์ชันนี้");
+  $("settings").onclick = () => go("settings");
+}
+
+// ชื่อหอ + ค่าเริ่มต้น + วันครบกำหนด. These are the values a new bill uses; an existing bill keeps
+// the numbers it was issued with.
+async function ownerSettings() {
+  if (MYROLE === "viewer") return go("home");
+  header("ตั้งค่าหอ", "ค่าเริ่มต้นของบิล", "home");
+  bottom("");
+  view.innerHTML = `<div class="card"><div class="m">กำลังโหลด…</div></div>`;
+
+  let data;
+  try {
+    data = await api("/api/rooms?settings=1");
+  } catch (e) {
+    return (view.innerHTML = `<div class="card"><div class="err">${esc(e.message)}</div></div>`);
+  }
+  const dorm = data.dorm || {};
+  const d = data.defaults || {};
+
+  view.innerHTML = `
+    <div class="card">
+      <div class="field">
+        <label for="sName">ชื่อหอ</label>
+        <input id="sName" maxlength="60" value="${esc(dorm.name || "")}" placeholder="เช่น หอพักบ้านสวน">
+      </div>
+      <div class="hint">แสดงบนหัวหน้าจอเจ้าของ · ใบเสร็จยังใช้ชื่อห้อง</div>
+    </div>
+    <div class="card">
+      <div class="m">ค่าเริ่มต้นของทุกห้อง (ห้องที่ตั้งราคาเองยังใช้ราคาของตัวเอง)</div>
+      <div class="field"><label for="sRent">ค่าเช่า (บาท/เดือน)</label>
+        <div class="in"><input id="sRent" type="number" min="0" step="1" inputmode="numeric" value="${d.rent}"></div></div>
+      <div class="field"><label for="sWater">ค่าน้ำ (บาท/หน่วย)</label>
+        <div class="in"><input id="sWater" type="number" min="0" step="1" inputmode="numeric" value="${d.waterRate}"></div></div>
+      <div class="field"><label for="sElec">ค่าไฟ (บาท/หน่วย)</label>
+        <div class="in"><input id="sElec" type="number" min="0" step="1" inputmode="numeric" value="${d.elecRate}"></div></div>
+    </div>
+    <div class="card">
+      <div class="field"><label for="sDue">วันครบกำหนด (วันที่ของเดือนที่ออกบิล)</label>
+        <div class="in"><input id="sDue" type="number" min="1" max="28" step="1" inputmode="numeric" value="${dorm.dueDay || ""}" placeholder="เช่น 5"></div>
+      </div>
+      <div class="hint">เว้นว่าง = ไม่กำหนดวันครบกำหนด (บิลจะไม่มีกำหนด)</div>
+    </div>
+    <div class="card">
+      <button class="btn" id="saveDorm">บันทึก</button>
+      <div class="hint" style="margin-top:8px">มีผลกับบิลที่ออกหลังจากนี้ — บิลที่ออกแล้วไม่เปลี่ยน</div>
+    </div>`;
+
+  $("saveDorm").onclick = async () => {
+    const num = (id) => ($(id).value.trim() === "" ? null : Number($(id).value));
+    const body = { dorm: { name: $("sName").value.trim() || null, rent: num("sRent"), waterRate: num("sWater"), elecRate: num("sElec"), dueDay: num("sDue") } };
+    try {
+      await api("/api/rooms", { method: "POST", body: JSON.stringify(body) });
+      toast("บันทึกการตั้งค่าหอแล้ว");
+      await loadOwner();
+      go("home");
+    } catch (e) {
+      toast(e.message, true);
+    }
+  };
 }
 
 // Money view: what was billed, what came in, what is still out there.

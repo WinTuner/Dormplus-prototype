@@ -1398,7 +1398,44 @@ const { saveBill } = require("./api/_bills");
   assert.strictEqual(data.get("user-room:UtenantB"), null, "the member is unbound too");
   assert.strictEqual((await call(qr, { body: { code: addCode }, user: "UtenantD" })).status, 404, "the add QR died with the tenancy");
 
-  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members");
+  // ---------------------------------------------------------------- dorm settings
+  r = await call(rooms, { method: "GET", query: { settings: "1" }, user: "Uowner" });
+  assert.strictEqual(r.status, 200);
+  assert.deepStrictEqual(r.body.defaults, { rent: 3500, waterRate: 25, elecRate: 7 }, "env defaults before anything is saved");
+  assert.strictEqual(r.body.dorm, null);
+
+  r = await call(rooms, { body: { dorm: { name: "หอทดสอบ", rent: 3000, dueDay: 5 } }, user: "Uowner" });
+  assert.strictEqual(r.status, 200, "the owner saves the dorm settings");
+  assert.deepStrictEqual([r.body.dorm.name, r.body.dorm.rent, r.body.defaults.rent], ["หอทดสอบ", 3000, 3000]);
+
+  r = await call(rooms, { method: "GET", user: "Uowner" });
+  assert.strictEqual(r.body.rooms.find((x) => x.room === "202").config.rent, 3000, "a room without its own price follows the dorm");
+
+  await call(rooms, { body: { room: "202", rent: 4200 }, user: "Uowner" });
+  r = await call(rooms, { method: "GET", user: "Uowner" });
+  assert.strictEqual(r.body.rooms.find((x) => x.room === "202").config.rent, 4200, "a per-room price still wins");
+
+  // The due day turns into a real due date on the bill.
+  data.delete("bill:203"); data.delete("bill:2026-12:203"); data.delete("bills:203"); data.delete("meter:203");
+  r = await call(run, { body: { period: "2026-12", readings: [{ room: "203", water: 0, elec: 0 }] }, user: "Uowner" });
+  assert.strictEqual(r.status, 200);
+  assert.strictEqual(data.get("bill:2026-12:203").due, "2026-12-05", "dueDay 5 → the 5th of the billed month");
+
+  assert.strictEqual((await call(rooms, { body: { dorm: { dueDay: 31 } }, user: "Uowner" })).status, 400, "dueDay 1–28 only");
+  assert.strictEqual((await call(rooms, { body: { dorm: { rent: -1 } }, user: "Uowner" })).status, 400, "negative rent");
+  assert.strictEqual((await call(rooms, { body: { dorm: {} }, user: "Uowner" })).status, 400, "nothing to save");
+  assert.strictEqual((await call(rooms, { body: { dorm: { name: "x" } }, user: "Uhelper" })).status, 403, "a viewer cannot change settings");
+  assert.strictEqual((await call(rooms, { body: { dorm: { name: "x".repeat(61) } }, user: "Uowner" })).status, 400, "name too long");
+
+  r = await call(rooms, { body: { dorm: { rent: null } }, user: "Uowner" });
+  assert.strictEqual(r.body.defaults.rent, 3500, "null clears the override and the env default is back");
+
+  // Put the dorm back so a later run of this file starts clean.
+  await call(rooms, { body: { dorm: { name: null, dueDay: null } }, user: "Uowner" });
+  data.delete("room:202"); data.delete("bill:203"); data.delete("bill:2026-12:203");
+  data.delete("bills:203"); data.delete("meter:203");
+
+  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings");
 })().catch((err) => {
   console.error(err);
   process.exit(1);
