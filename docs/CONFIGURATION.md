@@ -25,6 +25,7 @@
 | `SESSION_SECRET` | **จำเป็น** | **จำเป็น** | `dev-only-change-me` (ถูกปฏิเสธ) | `app/session.py` โยน `RuntimeError` — login และทุก request ที่มี cookie ล้มเป็น 500 |
 | `COOKIE_SECURE` | **ควรเป็น `true`** | `false` ถ้าเป็น HTTP | `true` | ตั้ง `true` บน `http://127.0.0.1` → browser ไม่ส่ง cookie `dp_session` กลับ → 401 ตลอด |
 | `DEV_AUTH` | ต้องเป็น `false` | `true` ได้ | `false` | เปิดบน production จริงจะถูกเพิกเฉย **แต่** ขึ้นกับ `VERCEL_ENV` (ดู §1.3) |
+| `OWNER_ACCESS_CODE` | **จำเป็นถ้าใช้หน้าจอเจ้าของหอ `/owner`** | ตั้งก็ได้ | `""` | ว่าง = `POST /v1/auth/owner` ตอบ `503 OWNER_LOGIN_OFF` (หน้า `/owner` เปิดได้แต่ล็อกอินไม่ผ่าน) · เป็นรหัสใช้ร่วมของหอเดียว ไม่ใช่บัญชีรายคน |
 | `LINE_CHANNEL_ID` | **จำเป็นถ้าใช้ LINE Login** | ไม่ใส่ก็ได้ | `""` | `POST /v1/auth/line` ตอบ `503 LINE_NOT_CONFIGURED` |
 | `LIFF_ID` | **จำเป็นถ้าใช้หน้า LIFF** | ไม่ใส่ก็ได้ | `""` | `GET /v1/liff-config` คืน `{"liff_id": ""}` → หน้า LIFF `liff.init()` ไม่ได้ |
 | `LINE_CHANNEL_ACCESS_TOKEN` | **จำเป็นถ้าต้องส่งข้อความ** | ไม่ใส่ก็ได้ | `""` | push ไม่Throw แต่คืน `"skipped: no LINE_CHANNEL_ACCESS_TOKEN"` แล้ว log `skipped` — ผู้ใช้ไม่ได้รับข้อความ |
@@ -264,6 +265,7 @@ LINE_CHANNEL_ID=
 LIFF_ID=
 SESSION_SECRET=change-me-to-a-long-random-value
 COOKIE_SECURE=true
+OWNER_ACCESS_CODE=
 CRON_SECRET=
 PROPERTY_ID=p_1
 ```
@@ -329,6 +331,7 @@ PROPERTY_ID=p_1
 | `SESSION_SECRET` | `dev-only-change-me` (ถูกปฏิเสธ) | `backend/app/config.py`, `backend/app/session.py` |
 | `COOKIE_SECURE` | `true` | `backend/app/config.py` |
 | `DEV_AUTH` | `false` | `backend/app/config.py` |
+| `OWNER_ACCESS_CODE` | `""` (ว่าง = หน้าจอเจ้าของหอปิด) | `backend/app/config.py`, `backend/app/routes/auth.py` |
 | `PROPERTY_ID` | `p_1` (ถูกตั้งเป็น `app.property_id` ทุก connection) | `backend/app/config.py`, `backend/app/db.py` |
 | `LINE_CHANNEL_ID` / `LIFF_ID` / `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_CHANNEL_SECRET` / `CRON_SECRET` | `""` | `backend/app/config.py` |
 | `PORT` | `8000` | `Dockerfile` |

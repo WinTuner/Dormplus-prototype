@@ -60,7 +60,20 @@
 ```
 - `LineLoginIn` รับแค่ `id_token` — ไม่มี `role` ใน request และ response ไม่มี `id`/`role`
 - ระบบหา `property_id` และห้องจาก `line_user_id` ในตาราง `tenants` เท่านั้น (ไม่รับจาก client)
-- ยังไม่มีทางล็อกอินของเจ้าของหอผ่าน LINE เลย — endpoint นี้สร้าง tenant session เสมอ ⬜
+- เจ้าของหอ **ไม่** ล็อกอินผ่าน LINE — ใช้หน้าจอ `/owner` กับรหัสของหอ (ดู `POST /auth/owner` ด้านล่าง)
+
+### `POST /auth/owner` — หน้าจอเจ้าของหอ (`/owner`)
+```json
+// req
+{ "code": "owner-code" }
+// res 200
+{ "role": "owner", "property_id": "p_1" }
+```
+- ⚙️ ตั้งรหัสที่ env `OWNER_ACCESS_CODE` · ไม่ตั้ง = `503 OWNER_LOGIN_OFF` (หน้า `/owner` ยังเปิดได้ แต่ล็อกอินไม่ผ่าน)
+- เทียบแบบ constant time · ผิดนับเป็น failure ในตาราง `auth_failures` (10 ครั้ง/ชั่วโมง/IP) → `429 TOO_MANY_ATTEMPTS`
+- cookie ชื่อเดียวกับผู้เช่า (`dp_session`) แต่ `role=owner` · cookie ของผู้เช่าเรียก endpoint เจ้าของได้ `403 FORBIDDEN`
+- หนึ่ง deployment = หนึ่งหอ รหัสใช้ร่วมกัน ไม่มีบัญชีแยกคน · ออกจากระบบที่ `POST /auth/logout`
+- หน้าจอ 4 แท็บ: มิเตอร์ (`GET /rooms`, `PUT /rooms/{id}/reading`) · บิล (`POST /billing/run`, `GET /invoices`) · สลิป (`confirm`/`reject`) · รายงาน (`GET /reports/summary`)
 
 ### `POST /auth/logout` → 204
 

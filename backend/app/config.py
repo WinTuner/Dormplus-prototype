@@ -37,6 +37,11 @@ class Settings(BaseSettings):
     # HTTPS only. Set COOKIE_SECURE=false for a plain-HTTP local dev box.
     cookie_secure: bool = True
 
+    # Owner login for the web UI at /owner (app/routes/auth.py). This deployment serves one dorm and
+    # there are no owner accounts, so "the owner" is whoever knows this shared code. Empty = the owner
+    # UI shows the login screen and refuses every code.
+    owner_access_code: str = ""
+
     # Set by Vercel on every deployment: "production", "preview" or "development" (`vercel dev`).
     vercel_env: str = ""
 

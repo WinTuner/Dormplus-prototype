@@ -1,10 +1,11 @@
 """LINE login: exchange a LIFF idToken for a session cookie, and bind a LINE account to a room."""
+import hmac
 import json
 import secrets
 from datetime import date
 
-from fastapi import APIRouter, Depends, Response
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, Request, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import Connection, Engine, text
 
 from app import attempts, line, session as session_cookie
@@ -26,6 +27,15 @@ class LineLoginIn(BaseModel):
 class LineLinkIn(BaseModel):
     id_token: str
     code: str
+
+
+class OwnerLoginIn(BaseModel):
+    code: str = Field(min_length=1, max_length=200)
+
+
+class OwnerLoginOut(BaseModel):
+    role: str
+    property_id: str
 
 
 class LineUserOut(BaseModel):
@@ -56,13 +66,9 @@ def verified_line_user(id_token: str) -> dict:
     return line.verify_id_token(id_token, settings.line_channel_id)
 
 
-def start_tenant_session(response: Response, line_user_id: str, property_id: str, room_id: str) -> None:
+def _set_session_cookie(response: Response, payload: dict) -> None:
     settings = get_settings()
-    token = session_cookie.sign(
-        {"uid": line_user_id, "role": "tenant", "property_id": property_id, "room_id": room_id},
-        settings.session_secret,
-        ttl_seconds=SESSION_TTL,
-    )
+    token = session_cookie.sign(payload, settings.session_secret, ttl_seconds=SESSION_TTL)
     response.set_cookie(
         session_cookie.COOKIE_NAME,
         token,
@@ -71,6 +77,13 @@ def start_tenant_session(response: Response, line_user_id: str, property_id: str
         samesite="lax",
         secure=settings.cookie_secure,
         path="/",
+    )
+
+
+def start_tenant_session(response: Response, line_user_id: str, property_id: str, room_id: str) -> None:
+    _set_session_cookie(
+        response,
+        {"uid": line_user_id, "role": "tenant", "property_id": property_id, "room_id": room_id},
     )
 
 
@@ -215,6 +228,30 @@ def bind(conn: Connection, invite, room_id: str, line_user_id: str, line_name: s
         {"id": tenant_id, "room": room_id, "name": line_name, "uid": line_user_id, "today": day},
     )
     return tenant_id, line_name
+
+
+@router.post("/owner", response_model=OwnerLoginOut)
+def login_owner(
+    body: OwnerLoginIn,
+    request: Request,
+    response: Response,
+    engine: Engine = Depends(get_engine),
+) -> OwnerLoginOut:
+    """Owner web UI at /owner: one dorm per deployment, so the owner is whoever knows the code.
+
+    Guessing is rate limited like the invite codes (app/attempts.py), and the comparison is constant
+    time so a wrong code cannot be narrowed down by timing.
+    """
+    settings = get_settings()
+    if not settings.owner_access_code:
+        raise ApiError(503, "OWNER_LOGIN_OFF", "ยังไม่ได้ตั้ง OWNER_ACCESS_CODE บนเซิร์ฟเวอร์")
+    actor = request.client.host if request.client else "unknown"
+    attempts.ensure_not_blocked(engine, "owner-login", actor)
+    if not hmac.compare_digest(body.code, settings.owner_access_code):
+        attempts.record_failure(engine, "owner-login", actor)
+        raise ApiError(401, "UNAUTHORIZED", "รหัสเจ้าของหอไม่ถูกต้อง")
+    _set_session_cookie(response, {"uid": "owner", "role": "owner", "property_id": settings.property_id})
+    return OwnerLoginOut(role="owner", property_id=settings.property_id)
 
 
 @router.post("/logout", status_code=204)
