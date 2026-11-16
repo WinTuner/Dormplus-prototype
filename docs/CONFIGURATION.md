@@ -126,7 +126,9 @@ webhook ฝั่งนี้บันทึกทุก event ลงตาร�
 
 ## 2. line-app (serverless JS)
 
-โค้ดอ่าน `process.env` **20 ตัว** ใน `line-app/api/*.js` (นับจาก `api/config.js`, `api/cron.js`, `api/dev.js`, `api/me.js`, `api/owner.js`, `api/qr.js`, `api/rooms.js`, `api/run.js`, `api/slip.js`, `api/webhook.js`, `api/_auth.js`, `api/_line.js`, `api/_remind.js`, `api/_rooms.js`, `api/_verify.js`) บวกตัวแปรที่ `@vercel/blob` อ่านเอง (`api/_store.js`)
+โค้ดอ่าน `process.env` **20 ตัว** ใน `line-app/api/*.js` (นับจาก `api/config.js`, `api/cron.js`, `api/dev.js`, `api/me.js`, `api/owner.js`, `api/qr.js`, `api/rooms.js`, `api/run.js`, `api/slip.js`, `api/webhook.js`, `api/_auth.js`, `api/_line.js`, `api/_prepay.js`, `api/_remind.js`, `api/_rooms.js`, `api/_verify.js`) บวกตัวแปรที่ `@vercel/blob` อ่านเอง (`api/_store.js`)
+
+**เพดาน 12 functions ของ Vercel Hobby:** `api/` มีไฟล์ที่ไม่ขึ้นต้นด้วย `_` **12 ไฟล์พอดี** — `bill.js`, `config.js`, `cron.js`, `dev.js`, `me.js`, `owner.js`, `qr.js`, `rooms.js`, `run.js`, `slip.js`, `slip-image.js`, `webhook.js` (helper ที่ขึ้นต้นด้วย `_` อีก 13 ไฟล์ไม่นับเป็น function) การเพิ่ม endpoint ที่ 13 จะทำให้ deploy ล้มด้วย `exceeded_serverless_functions_per_deployment` — ต้องรวมหรือลบไฟล์เดิมก่อน และ helper ใหม่ต้องตั้งชื่อขึ้นต้นด้วย `_` เสมอ
 
 | Variable | Prod | Local | Default | ผลเมื่อไม่มี / ผิด |
 |---|---|---|---|---|
@@ -162,15 +164,34 @@ webhook ฝั่งนี้บันทึกทุก event ลงตาร�
 <!-- VERIFY: ชื่อ/region ของ Blob store (`domplus-bills`, `sin1`) มาจาก README และ `vercel storage connect` ใส่ `BLOB_STORE_ID` จริงหรือไม่ — ตรวจ Project → Settings → Environment Variables -->
 <!-- VERIFY: Vercel ฉีด `VERCEL_OIDC_TOKEN` ทุก deployment รวม Preview หรือไม่ — ไม่มีไฟล์ในเรพยืนยัน -->
 
-### 2.1 `ROOMS` / `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE`
+### 2.1 `ROOMS` / `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` และการตั้งค่าหอ (`dorm`)
 
-`api/_rooms.js` อ่านค่าทั้งสี่ **ครั้งเดียวตอน module load** แล้วใส่ `const` ระดับบนสุด
+`api/_rooms.js` อ่าน `ROOMS`, `DEFAULT_RENT`, `WATER_RATE`, `ELEC_RATE` **ครั้งเดียวตอน module load** แล้วใส่ `const` ระดับบนสุด
 
 - `ROOMS` เป็น comma-separated; เปลี่ยนแล้วข้อมูล Blob ของห้องเดิม (`room:<room>`, `bill:<room>`, `meter:<room>`) ไม่ถูกลบ
 - ค่าเช่า/เรตถูก wrap ด้วย `Number()` — ใส่ค่าที่แปลงไม่ได้ (เช่น `25 บาท`) จะได้ `NaN` แล้วยอดบิลกลายเป็น `NaN` โดยไม่ error
-- **ลำดับความสำคัญ:** env → ค่าที่เจ้าของบันทึกจากหน้าตั้งค่าหอ (`dorm` ใน Blob) → ค่าเฉพาะห้อง (`room:<room>`)
-- **เจ้าของแก้ค่าเริ่มต้นได้เองในแอป** — หน้าตั้งค่าหอ (`POST /api/rooms` `{dorm}`) เขียน `dorm` = `{ name, rent, waterRate, elecRate, dueDay }` · ไม่ต้อง Redeploy · `dueDay` (1–28) ใช้สร้างวันครบกำหนดของบิล (แทน `BILL_DUE`) · ผลกับบิลที่ออกไปแล้ว: ไม่ย้อนหลัง
-- env ยังใช้เป็น **fallback** ของหอที่ยังไม่ตั้งค่า — ตั้ง `DEFAULT_RENT` ใน Vercel แล้ว Redeploy เมื่ออยากเปลี่ยนค่าตั้งต้นของหลาย deployment พร้อมกัน
+- **ลำดับความสำคัญ (ตรวจจาก `api/_rooms.js`):** env → ค่าที่เจ้าของบันทึกจากหน้าตั้งค่าหอ (`dorm` ใน Blob) → ค่าเฉพาะห้อง (`room:<room>`)
+  - `baseDefaults()` รับ `rent`/`waterRate`/`elecRate` จาก `dorm` **เฉพาะเมื่อเป็นจำนวนเต็ม ≥ 0** (`Number.isInteger`) ค่าอื่น (สตริง, ทศนิยม, ค่าลบ) ถูกเมินแล้วตกกลับไปใช้ env
+  - `configFor(room)` เอา `room:<room>` ทับค่าจาก `dorm`/env แบบ spread ตรง ๆ (ไม่ตรวจชนิดข้อมูล)
+- **หน้าตั้งค่าหอในแอป** — `GET /api/rooms?settings=1` อ่าน (เจ้าของและ viewer) · `POST /api/rooms` เขียน (เจ้าของเท่านั้น) · เก็บที่ Blob key `dorm` = `{ name, rent, waterRate, elecRate, dueDay, promptpay }`
+  - ฟิลด์ที่ **ไม่ส่งมา** = คงค่าเดิม · ฟิลด์ที่ส่ง `null` (หรือ `promptpay: ""`) = **ลบค่านั้นออก** จาก object → กลับไปใช้ env/default · ถ้าไม่เหลือฟิลด์ใด ระบบเขียน `dorm` เป็น `null`
+  - `name` ยาว ≤ 60 ตัวอักษร · `dueDay` จำนวนเต็ม 1–28 · `rent` 0–100000 · `waterRate`/`elecRate` 0–10000
+  - `promptpay` รับเบอร์มือถือ 10 หลัก, เลขบัตรประชาชน 13 หลัก หรือ e-Wallet 15 หลัก แล้วเก็บเป็นตัวเลขล้วน (`normalizeId()` ใน `api/_promptpay.js`); รูปแบบอื่นได้ `400 VALIDATION`
+- **`dueDay` ใช้สร้างวันครบกำหนดของบิล** — `api/run.js` เรียงลำดับ `due` ใน body → env `BILL_DUE` → `dorm.dueDay` (วันที่ `dueDay` ของเดือนที่ออกบิล) → `""` ดังนั้นถ้าตั้ง `BILL_DUE` ไว้ ค่านั้น **ชนะ** `dueDay`; บิลที่ `due` ว่างจะถูก cron ข้าม
+- **`promptpay` ใช้สร้าง QR พร้อมเพย์ในบิล** (`api/bill.js` + `api/_promptpay.js`) — ไม่ตั้ง = `/api/bill` ไม่มี QR แต่บิลยังออกและบันทึกการชำระได้ตามปกติ
+- **ผลกับบิลที่ออกไปแล้ว: ไม่ย้อนหลัง** — ค่าใหม่มีผลกับบิลที่ออกครั้งถัดไป; บิลที่ออกแล้วต้อง void + ออกใหม่ (`POST /api/run`)
+
+`POST /api/rooms` รับสองรูปแบบ (ทั้งคู่เจ้าของเท่านั้น):
+
+| Body | ผล |
+|---|---|
+| `{ "dorm": { ... } }` | แก้ค่าหอตามด้านบน; ตอบ `{ dorm, defaults }` |
+| `{ "room": "201", "rent"?: n, "waterRate"?: n, "elecRate"?: n }` | ต้องมีอย่างน้อยหนึ่งค่า; ห้องต้องอยู่ใน `ROOMS` ไม่งั้น `404`; ตอบ `{ room, config }` |
+
+- ค่าที่ระดับห้องต้องเป็นจำนวนเต็ม ≥ 0 และไม่เกินเพดาน (`rent` 100000, อัตรา 10000) ไม่งั้น `400 VALIDATION`
+- ⚠️ **ที่ระดับห้อง `null` ไม่ได้แปลว่า "ล้างค่า"** — `Number(null)` = 0 จึงกลายเป็น 0 บาท (ต่างจาก `{dorm}` ที่ `null` = ล้างค่ากลับไปใช้ env)
+- ⚠️ การบันทึกห้องหนึ่งครั้งเขียน **config ที่ merge แล้วทั้งชุด** ลง `room:<room>` (rent/waterRate/elecRate) — หลังจากนั้นห้องนั้น **ไม่ตาม** ค่า `dorm`/env ที่เปลี่ยนอีกจนกว่าจะกดบันทึกห้องนั้นใหม่ และไม่มี endpoint สำหรับลบ override ของห้อง (ต้องแก้ Blob เอง)
+- env ยังเป็น **fallback** ของห้องที่ยังไม่เคยตั้งค่า — เปลี่ยน env แล้วต้อง Redeploy และมีผลเฉพาะห้องที่ยังไม่มี `room:<room>`
 
 ### 2.2 `SEED_TOKEN` / `ALLOW_SEED_BYPASS`
 
@@ -214,6 +235,18 @@ webhook ฝั่งนี้บันทึกทุก event ลงตาร�
 
 <!-- VERIFY: `SLIPOK_API_KEY` / `SLIPOK_BRANCH_ID` ถูกตั้งบนโปรเจกต์ `line-app` แล้วหรือยัง และ branch ผูกบัญชีรับเงินของหอจริง — เห็นได้ที่ Vercel env + SlipOK dashboard เท่านั้น -->
 <!-- VERIFY: แผน SlipOK ที่ใช้อยู่และ quota ต่อเดือน — อยู่นอกเรพ -->
+
+### 2.6 `Cache-Control` ของแต่ละ endpoint
+
+| Endpoint | Header | เหตุผล |
+|---|---|---|
+| `/api/config` | `public, max-age=300, s-maxage=300, stale-while-revalidate=600` | คำตอบเหมือนกันทุกคนและเปลี่ยนเฉพาะเมื่อ `LIFF_ID` เปลี่ยน → ให้ CDN cache 5 นาที ลด cold start ก่อน `liff.init()` |
+| `/api/bill`, `/api/me`, `/api/owner`, `/api/rooms`, `/api/qr`, `/api/dev` | `no-store` | ข้อมูลรายผู้ใช้/สถานะบิลเปลี่ยนได้ทุกเมื่อ |
+| `/api/slip-image` | `private, no-store` | รูปสลิปเป็นข้อมูลส่วนตัว ต้องไม่ถูก cache ที่ CDN |
+| `/api/cron` | ไม่ตั้ง header | เรียกโดย Vercel Cron พร้อม secret และตอบ JSON สั้น ๆ |
+
+- `/api/config` เป็น public จริง: **ห้ามใส่ข้อมูลรายผู้ใช้หรือ secret ลงไป** ไม่งั้นจะติด CDN ไปหาทุกคนภายใน 5 นาที
+- อย่าเปลี่ยน `/api/config` เป็น `no-store` — หน้า LIFF จะช้าลงโดยไม่จำเป็น (เป็น request แรกก่อน `liff.init()`)
 
 ---
 
@@ -277,6 +310,8 @@ PROPERTY_ID=p_1
 
 ไม่บังคับ: `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` (ตั้งคู่กัน และ branch ต้องผูกบัญชีรับเงินของหอ), `RICHMENU_OWNER_ID` / `RICHMENU_TENANT_ID`, `ROOMS` / `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` (มี default ในโค้ด), `PUBLIC_BASE_URL` (ไม่ตั้ง = ใช้ host ของ request)
 
+ค่าหอ (`rent`, `waterRate`, `elecRate`, `dueDay`, `promptpay`, `name`) **ตั้งจากหน้า settings ในแอป** (`POST /api/rooms {dorm}`) ไม่ใช่ env — env เป็นเพียงค่า fallback ของห้องที่ยังไม่เคยบันทึก และไม่มีผลกับห้องที่มี `room:<room>` แล้ว (ดู §2.1)
+
 ไม่ตั้งใน production: `SEED_TOKEN`, `ALLOW_SEED_BYPASS`, `DEV_AUTH=true`
 
 ### Local
@@ -304,6 +339,11 @@ PROPERTY_ID=p_1
 | `DEFAULT_RENT` | `3500` | `line-app/api/_rooms.js` |
 | `WATER_RATE` | `25` | `line-app/api/_rooms.js` |
 | `ELEC_RATE` | `7` | `line-app/api/_rooms.js` |
+| `dorm` (Blob key) | ไม่มี (`null`) — `rent`/`waterRate`/`elecRate` ตกไปใช้ env; `dueDay`/`promptpay`/`name` ไม่ตั้ง | `line-app/api/_rooms.js`, `line-app/api/rooms.js` |
+| เพดานค่าที่ตั้งได้ | `rent` 100000 · `waterRate`/`elecRate` 10000 · `name` 60 ตัวอักษร | `line-app/api/rooms.js` |
+| `dueDay` | ไม่ตั้ง (`null`) → ไม่มีวันครบกำหนดอัตโนมัติ (ใช้ `BILL_DUE`) | `line-app/api/rooms.js`, `line-app/api/run.js` |
+| `promptpay` | ไม่ตั้ง → `/api/bill` ไม่มี QR พร้อมเพย์ | `line-app/api/_promptpay.js`, `line-app/api/bill.js` |
+| จำนวน endpoint ใน `api/` | 12 (เท่าเพดาน Vercel Hobby) | `line-app/api/` |
 | `SLIPOK_API_KEY` / `SLIPOK_BRANCH_ID` (line-app) | ไม่ตั้ง (undefined = ไม่ตรวจสลิป) | `line-app/api/_verify.js` |
 | migration head (backend) | `0005` (`line_events`) | `backend/migrations/versions/0005_line_events.py` |
 | `PUBLIC_BASE_URL` | `https://<host ของ request>` | `line-app/api/run.js`, `dev.js`, `webhook.js`, `cron.js` |
@@ -357,7 +397,7 @@ Vercel อ่าน env ตาม scope ที่เลือกตอนสร�
 1. ตั้ง `LINE_CHANNEL_SECRET` + `LINE_CHANNEL_ACCESS_TOKEN` จาก LINE Developers Console
 2. ตั้ง `LIFF_ID` + `OWNER_USER_ID`
 3. ตั้ง `CRON_SECRET` (≥ 16 ตัว) เพื่อให้ `/api/cron` ทำงาน — Vercel จะแนบ header ให้เอง
-4. ตั้ง `ROOMS` / `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` ให้ตรงหอ (ไม่ตั้ง = 201–212, 3500, 25, 7)
+4. ตั้ง `ROOMS` ให้ตรงจำนวนห้อง (ไม่ตั้ง = 201–212) — ส่วนค่าเช่า/เรต/`dueDay`/`promptpay` ตั้งจากหน้า settings ในแอป (`POST /api/rooms {dorm}`); `DEFAULT_RENT`/`WATER_RATE`/`ELEC_RATE` เป็นเพียง fallback ของห้องที่ยังไม่เคยบันทึก
 5. (ถ้าเปิดตรวจสลิป) สร้าง branch ใน SlipOK → ผูกบัญชีรับเงินของหอ → ตั้ง `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` **คู่กัน** ไม่งั้นระบบทำงานเหมือนไม่ได้ตั้ง (สลิปไม่ถูกตรวจ)
 6. ตั้ง `PUBLIC_BASE_URL` เป็นโดเมน production
 7. Redeploy แล้วยิง webhook Verify จาก LINE Developers Console · ตรวจ cron ที่ Vercel → Project → Cron Jobs

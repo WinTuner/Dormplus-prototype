@@ -40,7 +40,7 @@ git clone https://github.com/WinTuner/Dormplus-prototype.git
 cd Dormplus-prototype/line-app
 npm install                    # ให้ @vercel/blob กับ qrcode-svg
 npm test                       # = node smoke.js && node smoke-handlers.js && node smoke-reads.js
-node smoke-usecases.js         # 156 use case ตาม docs/TEST-CASES.md
+node smoke-usecases.js         # 168 use case (docs/TEST-CASES.md มี 269 แถว: ✅ 244 · 🖐 25 · ⏳ 0)
 node smoke-cron.js             # /api/cron + ตัวเตือนรายวัน + cron-lock
 ```
 
@@ -72,7 +72,7 @@ TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/domplus_
 
 > ⚠️ ฐานข้อมูลใน `TEST_DATABASE_URL` **ถูกล้างทุกครั้ง** (`conftest.py` สั่ง `downgrade base` → `upgrade head` แล้ว `truncate ... restart identity cascade`) — ห้ามชี้ไปที่ Neon ตัวจริง
 
-- ชุดเต็มวันนี้คือ **142 test ใน 14 ไฟล์** (`backend/tests/test_*.py`) — ถ้าจำนวนไม่ตรง แปลว่า collection พังหรือ import ค้าง ไม่ใช่ "test หาย"
+- ชุดเต็มวันนี้คือ **144 test ใน 14 ไฟล์** (`backend/tests/test_*.py` — `pytest --collect-only` นับได้ 144) — ถ้าจำนวนไม่ตรง แปลว่า collection พังหรือ import ค้าง ไม่ใช่ "test หาย"
 
 ### 2.4 หมายเหตุบน Windows / PowerShell
 
@@ -91,11 +91,11 @@ TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/domplus_
 | `node smoke.js` | `line-app/` | signature ของ webhook + รูปร่าง Flex card + การ์ดยืนยัน | `smoke.js` |
 | `node smoke-handlers.js` | `line-app/` | handler ระดับเงิน/สิทธิ์: dev gate, QR binding, rate limit, สลิป, confirm, ออกบิล, void | `smoke-handlers.js` |
 | `node smoke-reads.js` | `line-app/` | read พร้อมกัน, ประวัติบิล, สิทธิ์ในการอ่าน | `smoke-reads.js` |
-| `node smoke-usecases.js` | `line-app/` | use case ทั้ง 156 กรณี — ชื่อ `TC-xx-n` ตรงกับตารางใน [`docs/TEST-CASES.md`](./TEST-CASES.md) | `smoke-usecases.js` |
+| `node smoke-usecases.js` | `line-app/` | use case ทั้ง 168 กรณี — ชื่อ `TC-xx-n` ตรงกับตารางใน [`docs/TEST-CASES.md`](./TEST-CASES.md) | `smoke-usecases.js` |
 | `node smoke-cron.js` | `line-app/` | `/api/cron`: secret, cron-lock, หน้าต่าง 1–3 วัน/เลยกำหนด 1·5·10 วัน, dedup ตาม `rev`, push ล้ม | `smoke-cron.js` |
 | `vercel --prod` | `line-app/`, `backend/` | deploy จากเครื่อง (ปกติไม่ต้อง — push `master` แล้ว auto) | `line-app/docs/DEPLOYMENT.md`, `backend/README.md` |
 | `node scripts/prod-smoke.mjs` | root | ตรวจ deployment จริงหลัง merge (ไม่ต้องล็อกอิน) | `scripts/prod-smoke.mjs` |
-| `pytest -q` | `backend/` | test ทั้งหมด (142 test ใน 14 ไฟล์; DB test ข้ามถ้าไม่มี `TEST_DATABASE_URL`) | `pyproject.toml` `testpaths` |
+| `pytest -q` | `backend/` | test ทั้งหมด (144 test ใน 14 ไฟล์; DB test ข้ามถ้าไม่มี `TEST_DATABASE_URL`) | `pyproject.toml` `testpaths` |
 | `alembic upgrade head` | `backend/` | apply migration | `migrations/` |
 | `alembic revision -m "..."` | `backend/` | สร้าง migration ใหม่ (เขียน `op.execute()` เอง) | `migrations/env.py` (`target_metadata = None`) |
 | `python -m app.seed` | `backend/` | seed หอ 42 ห้อง (รันซ้ำได้ ไม่สร้างซ้ำ) | `app/seed.py` |
@@ -117,10 +117,11 @@ TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/domplus_
 รายละเอียดเต็มอยู่ใน [`line-app/docs/DEVELOPMENT.md`](../line-app/docs/DEVELOPMENT.md) ข้อ 2–9 · สรุปที่ต้องจำ:
 
 - **CommonJS เท่านั้น** — `require()` / `module.exports`; handler เป็น `async (req, res)` (ยกเว้น `api/config.js` ที่ sync)
-- helper ใช้ร่วมกันต้องขึ้นต้นด้วย `_` (`api/_store.js`, `api/_auth.js`, `api/_bills.js`, `api/_line.js`, `api/_rooms.js`, `api/_async.js`, `api/_limit.js`, `api/_qr.js`, `api/_remind.js`, `api/_verify.js`) ไม่งั้นมันจะกลายเป็น route สาธารณะ
-- 2 spaces, double quotes, semicolons, `const`; คอมเมนต์บรรทัดแรกของไฟล์บอก route + หน้าที่
+- helper ใช้ร่วมกันต้องขึ้นต้นด้วย `_` — วันนี้มี **13 ไฟล์**: `api/_store.js`, `api/_auth.js`, `api/_bills.js`, `api/_ledger.js`, `api/_line.js`, `api/_rooms.js`, `api/_async.js`, `api/_limit.js`, `api/_qr.js`, `api/_remind.js`, `api/_verify.js`, `api/_prepay.js`, `api/_promptpay.js` · logic ใหม่ที่ไม่ได้เป็น route ต้องไปอยู่ในไฟล์กลุ่มนี้ ไม่งั้นมันจะกลายเป็น serverless function นับเข้าเพดาน 12 (ข้อ 7.1)
+- 2 spaces, double quotes, semicolons, `const`; คอมเมนต์เป็น **อังกฤษและอธิบาย "ทำไม"** ไม่ใช่ทวนโค้ด (ใส่คำไทยในวงเล็บเมื่อคำนั้นคือถ้อยคำที่ผู้ใช้เห็น เช่น `(ยกเลิกบิล)`) · บรรทัดแรกของไฟล์บอก route + หน้าที่
+- `liff/bill.html` เป็น **ไฟล์เดียวจบ** — HTML + CSS + JS inline ไม่มี build/bundler และไม่มีไฟล์แยกให้ import อะไรทั้งสิ้น
 - error เป็น `{ "error": { "code": "SCREAMING_SNAKE", "message": "ข้อความไทย" } }` — `message` ไทยเสมอ (ผู้ใช้เห็น) `code` อังกฤษ · 405 ของทุก handler วันนี้ใช้รูป object (`METHOD_NOT_ALLOWED`)
-- `Cache-Control: no-store` **ก่อน** `requireUser` สำหรับ GET ที่คืนสถานะที่เปลี่ยนได้ (`bill.js`, `me.js`, `rooms.js`, `config.js`)
+- `Cache-Control: no-store` **ก่อน** `requireUser` สำหรับ GET ที่คืนสถานะที่เปลี่ยนได้ (`bill.js`, `me.js`, `rooms.js`) · `config.js` เป็นข้อยกเว้น: ไม่มี auth และตั้ง `public, max-age=300` ให้ CDN แคชได้
 - ข้อความ UI ไทย, ชื่อตัวแปร/ฟิลด์อังกฤษ, เงินปัดด้วย `Math.round()` และแสดงด้วย `toLocaleString("th-TH")`
 - `_auth.isOwner()` / `canView()` / `roleOf()` เป็น **async** — ต้อง `await` (บทบาทมี 3 แบบ: `owner`, `viewer`, และ `null` = ผู้เช่า/ไม่รู้จัก; `isRoot()` เทียบ `OWNER_USER_ID` แบบ sync)
 - งานที่ยิง LINE หรือเขียนหลาย key ให้ขนานด้วย `Promise.all` / `mapLimit` จาก `_async.js` และ side effect ที่ล้มได้ต้องอยู่ใน `try/catch` (ดู `_remind.js`: push ล้ม = ไม่เขียน mark แล้วลองใหม่รอบหน้า)
@@ -175,9 +176,9 @@ trigger: `push` เข้า `master` และ **ทุก** `pull_request` · 
 | job | สภาพแวดล้อม | ขั้นตอน |
 |---|---|---|
 | `line-app` | `ubuntu-latest`, Node 20 | `npm ci --no-audit --no-fund` → `node --check` ทุก `api/*.js` → `node smoke.js` → `node smoke-handlers.js` → `node smoke-reads.js` → `node smoke-usecases.js` (step "Use case tests") → `node smoke-cron.js` (step "Reminder cron tests") → แยก inline `<script>` จาก `liff/bill.html` ออกมาแล้ว `node --check` |
-| `backend` | `ubuntu-latest` + service `postgres:16` (DB `domplus_test`), Python 3.12 | probe ว่า `backend/pyproject.toml` มีบน branch ไหม (ไม่มี = skip ทั้ง job) → `pip install -e "backend[dev]"` → `pytest -q` (142 test ใน 14 ไฟล์) ด้วย `TEST_DATABASE_URL` + `DEV_AUTH=true` |
+| `backend` | `ubuntu-latest` + service `postgres:16` (DB `domplus_test`), Python 3.12 | probe ว่า `backend/pyproject.toml` มีบน branch ไหม (ไม่มี = skip ทั้ง job) → `pip install -e "backend[dev]"` → `pytest -q` (144 test ใน 14 ไฟล์) ด้วย `TEST_DATABASE_URL` + `DEV_AUTH=true` |
 
-สิ่งที่ CI **บังคับ**ได้จริงคือ: syntax ทุก handler, พฤติกรรมที่ smoke **ทั้งห้าชุด**ครอบ (รวม use case 156 กรณีที่ id ตรงกับ [`docs/TEST-CASES.md`](./TEST-CASES.md) และ cron/ตัวเตือน), inline script ของหน้า LIFF parse ได้, และ `pytest` ผ่านบน Postgres สด
+สิ่งที่ CI **บังคับ**ได้จริงคือ: syntax ทุก handler, พฤติกรรมที่ smoke **ทั้งห้าชุด**ครอบ (รวม use case 168 กรณีที่ id ตรงกับ [`docs/TEST-CASES.md`](./TEST-CASES.md) และ cron/ตัวเตือน), inline script ของหน้า LIFF parse ได้, และ `pytest` ผ่านบน Postgres สด
 
 สิ่งที่ CI **ไม่ได้**ทำ (verified จากไฟล์ workflow): lint/format, typecheck, coverage, build, deploy, ยิง production
 
@@ -186,14 +187,18 @@ trigger: `push` เข้า `master` และ **ทุก** `pull_request` · 
 ### 5.5 Review gates ที่มีจริง
 
 1. **PR template** — checklist ขอบเขต + คำสั่งที่ทดสอบ + ผลกระทบข้อมูล/สัญญา API
-2. **CI `ci`** — ต้องเขียวทั้งสอง job (job `backend` จะเขียวทันทีถ้า branch ยังไม่มี `backend/`)
+2. **CI `ci`** — ควรมองให้เขียวทั้งสอง job (แต่ required check จริงมีแค่ `backend` — ดูกล่อง branch protection ด้านล่าง; job `backend` จะเขียวทันทีถ้า branch ยังไม่มี `backend/`)
 3. **กฎ offline ก่อน deploy** — `node smoke.js`, `node smoke-handlers.js`, `node smoke-reads.js`, `node smoke-usecases.js`, `node smoke-cron.js` ต้องผ่าน (ทั้งห้าชุดคือสิ่งที่ CI รัน — ดู [`.github/workflows/ci.yml`](../.github/workflows/ci.yml); `line-app/HANDOFF.md` ข้อ 8 ยังเขียนแค่สามชุดแรก)
 4. **`scripts/prod-smoke.mjs` หลัง merge** — exit code 1 ถ้ามีข้อตก ใช้เป็น gate หลัง deploy ได้ (ตรวจ LIFF 200 + build ปัจจุบัน, header, 401/404 ที่ควรเป็น, `/docs` ปิดบน production, cron ต้องมี secret)
 5. **ทดสอบใน LINE 1 ครั้ง** สำหรับ path ที่แตะ (line-app)
 
-สิ่งที่ **ไม่มี** ในเรพ: `CODEOWNERS`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, coverage threshold, การบังคับ branch protection ที่มองเห็นได้จากไฟล์
+สิ่งที่ **ไม่มี** ในเรพ: `CODEOWNERS`, `CODE_OF_CONDUCT.md`, `CONTRIBUTING.md`, coverage threshold
 
-<!-- VERIFY: branch protection / required status checks ของ GitHub org WinTuner ตั้งไว้นอกเรพ — มองไม่เห็นจาก repo จึงยืนยันไม่ได้ว่า `ci` เป็น required check -->
+**Branch protection บน `master` (ยืนยันจาก GitHub API)** — merge ตรงเข้า `master` ไม่ได้ ต้องผ่าน PR และ required status check คือ **`backend`** เท่านั้น (`strict: true` = branch ต้อง rebase ขึ้นกับ `master` ล่าสุดก่อน merge, `enforce_admins: true` ใช้กับแอดมินด้วย, ปิด force push/ลบ branch, ต้อง resolve conversation ก่อน merge)
+
+> ⚠️ job `line-app` **ไม่ใช่** required check — เขียวหรือแดงก็ยัง merge ได้ถ้า `backend` เขียว · ความปลอดภัยของฝั่ง LINE app จึงพึ่งกฎ "รัน smoke ห้าชุดเองก่อน push" (ข้อ 3) ไม่ใช่ CI · อย่าถือว่า branch protection กัน regression ฝั่ง `line-app` ให้
+
+<!-- VERIFY: ค่า branch protection มาจาก `gh api repos/WinTuner/Dormplus-prototype/branches/master/protection` (ก.ย. 2026) — เปลี่ยนได้ใน GitHub settings นอกเรพ รีวิวซ้ำเมื่อ gate ไม่ตรงกับที่เห็น -->
 
 > ข้อสังเกต (อ่านจากประวัติ ไม่ได้เขียนเป็นกฎ): งานที่มีความเสี่ยงมักแยก branch `security/...` หรือ `perf/...` แล้วรีวิวก่อน merge — เช่น `fix(line-app): close the four holes the review found in this security pass`
 
@@ -207,7 +212,7 @@ trigger: `push` เข้า `master` และ **ทุก** `pull_request` · 
 4. **เขียน SQL** — `text()` + bound parameter, กรอง `property_id` จาก session เสมอ; ถ้าเขียนหลายตารางให้อยู่ใน `engine.begin()` ก้อนเดียว
 5. **error** — `raise ApiError(409, "CONFLICT", "…")`; ถ้าเพิ่ม code ใหม่ ต้องเพิ่มในตาราง error ของ [`docs/API.md`](./API.md) ด้วย
 6. **ลงทะเบียน** — `app.include_router(<area>.router)` ใน `app/main.py`
-7. **schema change?** — สร้าง `backend/migrations/versions/000N_<slug>.py` ต่อจาก head (`revision`/`down_revision` เป็นสตริง `"0005"`…) เขียน `op.execute()` และ **ต้องมี `downgrade()`**; ห้าม autogenerate (ไม่มี ORM metadata) · `db/schema.sql` เป็น snapshot อ่านอย่างเดียว ไม่ใช่ที่แก้
+7. **schema change?** — สร้าง `backend/migrations/versions/000N_<slug>.py` ต่อจาก head (`revision`/`down_revision` เป็นสตริง `"0005"`…) เขียน `op.execute()` และ **ต้องมี `downgrade()`**; ห้าม autogenerate (ไม่มี ORM metadata) · `db/schema.sql` เป็น snapshot อ่านอย่างเดียว ไม่ใช่ที่แก้ · **ไม่มี `db/migrations` ในเรพนี้** — SQL ใหม่ทุกตัวต้องเป็น Alembic revision เท่านั้น แล้ว apply ตามลำดับ (`alembic upgrade head`, ไม่มีคำสั่งแยกสำหรับรัน SQL ตรง)
 8. **ตารางใหม่ที่ผูกกับหอ = ต้องมี RLS policy** — ลอกแบบ `0004_rls_property.py` (หรือ `0005_line_events.py` ซึ่งเป็นตารางใหม่ล่าสุด): `enable` **และ `force` row level security** แล้วสร้าง policy `for all using (…) with check (…)` ที่เทียบกับ `current_setting('app.property_id', true)` (ตารางที่มี `property_id` ตรง ๆ ใช้ค่านั้น; ตารางที่ผูกทาง FK ใช้ `exists (select 1 from rooms r where …)`) — ถ้าลืมข้อนี้ ตารางใหม่จะอ่านข้ามหอได้ และถ้า `enable` แต่ไม่ `force` policy จะไม่มีผลกับเจ้าของตาราง · **role ที่ app ใช้ connect ต้องไม่มี `BYPASSRLS`**: `select rolbypassrls from pg_roles where rolname = current_user` ต้องได้ `false` (เจ้าของ Neon อย่าง `neondb_owner` bypass ได้ — ต้องมี role เฉพาะอย่าง `dormplus_app` สำหรับ production, alembic ยังใช้ owner) · **grant ให้ role นั้นแบบมีการ์ด** — `dormplus_app` สร้างนอก migration ดังนั้น `0005` จึง `grant` ภายใน `do $$ begin if exists (select 1 from pg_roles where rolname='dormplus_app') then … end if; end $$` เพื่อให้ DB สด (CI) migrate ผ่านได้โดยไม่มี role นี้
 9. **test** — `backend/tests/test_<area>.py`, **หนึ่ง test ต่อหนึ่งพฤติกรรม** ใช้ชื่ออ่านรู้เรื่อง (`test_a_billed_period_cannot_be_changed`) และ fixture จาก `conftest.py`: `engine` (skip ถ้าไม่มี `TEST_DATABASE_URL`), `seeded`, `client_for(engine, session, day)` · ถ้าเป็นเรื่องข้ามหอ ให้ทำ fixture แบบ `second_dorm` ใน `test_rooms.py` แล้วยืนยัน 403/ไม่เห็นข้อมูล · ตารางใหม่ควรมีกรณีใน `backend/tests/test_rls.py` ด้วย (test รันด้วย `set local role` เพราะ role ใน CI เป็น superuser ที่ bypass RLS)
 10. **เอกสาร** — [`docs/API.md`](./API.md): อัปเดตตารางสถานะด้านบน (✅), เพิ่มหัวข้อ `### \`METHOD /path\`` พร้อม req/res JSON และรหัส error, และเพิ่มตัวอย่างในบล็อก `## ตัวอย่าง curl (\`backend/\` บนเครื่อง)` · จากนั้นอัปเดตตาราง endpoint ใน [`backend/README.md`](../backend/README.md) · ถ้าเพิ่ม env ต้องอัปเดต [`docs/CONFIGURATION.md`](./CONFIGURATION.md)
@@ -264,7 +269,7 @@ def list_widgets(
 <!-- VERIFY: เพดาน 12 serverless functions/deployment ของ Vercel Hobby มาจาก line-app/HANDOFF.md ข้อ 5 ไม่ได้ยืนยันกับบัญชี Vercel จริง -->
 
 1. ถ้าเป็น "อีกมุมของข้อมูลเดิม" **ต่อ endpoint เดิมด้วย query param** ดีกว่าเพิ่มไฟล์ (`bill.js` รับ `?period=`/`?history=1`/`?voided=1` และ POST `{action:"void"}` แทนที่จะมี `/api/history` หรือ `/api/void`)
-2. สร้าง `api/<route>.js` — ถ้าเป็น helper ให้ขึ้นต้น `_` (`_verify.js` คือตัวอย่างล่าสุด: ไฟล์ที่ขึ้นต้น `_` **ไม่ถูกนับ** เข้าเพดาน 12 จึงเป็นที่เดียวที่ควรใส่ logic ใหม่ได้ · `_remind.js` อีกตัวอย่าง: handler `cron.js` เหลือแค่ตรวจ secret/lock แล้วเรียก `runReminders()`)
+2. สร้าง `api/<route>.js` — ถ้าเป็น helper ให้ขึ้นต้น `_` (ไฟล์ที่ขึ้นต้น `_` **ไม่ถูกนับ** เข้าเพดาน 12 จึงเป็นที่เดียวที่ควรใส่ logic ใหม่ได้ · ตัวอย่างล่าสุด: `_promptpay.js` (สร้าง QR พร้อมเพย์), `_ledger.js` (ยอดค้าง/ยอดรับตามเดือน), `_prepay.js` (สลิปที่โอนมาก่อนบิล, writer สองตัวแข่งกัน), `_remind.js` (handler `cron.js` เหลือแค่ตรวจ secret/lock แล้วเรียก `runReminders()`) — ทั้งหมด 13 ไฟล์ตามข้อ 4.2)
 3. ลำดับใน handler (ทำตาม `bill.js` / `run.js` / `slip.js`): เช็ก `req.method` → `res.setHeader("Cache-Control","no-store")` ถ้าเป็น GET ที่คืนสถานะที่เปลี่ยนได้ → `await requireUser(req, res)` แล้ว `if (!userId) return;` → เช็กสิทธิ์ (`await isOwner(userId)`, `await canView(userId)`, หรือเทียบ `user-room:<userId>` กับห้อง) → validate → อ่าน/เขียนผ่าน `_store` (บิลผ่าน `saveBill`/`saveBills` เท่านั้น, การยกเลิกผ่าน `archiveVoid`) → side effect ที่ล้มได้ (push LINE) ครอบ `try/catch` → ตอบ JSON
 4. **test** — เพิ่ม assert ในชุดที่ตรงชนิด: พฤติกรรม handler/สิทธิ์/เงิน → `smoke-handlers.js`; การอ่านพร้อมกัน/ลำดับ/ประวัติ → `smoke-reads.js`; ฟังก์ชันบริสุทธิ์ (verify, Flex card) → `smoke.js`; **พฤติกรรมที่ผู้ใช้เห็นเป็น use case → `smoke-usecases.js` โดยใช้ id `TC-xx-n` ตรงกับแถวใน [`docs/TEST-CASES.md`](./TEST-CASES.md)** (CI รันห้าชุดนี้) · suite ต้องผ่านทั้งตอนมีและไม่มี `node_modules`
 5. **เอกสาร** — [`line-app/docs/API.md`](../line-app/docs/API.md): เพิ่มแถวในตาราง §1 + หัวข้อเลขถัดไป (§3–§12 คือ endpoint ทีละตัว) · ถ้ารูป request/response เป็นส่วนของสัญญาร่วม ให้แก้ [`docs/API.md`](./API.md) ด้วย

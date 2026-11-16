@@ -87,36 +87,43 @@ node smoke.js              # signature + Flex card + auth guards (QR ต้อ�
 node smoke-handlers.js     # dev gate, QR binding, rate limit, payment, bill issuing, roles
 node smoke-reads.js        # bounded concurrency, ordering, legacy history
 node smoke-cron.js         # งานเตือนบิลค้างรายวัน (api/cron.js + api/_remind.js)
-node smoke-usecases.js     # 156 use case ตั้งแต่ต้นจนจบ (UC-01 … UC-18)
+node smoke-usecases.js     # 168 use case ตั้งแต่ต้นจนจบ (UC-01 … UC-18) · UC-19 (webhook ฝั่ง backend) อยู่ใน pytest
 ```
 
-ชุด use case คือ subset อัตโนมัติของ [`TEST-CASES.md`](./TEST-CASES.md) ซึ่งแตกครบ **265 case ใน 19 UC** (222 ✅ automated · 23 🖐 ต้องกดมือกับ LINE จริง · 20 ⏳ ยังไม่มี test) — 156 ตัวที่รันในไฟล์นี้คือส่วนที่ทดสอบได้โดยไม่ต้องมี LINE จริง ส่วนที่เหลืออยู่ในตารางพร้อมเหตุผลว่าทำไมยังอัตโนมัติไม่ได้
+ชุด use case คือ subset อัตโนมัติของ [`TEST-CASES.md`](./TEST-CASES.md) ซึ่งแตกครบ **269 case ใน 19 UC** (244 ✅ automated · 25 🖐 ต้องกดมือกับ LINE จริง · 0 ⏳ ยังไม่มี test) — **168** ตัวที่รันในไฟล์นี้คือส่วนที่ `line-app` ทดสอบได้โดยไม่ต้องมี LINE จริง (อีก 6 เคสของ UC-19 เป็น webhook ฝั่ง backend จึงอยู่ใน pytest) ส่วนที่เหลืออยู่ในตารางพร้อมเหตุผลว่าทำไมยังอัตโนมัติไม่ได้
 
 ผลที่ต้องเห็น (ยืนยันบน Node v26.13.0) — บรรทัด QR ต้องมี `node_modules` (`qrcode-svg`) ถ้าไม่มีจะขึ้น `smoke: qrcode-svg not installed, QR check skipped` แทน (ชุดอื่นไม่ต้องใช้ dependency เลย):
 
 ```text
 smoke OK — QR renders and scales
 smoke OK — signature + flex card + confirm card + auth guards
-handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing
-reads OK — bounded concurrency, ordering, legacy history, binding and auth
+handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings, PromptPay QR, slip rejection
+reads OK — bounded concurrency, ordering, legacy history, binding, auth, overdue and income
 cron OK — auth, 6 reminder windows, dedup, catch-up, skips, tenancy, retry, owner summary, one push per room
-156/156 use case tests passed
+168/168 use case tests passed
 ```
 
-`npm test` (`package.json` → `scripts.test`) รันแค่ **สามชุดแรก** (`smoke.js && smoke-handlers.js && smoke-reads.js`) — `smoke-cron.js` และ `smoke-usecases.js` ต้องสั่งเองหรือพึ่ง CI ส่วน `smoke-usecases.js` ใช้เวลานานที่สุด (หลายนาที) และพิมพ์สรุปเป็น `<passed>/<total> use case tests passed` โดย exit code 0 เมื่อผ่านครบ
+`npm test` (`package.json` → `scripts.test`) รันแค่ **สามชุดแรก** (`smoke.js && smoke-handlers.js && smoke-reads.js`) — `smoke-cron.js` และ `smoke-usecases.js` ต้องสั่งเองหรือพึ่ง CI · `smoke-usecases.js` เป็นชุดใหญ่ที่สุดแต่ยังรันจบในราวหนึ่งวินาทีในเครื่องนี้ (ทุกชุด offline ล้วน ไม่แตะเน็ต/DB — มีแค่ `setTimeout` 1–5 ms ในเทสต์ไม่กี่จุดเพื่อจำลองลำดับเวลา) และพิมพ์สรุปเป็น `<passed>/<total> use case tests passed` โดย exit code 0 เมื่อผ่านครบ
 
-**ข้อจำกัดที่ต้องรู้:** `line-app/` ไม่มี dev server และไม่มี `.env` loader — หน้า `liff/bill.html` เรียก `/api/*` แบบ path สัมพัทธ์ จึงต้องถูกเสิร์ฟจาก origin เดียวกับ API บน Vercel เท่านั้น
-ในเครื่องจึงทดสอบได้แค่ตรรกะที่ไม่แตะ I/O (signature, รูปการ์ด, handler ที่ stub แล้ว) — ที่เหลือต้องไป Track B
+**ข้อจำกัดที่ต้องรู้:** `line-app/` **ไม่มีขั้นตอน build และไม่มี `npm run dev`/`npm start`** — `package.json` มีแค่ `scripts.test`, dependency สองตัว และ `engines.node` ในเครื่องจึงทดสอบได้แค่ตรรกะที่ไม่แตะ I/O (signature, รูปการ์ด, handler ที่ stub แล้ว) หน้า `liff/bill.html` เรียก `/api/*` แบบ path สัมพัทธ์ จึงต้องถูกเสิร์ฟจาก origin เดียวกับ API
+
+ถ้าอยากได้ HTTP จริงบนเครื่อง (สองทางนี้อยู่นอก Track A เพราะต้องมีบัญชี Vercel แล้ว):
+- `vercel dev` (Vercel CLI) เสิร์ฟ `api/*.js` + `liff/bill.html` ที่ `http://localhost:3000` และเปิด dev bypass (`x-seed-token`) ให้ — ต้อง `vercel link` และมี env ของโปรเจกต์ก่อน
+- หรือใช้ deployment บน Vercel ที่ deploy อยู่แล้ว
+
+หน้า LIFF ต้องมี `LIFF_ID` (มาจาก `GET /api/config`) และต้องเปิดผ่าน LINE ที่ `https://liff.line.me/<LIFF_ID>?room=<ห้อง>` — เปิดในแท็บเบราว์เซอร์ตรง ๆ จะขึ้นข้อความให้เปิดจากแชท LINE แทน
+
+<!-- VERIFY: `vercel dev` ให้ credential ของ Vercel Blob กับเครื่องได้แค่ไหน (OIDC/BLOB_READ_WRITE_TOKEN) ยืนยันจาก repo ไม่ได้ — ไฟล์ในเรพไม่มี script หรือ config ของ `vercel dev` เลย; ถ้า Blob ไม่ผ่านจะได้ `No blob credentials found` -->
 
 ### 3.3 test ของ backend
 
 ```powershell
 cd backend
 .\.venv\Scripts\python.exe -m pytest -q
-# 23 passed, 119 skipped  (collect ได้ 142 test จาก 14 ไฟล์)
+# 23 passed, 121 skipped  (collect ได้ 144 test จาก 14 ไฟล์)
 ```
 
-test ที่ต้องใช้ฐานข้อมูลจะถูก **skip** เมื่อไม่ได้ตั้ง `TEST_DATABASE_URL` (ดู `tests/conftest.py`) ถ้าอยากรันครบ 142 ตัว:
+test ที่ต้องใช้ฐานข้อมูลจะถูก **skip** เมื่อไม่ได้ตั้ง `TEST_DATABASE_URL` (ดู `tests/conftest.py`) ถ้าอยากรันครบ 144 ตัว:
 
 > `backend/.env.example` มี `TEST_DATABASE_URL` อยู่แล้ว แต่ `tests/conftest.py` อ่านจาก **environment variable เท่านั้น** (`os.environ`) — ใส่ใน `.env` แล้วยัง skip เหมือนเดิม ต้อง `export`/`$env:` ก่อนเรียก pytest
 
@@ -146,11 +153,11 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 
 ลำดับย่อ (รายละเอียดทุกขั้นอยู่ที่ [`line-app/docs/GETTING-STARTED.md`](../line-app/docs/GETTING-STARTED.md) และ [`line-app/README.md`](../line-app/README.md)):
 
-1. `cd line-app && npm install` — dependency มี 2 ตัว: `@vercel/blob` และ `qrcode-svg` (smoke suite ทำงานได้แม้ไม่ติดตั้ง — QR check จะถูกข้าม)
+1. `cd line-app && npm install` — dependency มี 2 ตัว: `@vercel/blob` และ `qrcode-svg` · **ไม่มีขั้นตอน build** (`npm run build` ไม่มีใน `package.json`) — ใช้ `vercel dev` บนเครื่องหรือ deploy ตรงขึ้น Vercel (smoke suite ทำงานได้แม้ไม่ติดตั้ง — QR check จะถูกข้าม)
 2. `vercel link` แล้ว `vercel --prod` — <!-- VERIFY: ต้องมี Vercel CLI และสิทธิ์เข้าถึงโปรเจกต์ line-app ของทีม ซึ่งขึ้นกับบัญชีของคุณ ไม่ได้อยู่ใน repo -->
 3. ใส่ env บน Vercel (ทั้ง Production และ Preview แล้ว Redeploy — Vercel ผูก env กับ deployment; บางไฟล์อ่านตอน module load, `cron.js` อ่าน `CRON_SECRET` ต่อ request) รายการเต็มที่ [`CONFIGURATION.md`](./CONFIGURATION.md)
-4. ตรวจคำขอแรกที่ไม่ต้องใช้ credential: `curl.exe -s https://<โดเมนของคุณ>/api/config` ต้องได้ `200`
-5. ตั้ง webhook URL เป็น `https://<โดเมนของคุณ>/api/webhook` แล้วกด Verify ใน LINE Developers
+4. ตรวจคำขอแรกที่ไม่ต้องใช้ credential: `curl.exe -s https://<โดเมนของคุณ>/api/config` ต้องได้ `200` (ก่อนตั้ง `LIFF_ID` จะได้ `{"liffId":null}`)
+5. ตั้ง webhook URL เป็น `https://<โดเมนของคุณ>/api/webhook` แล้วกด Verify ใน LINE Developers · หน้า LIFF เปิดผ่าน LINE ที่ `https://liff.line.me/<LIFF_ID>?room=<ห้อง>` — เปิดในแท็บเบราว์เซอร์ตรง ๆ ไม่ได้
 6. (ถ้าต้องการ rich menu) `LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js` จาก `line-app/` — รูป default คือ `docs/richmenu-owner.png` และ `docs/richmenu-tenant.png` (มีอยู่จริง) แล้วเก็บ id ที่พิมพ์ออกมาเป็น `RICHMENU_OWNER_ID` / `RICHMENU_TENANT_ID`
 7. ตั้ง `CRON_SECRET` (สุ่ม ≥ 16 ตัวอักษร เช่น `openssl rand -hex 24`) บน Production แล้ว Redeploy — `vercel.json` ตั้ง `crons: [{ "path": "/api/cron", "schedule": "0 2 * * *" }]` ไว้แล้ว (02:00 UTC = 09:00 เวลาไทย) Vercel จะแนบ `Authorization: Bearer <CRON_SECRET>` ให้เองและเรียกเฉพาะ Production · ไม่ตั้ง/สั้นกว่า 16 = `503 NOT_CONFIGURED` (ไม่มีการเตือน แต่ระบบอื่นทำงานปกติ) · สั่งรันมือ: `curl -H "Authorization: Bearer <CRON_SECRET>" https://<โดเมนของคุณ>/api/cron`
 8. (ไม่บังคับ) **ตรวจสลิปอัตโนมัติ** — ตั้ง `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` (`api/_verify.js` เรียก `https://api.slipok.com/api/line/apikey/<branch>`) ทั้งคู่ต้องมีพร้อมกัน · **branch ต้องผูกบัญชีรับเงินของหอไว้ก่อน** ไม่งั้นสลิปที่โอนเข้าบัญชีอื่นจะตอบ `1014` ("บัญชีผู้รับไม่ใช่บัญชีของหอ") ทุกใบ · ไม่ตั้งทั้งคู่ = ไม่มีอะไรพัง แค่ `verify.ok = null` (`reason: "not_configured"`) และเจ้าของยังตรวจสลิปเองเหมือนเดิม — การตรวจเป็นหลักฐานให้เจ้าของเท่านั้น **ไม่ปิดบิลให้เอง** บิลยังเป็น `pending` จนเจ้าของกดยืนยัน
@@ -170,7 +177,7 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 | อาการ | สาเหตุ | ทางแก้ |
 |---|---|---|
 | `docker compose up -d` → `failed to connect to the docker API ... dockerDesktopLinuxEngine` | Docker Desktop ยังไม่เปิด (เจอจริงตอนเขียนเอกสารนี้) | เปิด Docker Desktop แล้วรอจนขึ้น Running |
-| `pytest` ได้ `23 passed, 119 skipped` | ไม่ได้ตั้ง `TEST_DATABASE_URL` — เป็นพฤติกรรมปกติ (collect ได้ 142 test แต่ **119 ตัวต้องมี Postgres**; อีก 23 ตัวรันได้เปล่า ๆ) | ตั้ง `TEST_DATABASE_URL` ชี้ `domplus_test` ตามข้อ 3.3 |
+| `pytest` ได้ `23 passed, 121 skipped` | ไม่ได้ตั้ง `TEST_DATABASE_URL` — เป็นพฤติกรรมปกติ (collect ได้ 144 test แต่ **121 ตัวต้องมี Postgres**; อีก 23 ตัวรันได้เปล่า ๆ) | ตั้ง `TEST_DATABASE_URL` ชี้ `domplus_test` ตามข้อ 3.3 |
 | `GET /api/cron` ได้ `503 NOT_CONFIGURED` | ไม่ได้ตั้ง `CRON_SECRET` บนโปรเจกต์ หรือค่าสั้นกว่า 16 ตัวอักษร | ตั้งค่าใหม่แล้ว Redeploy (Vercel แนบ header ให้เอง) — รันมือด้วย `curl -H "Authorization: Bearer <CRON_SECRET>" ...` |
 | ข้อมูลข้ามหอโผล่ หรือ query ตรง ๆ ได้ `0` แถว | role ที่ต่อมี `BYPASSRLS` (เช่น `neondb_owner` ของ Neon) หรือ `app.property_id` ไม่ถูกตั้งบน connection | ใช้ role ที่ไม่มี `BYPASSRLS` (`dormplus_app`) — `app/db.py` เป็นคนตั้ง `app.property_id` ให้ทุก connection |
 | `alembic upgrade head` → `connection refused` หรือต่อผิดฐาน | รันจากโฟลเดอร์อื่น (`.env` ไม่ถูกโหลด) หรือ `DATABASE_URL` ผิด | `cd backend` ก่อน แล้วเช็ก `DATABASE_URL` ใน `.env` |
@@ -192,7 +199,7 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 | [`API.md`](./API.md) | ต้องยิง endpoint ของ backend เอง (auth, error code, ตัวอย่าง request) |
 | [`HANDOFF.md`](./HANDOFF.md) | จะรับงานต่อ — มีกับดักที่เจอมาแล้วและงานที่ยังเหลือ |
 | [`TESTING.md`](./TESTING.md) | อยากรู้ว่า smoke ทั้งห้าชุดและ pytest แต่ละชุดครอบอะไร |
-| [`TEST-CASES.md`](./TEST-CASES.md) | อยากเห็นว่า use case แต่ละข้อถูกตรวจด้วย test ตัวไหน หรือยังต้องกดมือ (265 case / 19 UC) |
+| [`TEST-CASES.md`](./TEST-CASES.md) | อยากเห็นว่า use case แต่ละข้อถูกตรวจด้วย test ตัวไหน หรือยังต้องกดมือ (269 case / 19 UC · 244 automate · 25 manual) |
 | [`backend/README.md`](../backend/README.md) | endpoint ทั้งหมด, dev headers, deploy Vercel + Neon, Procrastinate/cron |
 | [`line-app/docs/GETTING-STARTED.md`](../line-app/docs/GETTING-STARTED.md) | ต้องพา LINE app ขึ้น Vercel จริงตั้งแต่ต้น |
 | [`line-app/docs/TESTING.md`](../line-app/docs/TESTING.md) | อยากรู้ว่า smoke แต่ละตัวครอบอะไร และอะไรต้องทดสอบมือ |

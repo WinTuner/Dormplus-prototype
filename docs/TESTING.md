@@ -14,16 +14,16 @@ repo นี้แยกเป็นสองครึ่งที่ deploy แ�
 
 | ชั้น | ไฟล์ | รันด้วย | ต้องมีอะไร | ครอบอะไร |
 |---|---|---|---|---|
-| `line-app` โครงสร้าง/handler | `smoke.js`, `smoke-handlers.js`, `smoke-reads.js` | `node` (หรือ `npm test`) | Node ≥ 20 · ไม่ต้องมีเน็ต · **ไม่ต้อง `npm install`** | signature ของ webhook, Flex card, QR binding + move-confirm, rate limit, ยืนยันการชำระ + ใบเสร็จ, ยกเลิก/ออกบิลใหม่, สลิปหนึ่งใบหลายงวด, roles/invite, slip limits, **ตรวจสลิปผ่าน SlipOK (stub)**, **แก้ราคาห้อง**, concurrency ของ read |
-| `line-app` use case | `smoke-usecases.js` | `node smoke-usecases.js` | เหมือนข้างบน | **156 เคส** ที่ id ตรงกับ `docs/TEST-CASES.md` (TC-xx-n) ไล่ตาม UC-01 … UC-18 |
+| `line-app` โครงสร้าง/handler | `smoke.js`, `smoke-handlers.js`, `smoke-reads.js` | `node` (หรือ `npm test`) | Node ≥ 20 · ไม่ต้องมีเน็ต · **ไม่ต้อง `npm install`** | signature ของ webhook, Flex card, QR binding + move-confirm, rate limit, ยืนยันการชำระ + ใบเสร็จ, ยกเลิก/ออกบิลใหม่, สลิปหนึ่งใบหลายงวด, roles/invite, slip limits, **ตรวจสลิปผ่าน SlipOK (stub)**, **แก้ราคาห้อง**, สมาชิกห้อง/รูมเมท, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป, concurrency ของ read + `/api/bill?overdue=` / `?income=` / `?refunds=1` |
+| `line-app` use case | `smoke-usecases.js` | `node smoke-usecases.js` | เหมือนข้างบน | **168 เคส** ที่ id ตรงกับ `docs/TEST-CASES.md` (TC-xx-n) ไล่ตาม UC-01 … UC-18 (ไม่มี UC-19 ซึ่งเป็น pytest) |
 | `line-app` cron เตือนรายวัน | `smoke-cron.js` | `node smoke-cron.js` | เหมือนข้างบน | auth ของ `/api/cron`, lock กันรอบซ้อน, 6 หน้าต่างเตือน, dedup, catch-up, ข้ามบิลที่ไม่ควรเตือน, retry, สรุปถึงเจ้าของ |
-| `backend` API | `backend/tests/*.py` (14 ไฟล์) | `pytest` | Python ≥ 3.11 · **Postgres** สำหรับ test ที่แตะ DB | สัญญา error, session cookie, LINE idToken, ห้อง/มิเตอร์, ออกบิล + ส่งบิลเข้า LINE, สลิป/ยืนยัน/ตีกลับ, ผูก LINE, dunning, cron, **RLS**, webhook signature + dedupe, รายงานสรุป |
+| `backend` API | `backend/tests/*.py` (14 ไฟล์ · 142 ฟังก์ชัน `def test_`) | `pytest` | Python ≥ 3.11 · **Postgres** สำหรับ test ที่แตะ DB | สัญญา error, session cookie, LINE idToken, ห้อง/มิเตอร์, ออกบิล + ส่งบิลเข้า LINE, สลิป/ยืนยัน/ตีกลับ, ผูก LINE, dunning, cron, **RLS**, webhook signature + dedupe, รายงานสรุป |
 | LIFF inline script | `line-app/liff/bill.html` | `node --check` (ใน CI) | Node | แค่ **parse ได้** ไม่ได้รัน logic |
 | production หลัง deploy | `scripts/prod-smoke.mjs` | `node scripts/prod-smoke.mjs` | เน็ต + URL จริง | **14 ข้อ**: build ปัจจุบัน, security header, endpoint ที่ต้อง auth ตอบ 401, dev endpoint ปิด, cron ป้องกัน secret |
 
 > ไม่มี Jest/Vitest/Playwright และไม่มี coverage tool ใน repo นี้ — ทุกอย่างข้างบนคือทั้งหมดที่มี
 
-**catalogue ของเคสคือ [`docs/TEST-CASES.md`](TEST-CASES.md)**: 268 เคสใน 19 use case โดยแบ่งเป็น ✅ 231 เคสที่ automation แตะ, 🖐 25 เคสที่ต้องทำมือกับ LINE/LIFF จริง และ ⏳ 12 เคสที่ **ยังไม่สร้างฟีเจอร์** (จึงยังไม่มี test) — ใน 231 เคสนั้น 156 เคสมี id ของตัวเองใน `smoke-usecases.js`, 50 เคสชี้ไปที่ backend pytest, 8 เคสชี้ไปเคสที่ automate ไว้แล้วใน UC อื่น, 1 เคสชี้ไป `smoke-cron.js` และ 16 เคสอ้าง `smoke-handlers.js` (ตรวจสลิป, สมาชิกห้อง, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป, guard เล็ก ๆ)
+**catalogue ของเคสคือ [`docs/TEST-CASES.md`](TEST-CASES.md)**: **269 เคสใน 19 use case** โดยแบ่งเป็น ✅ 244 เคสที่ automation แตะ, 🖐 25 เคสที่ต้องทำมือกับ LINE/LIFF จริง และ **⏳ 0 เคส** (ทุกแถวในเอกสารมีคนตรวจแล้ว) — ใน 244 เคสนั้น **168 เคสมี id ของตัวเองใน `smoke-usecases.js`**, 51 เคสชี้ไปที่ backend pytest, 8 เคสชี้ไปเคสที่ automate ไว้แล้วใน UC อื่น (`TC-10-12`→`TC-08-6`, `TC-11-16`→`TC-08-8`, `TC-14-3`→`TC-10-5`, `TC-15-1`→`TC-04-1`, `TC-17-24`→`TC-08-11`, `TC-17-25`→`TC-18-5`, `TC-17-26`→`TC-18-9`, `TC-18-12`→`TC-13-10`), 1 เคสชี้ไป `smoke-cron.js` และ 16 เคสอ้าง `smoke-handlers.js` (ตรวจสลิป, สมาชิกห้อง, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป, guard เล็ก ๆ) — id ใน `smoke-usecases.js` กับแถวในเอกสารตรงกัน 1:1 ทั้ง 168 ตัว
 
 ---
 
@@ -37,15 +37,15 @@ cd line-app
 npm test                 # = node smoke.js && node smoke-handlers.js && node smoke-reads.js
 
 node smoke.js            # signature + Flex card + auth guards
-node smoke-handlers.js   # dev gate, QR binding, rate limit, confirm, ออกบิล, roles, slip limits, ใบเสร็จ, void, ตรวจสลิป (SlipOK), ราคาห้อง
-node smoke-reads.js      # concurrency, ลำดับ, history, สิทธิ์
-node smoke-usecases.js   # 156 เคสตาม UC (id ตรง docs/TEST-CASES.md)
+node smoke-handlers.js   # dev gate, QR binding, สมาชิกห้อง, rate limit, confirm, ออกบิล, roles, slip limits, ใบเสร็จ, void, ตรวจสลิป (SlipOK), ราคาห้อง, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป
+node smoke-reads.js      # concurrency, ลำดับ, history, overdue, income, refunds, สิทธิ์
+node smoke-usecases.js   # 168 เคสตาม UC (id ตรง docs/TEST-CASES.md)
 node smoke-cron.js       # เตือนรายวัน: auth, lock, หน้าต่างเตือน, dedup, retry
 ```
 
 `package.json` ตั้ง `"test": "node smoke.js && node smoke-handlers.js && node smoke-reads.js"` และ `"engines": {"node": ">=20"}`
 
-> ⚠️ **`npm test` รันแค่ 3 ไฟล์** — `smoke-usecases.js` (156 เคส) และ `smoke-cron.js` ไม่ได้อยู่ใน script นี้ CI รันครบทั้ง 5 ไฟล์แยกเป็น step (`ci.yml`) ดังนั้นก่อน push ให้รันเองทั้ง 5 หรือรันตามข้อ 4
+> ⚠️ **`npm test` รันแค่ 3 ไฟล์** — `smoke-usecases.js` (168 เคส) และ `smoke-cron.js` ไม่ได้อยู่ใน script นี้ CI รันครบทั้ง 5 ไฟล์แยกเป็น step (`ci.yml`) พร้อม `pytest` ของ backend ดังนั้นก่อน push ให้รันเองทั้ง 5 หรือรันตามข้อ 4
 
 **ไม่ต้อง `npm install`:** ทั้งห้าไฟล์ `require` เฉพาะ builtin ของ Node (`assert`, `crypto`, `module`, `path`) และ stub dependency เองผ่าน `Module._load` / `require.cache` — ข้อยกเว้นเดียวคือ block QR ใน `smoke.js` ที่จะพิมพ์ `qrcode-svg not installed, QR check skipped` ถ้ายังไม่ได้ติดตั้ง (`smoke.js` บรรทัด 88–101)
 
@@ -86,36 +86,43 @@ stub ทั้งหมด: Blob store เป็น `Map` ในหน่วย�
 | seed token | `x-seed-token` ใช้ได้เฉพาะเมื่อ env เปิด และไม่กินสิทธิ์ของเจ้าของ |
 | ตรวจสลิปผ่าน SlipOK (`api/_verify.js`) | ไม่ตั้ง key/branch → สลิปรับได้แต่ `slipVerify.ok = null` (`reason: "not_configured"`) และไม่ยิงออกเน็ต · ตั้งคีย์ → ยิงครั้งเดียวไป `/api/line/apikey/<branch>` พร้อม header `x-authorization` และ form `log=true` + `amount=<ยอดบิล>` · สลิปผ่าน → `ok: true` พร้อม `amount`/`transRef`/`provider: "slipok"` แต่ **บิลยัง `pending`** (การตรวจไม่จ่ายบิลให้) · `transRef` ถูกจำไว้ที่ `slip-ref:<transRef>` เพื่อกันสลิปเดิมไปใช้กับบิลที่สอง (ของเราเองจับได้แม้ SlipOK บอกว่าผ่าน) · `1013` = ยอดไม่ตรง, `1014` = บัญชีผู้รับไม่ใช่ของหอ, `1012` = สลิปซ้ำ → `ok: false` · `1009` (ธนาคารขัดข้อง) และ `1006` (อ่านรูปไม่ได้) → `ok: null` ไม่ใช่ "ปลอม" · ผู้ให้บริการตอบ 500 → ยังรับสลิป (`200`) แต่ `ok: null` · สลิปกลุ่มตรวจเทียบ **ยอดรวม** และทุกงวดในกลุ่มได้ผลเดียวกัน · body ผิดรูปจริงของ SlipOK (`{code, message, data}` ที่ไม่มี `success: false`) ต้องไม่ถูกอ่านว่าผ่าน |
 | แก้ราคาห้อง (`POST /api/rooms`) | owner ตั้งค่าเช่า/อัตราน้ำไฟได้ และ `/api/rooms` เห็นค่าใหม่ · ห้องอื่นยังใช้ค่าเริ่มต้น · แก้บางฟิลด์ไม่ล้างฟิลด์ที่ไม่ได้ส่ง · viewer และผู้เช่า → 403 · ห้องนอก `ROOMS` → 404 · ไม่ส่งอะไรเลย/ค่าเช่าติดลบ/มีสตางค์/อัตราไม่ใช่ตัวเลข → 400 · ออกบิลจริงได้ 1 บาท (ค่าเช่า 1 ไม่มีหน่วย) |
+| สมาชิกห้อง/รูมเมท (`mode: "add"` ใน QR) | owner ออก QR "เพิ่มสมาชิก" ได้ · คนแรกเป็นผู้เช่าหลัก (`room-user:<ห้อง>`) และถูกจำชื่อ · คนที่สองเข้าเป็นสมาชิก (`room-users:<ห้อง>`) โดยผู้เช่าหลักไม่เปลี่ยน · สแกน QR เดิมซ้ำ → `already: true` · **QR ประตูห้องยังกันคนที่สอง (409 `ROOM_TAKEN`)** · สมาชิกอ่านบิลห้องได้ และ owner เห็น `members`/`tenantName`/`memberNames` · เปลี่ยนผู้เช่า → สมาชิกทุกคนหลุดผูกและ QR add ใช้ไม่ได้ (404) |
+| ตั้งค่าหอ (`GET /api/rooms?settings=1`, `POST {dorm}`) | ก่อนบันทึก `defaults` มาจาก env และ `dorm` เป็น `null` · บันทึกชื่อ/ค่าเช่า/`dueDay` แล้ว `defaults` เปลี่ยนตาม และห้องที่ไม่ได้ตั้งราคาใช้ค่าใหม่ · ราคารายห้องยังชนะค่าหอ · `dueDay: 5` → บิลมี `due` = วันที่ 5 ของเดือนนั้น · `dueDay: 31`, ค่าเช่าติดลบ, `{}` ว่าง, ชื่อยาว 61 ตัว → 400 · viewer → 403 · `null` ล้างค่ากลับเป็น env |
+| QR พร้อมเพย์บนบิล (`api/_promptpay`) | CRC-16/CCITT-FALSE ตรงค่า check (`29B1`) · `normalizeId` แปลงเบอร์มีขีด/ขึ้นต้น 66 เป็น tag `01` และเลขบัตรประชาชน 13 หลักเป็น tag `02` · id ที่ใช้ไม่ได้ (`123`) → ไม่มี payload · ยอด 0 → ไม่มี QR · TLV ครบ (`00`,`01`,`53`,`58`,`54`=ยอดบิล,`29`=PromptPay app id,`63`=checksum) · บิลที่ยังไม่จ่ายได้ `pay.payload` + SVG, บิล `paid` ได้ `pay: null` · ตั้ง `promptpay` ผิดรูป → 400 |
+| ตีกลับสลิป (`POST /api/bill {action:"reject"}`) | owner ตีกลับบิล `pending` → `unpaid` + `slipRejected {reason, by}` · สลิปเดิมยังอยู่เป็นหลักฐานและยังนับในเพดาน · ตีกลับซ้ำ → 409 `INVALID_STATE` · ไม่มีเหตุผล → 400 · viewer/ผู้เช่า → 403 · ผู้เช่าแนบสลิปใหม่หลังตีกลับ → `pending` อีกครั้ง |
 
 ### 2.4 `smoke-reads.js` — ตรวจอะไร
 
 | assert | ค่า |
 |---|---|
-| อ่านห้อง 42 ห้องแล้วได้ครบตาม `ROOMS` และลำดับคงที่ | 200 |
+| อ่านห้อง 12 ห้องแล้วได้ครบตาม `ROOMS` และลำดับคงที่ | 200 |
 | การอ่านซ้อนกันจริงแต่มีขอบเขต | peak > 1 และ ≤ 72 (12 ห้อง × 6 read) |
 | `/api/rooms` ไม่พา LINE userId ของผู้เช่าออกไป | assert ว่าไม่มี `Usecret-tenant-id` ใน response |
 | แสดงแค่ว่าห้องถูกผูกหรือไม่ | `linked` true/false |
 | history เรียงใหม่→เก่า, ข้ามเดือนที่ไม่มีบิล, รองรับบิล legacy และ `hasSlip` | 200 |
 | read ของ history มีขอบเขต 6 และอ่าน binding ครั้งเดียว | peak ≤ 6, `user-room:tenant` ถูกอ่าน 1 ครั้ง |
 | ผู้เช่าขอห้องอื่น | 403 |
+| `/api/bill?overdue=1` (เจ้าของ) | วันนี้ปักด้วย `_ledger.bangkokToday` = `2026-11-02` · ได้ `today` · ต่อห้องมี `count`/`total`/`maxDaysOverdue` (205 = 2 งวด 500 บาท ช้า 47 วัน, 209 = 1 งวด 700 บาท ช้า 1 วัน) · `pending`/ครบกำหนดวันนี้/ไม่มี due/`void` **ไม่นับค้าง** · เรียงงวดเก่าสุดก่อน · `room=` กรองห้องเดียว, ห้องที่ไม่มี → 404 · ผู้เช่าเห็นเฉพาะห้องตัวเอง (บิลของผู้เช่าเก่าที่ `tenancy:205.since` มาทีหลังถูกซ่อน), ขอห้องอื่น → 403 |
+| `/api/bill?income=<period>` (เจ้าของ) | นับตามวันที่ชำระในเวลาไทย ไม่ใช่ period ของบิล (บิล ต.ค. ที่จ่าย 1 พ.ย. 00:30 น. เป็นรายรับ พ.ย.) · `void` ไม่นับ · งวดล่วงหน้าที่จ่ายเดือนนี้ก็นับ และไม่ไปโผล่ในเดือนของมันเอง · 13 เดือนย้อนหลังดูได้ · แต่ละแถวมี `receiptNo` · ผู้เช่า → 403 · period ผิดรูป (`2026-13`, `abc`, `2026-1`) → 400 |
+| `/api/bill?voided=1&refunds=1` (เจ้าของ) | บิล `void` ที่ต้องคืนเงิน + บิล `paid` ที่โอนเกิน อยู่ในรายการเดียวพร้อม `kind` (`void`/`overpaid`) และ `refundDue` · tag `overpaid` ที่ rev ไม่ตรงถูกข้าม · `POST {action:"refunded"}` บันทึกได้ (ไม่ใส่ `kind` = `void`), ติดที่บิลและสำเนาล่าสุด · `kind` ผิด → 400 · ผู้เช่า → 403 · ใบที่ไม่มี → 404 · rev ไม่ตรง/บันทึกซ้ำ → 409 · บันทึกแล้วหลุดจากรายการ |
 
-### 2.5 `smoke-usecases.js` — 156 เคสตาม use case
+### 2.5 `smoke-usecases.js` — 168 เคสตาม use case
 
-ไฟล์นี้จัดกลุ่มตาม use case และ **ทุกบล็อกมี id เดียวกับแถวใน [`docs/TEST-CASES.md`](TEST-CASES.md)** (`await tc("TC-04-10", ...)`) — ถ้าเคสในเอกสารกับในโค้ดไม่ตรงกัน ให้ถือเอกสารเป็นสเปก
+ไฟล์นี้จัดกลุ่มตาม use case และ **ทุกบล็อกมี id เดียวกับแถวใน [`docs/TEST-CASES.md`](TEST-CASES.md)** (`await tc("TC-04-10", ...)`) — ถ้าเคสในเอกสารกับในโค้ดไม่ตรงกัน ให้ถือเอกสารเป็นสเปก ปัจจุบัน id ในไฟล์และแถวที่ชี้กลับมาที่ไฟล์ตรงกันครบ 168 ตัว (ไม่มี id เกินและไม่มีแถวที่อ้าง id ที่ไม่มีในไฟล์)
 
 ```bash
 cd line-app && node smoke-usecases.js
-# ... 156 บรรทัด ✓ ...
-# 156/156 use case tests passed
+# ... 168 บรรทัด ✓ ...
+# 168/168 use case tests passed
 ```
 
 - แต่ละเคสห่อด้วย `tc(id, title, fn)` — ผ่านพิมพ์ `✓ <id> <title>`, ตกพิมพ์ error แล้วสรุปท้ายเป็น `failed: TC-xx-n, ...` พร้อม `process.exit(1)` (CI จึงแดง)
-- ครอบ UC-01 คิดยอดบิล · UC-02 บันทึกมิเตอร์ · UC-03 ออกบิล · UC-04 ยืนยันการชำระ + ใบเสร็จ · UC-05 รายการห้อง · UC-06 รายงานรายรับ · UC-07 เพิ่ม/ถอนเจ้าของและผู้ช่วย · UC-08 เปลี่ยนผู้เช่า/หมุน QR · UC-09 ผูก LINE · UC-10 ดูบิลและประวัติ · UC-11 แนบสลิป · UC-13 สลิปหลายงวด · UC-15 ใบเสร็จ · UC-16 เตือนรายวัน (ฝั่ง line-app) · UC-17 แจ้งชำระก่อนบิลออก · UC-18 ยกเลิกบิล
-- **UC-12 (ตรวจสลิปอัตโนมัติ) มีฟีเจอร์แล้ว** — 6 ใน 8 เคสถูกตรวจใน `smoke-handlers.js` (บล็อก `slip verification (SlipOK)`) แต่ **ผู้ให้บริการถูก stub**: `TC-12-7` (กฎอายุสลิป) ยังเป็น ⏳ และ `TC-12-8` (ยิง sandbox จริง) ยังเป็น 🖐
-- UC-14 (ประวัติของผู้เช่า) ถูกตรวจผ่านเคสของ UC-10 (`TC-14-3` ชี้ไป `TC-10-5` โดยตั้งใจ) จึงไม่มีบล็อกของตัวเอง
+- ครอบ UC-01 คิดยอดบิล · UC-02 บันทึกมิเตอร์ · UC-03 ออกบิล · UC-04 ยืนยันการชำระ + ใบเสร็จ · UC-05 ดูห้องค้างชำระ · UC-06 รายงานรายรับ · UC-07 เพิ่ม/ถอนเจ้าของและผู้ช่วย · UC-08 เปลี่ยนผู้เช่า/หมุน QR · UC-09 ผูก LINE · UC-10 ดูบิลและประวัติ · UC-11 แนบสลิป · UC-12 ตรวจสลิป (เฉพาะกฎอายุ/เวลาสลิป) · UC-13 สลิปหลายงวด · UC-14 ประวัติของผู้เช่า · UC-15 ใบเสร็จ · UC-16 เตือนรายวัน (ฝั่ง line-app) · UC-17 แจ้งชำระก่อนบิลออก · UC-18 ยกเลิกบิล
+- **UC-12 (ตรวจสลิปอัตโนมัติ) มีฟีเจอร์แล้วและครบ 7 ใน 8 เคส** — 6 เคสอยู่ใน `smoke-handlers.js` (บล็อก `slip verification (SlipOK)`) และ `TC-12-7` (กฎอายุสลิป/โอนก่อนบิลออก) อยู่ในไฟล์นี้ แต่ **ผู้ให้บริการถูก stub**: `TC-12-8` (ยิง sandbox จริง) ยังเป็น 🖐 (คำนำของ UC-12 ใน `TEST-CASES.md` ยังเขียนว่า "ยังไม่สร้างทั้งสองส่วน" ซึ่งล้าสมัย — ให้ยึดคอลัมน์ "ทดสอบโดย" ของแต่ละแถว)
+- UC-14 มีบล็อกของตัวเอง 1 เคส (`TC-14-2` ยอดค้างรวมฝั่งผู้เช่า) และ `TC-14-3` ชี้ไป `TC-10-5` โดยตั้งใจ
 - UC-19 (รับ event จาก LINE ฝั่ง backend) ไม่มีบล็อกในไฟล์นี้ — ทั้ง 6 เคสเป็น pytest (`backend/tests/test_webhook.py`)
 
-harness เดียวกับ `smoke-handlers.js` แต่เพิ่ม: `keysWith` (index ของบิล), `getFile`/`putFile`/`delFile` (สลิป), และ `fetch` ที่บันทึก push / reply / rich-menu link / unlink / profile แยกกัน — ยังไม่ต่อเน็ตและไม่ต้องมี `node_modules`
+harness เดียวกับ `smoke-handlers.js` แต่เพิ่ม: `keysWith` (index ของบิล), `getFile`/`putFile`/`delFile` (สลิป), `fetch` ที่บันทึก push / reply / rich-menu link / unlink / profile แยกกัน · **`X-Line-Retry-Key` ที่ทำเหมือน LINE จริง (push คีย์เดิมซ้ำ → 409 และไม่ถูกส่ง)** · **`gate`** ที่หน่วง store call ไว้ได้ — ใช้บังคับให้สองคำขอ "อ่านก่อน ใครยังไม่เขียน" (`TC-15-10` ยืนยันซ้อน, `TC-16-23` cron สองรอบ, `TC-17-18` สลิปชนกับการออกบิล) — ยังไม่ต่อเน็ตและไม่ต้องมี `node_modules`
 
 ### 2.6 `smoke-cron.js` — เตือนรายวัน
 
@@ -134,12 +141,13 @@ harness เดียวกับ `smoke-handlers.js` แต่เพิ่ม: `
 | สรุปเจ้าของ | เฉพาะเมื่อมีการเตือนขั้น `after_*`: `สรุปทวงวันนี้: เลยกำหนด 2 ห้อง (203, 205) · ส่งเตือนแล้ว 2 ข้อความ` · `before_3`/`due_0` ไม่มีสรุป · ไม่มีอะไรส่งก็ไม่มีสรุป |
 | หนึ่ง push ต่อห้อง | ห้องเดียวมีสองบิลในหน้าต่างพร้อมกัน → push เดียวสองการ์ด และ mark แยกกันทีละขั้น · rev 2 ที่ออกใหม่ถูกเตือนแม้ rev 1 ถูก mark แล้ว · mark รูปแบบก่อนมี rev ยังถูกนับ (ไม่ส่งซ้ำหลัง deploy) · เกิน 5 การ์ดแบ่งเป็น batch 5 + 2 |
 | mark เขียนไม่ได้ | `reminded:*` เขียนล้ม → log `reminder mark failed` และนับว่าส่งแล้ว (ไม่ throw) เพราะการ์ดถึงผู้เช่าไปแล้ว |
+| กันซ้ำด้วย retry key | mark ถูกลบแล้วรันซ้ำวันเดิม → LINE ตอบ 409 ให้ push คีย์เดิม (`dropped`) และไม่นับเป็น `sent` · บิล rev เดิมที่ยอดหรือ `due` เปลี่ยนในวันเดียวกัน = ข้อความใหม่ (คีย์มียอด/due) จึงถูกส่ง · สรุปถึงเจ้าของใช้คีย์ตามข้อความ สรุปที่ต่างกันไม่ถูกตัด · บิลที่ไม่มี `due` ไม่ถูกเตือนและไม่พิมพ์คำว่า `null` |
 
 ### 2.7 ข้อจำกัดของชุดนี้
 
 - ทุกอย่างถูก stub: **ไม่ได้ทดสอบ Vercel Blob จริง, LINE Messaging API จริง, SlipOK จริง, runtime ของ Vercel, หรือ LIFF**
 - ตรวจได้เฉพาะ request ที่เรียก handler ตรง ๆ ด้วย `req`/`res` ปลอม — routing, header ที่ platform ใส่, และ timeout ไม่ถูกทดสอบ
-- เป็น sequential ทั้งหมด: เคสยิงพร้อมกันจริงไม่ถูกจำลอง (ดูข้อ 10) — รวมถึง cron สองรอบซ้อนกัน (`TC-16-23` ยังเป็น ⏳)
+- เคสที่ยิงพร้อมกันถูกจำลองด้วย `gate` (บังคับลำดับการอ่าน/เขียน) และด้วย LINE ที่ตอบ 409 ให้ retry key ซ้ำ — **ไม่ใช่สองโปรเซสจริงบนเครือข่ายจริง** และการกันของซ้ำฝั่ง LINE อาศัยหน้าต่าง dedupe ของ LINE (24 ชั่วโมง) ไม่ใช่ lock ในสโตร์ของเรา (ดูข้อ 10 ข้อ 4–5)
 
 ---
 
@@ -190,9 +198,9 @@ pytest -q
 
 | สภาพ | ผล |
 |---|---|
-| `pytest -q` **มี** Postgres ตาม `TEST_DATABASE_URL` | **142 passed** (ทั้งหมด รวมไฟล์ที่แตะ DB) |
-| `pytest -q` ไม่มี Postgres | **23 passed, 119 skipped** (test ที่ไม่ต้องใช้ DB รันได้หมด) |
-| `pytest --collect-only -q` | **142 tests collected** ใน 14 ไฟล์ |
+| `pytest --collect-only -q` | **144 test node จาก 142 ฟังก์ชัน `def test_` ใน 14 ไฟล์** (`test_rooms.py` มี `parametrize` 1 ตัวที่แตกเป็น 3 node) |
+| `pytest -q` ไม่มี Postgres | **23 passed, 121 skipped** (วัดบนเครื่องที่เขียนเอกสาร — test ที่ไม่ต้องใช้ DB รันได้หมด ที่เหลือถูก skip) |
+| `pytest -q` มี Postgres ตาม `TEST_DATABASE_URL` | ทั้ง **144 node รันจริง** — CI รันแบบนี้ทุกครั้งด้วย service `postgres:16` (job `backend` ใน `ci.yml`) เอกสารนี้ไม่รายงานเลข passed จากเครื่อง local เพราะเครื่องที่เขียนไม่มี Postgres ที่พอร์ต 5432 |
 
 ### 3.3 ไฟล์ test แต่ละไฟล์
 
@@ -269,7 +277,7 @@ cd ..\backend; $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@lo
 | ชุดที่ตก | ความหมาย | ไปดูตรงไหนก่อน |
 |---|---|---|
 | `smoke.js` | signature ของ webhook เพี้ยน (จะรับของปลอมหรือทิ้งของจริง) · การ์ดบิลผิดยอด/ผิดปุ่ม · seed bypass เปิดได้บน production · สิทธิ์ owner/viewer เพี้ยน | `api/_line.js`, `api/_auth.js` |
-| `smoke-handlers.js` | มีช่องโหว่ที่แตะเงินหรือการผูกห้อง: แย่งห้องคนอื่น, ยืนยันบิลผิดใบ/ผิดงวด, เลขใบเสร็จซ้ำ, void ไม่เก็บใบเดิม, limit หลุด, เพิกถอนสิทธิ์ไม่จริง, ตรวจสลิปผ่าน SlipOK ผิดสัญญา (เช่น ไม่ส่ง `log:true`/`amount`, อ่าน error body ผิดรูปว่าผ่าน), แก้ราคาห้องได้โดยไม่ใช่ owner | handler ที่ชื่อใน assert (`api/qr.js`, `api/webhook.js`, `api/run.js`, `api/slip.js`, `api/_verify.js`, `api/rooms.js`, `api/bill.js`, `api/owner.js`) |
+| `smoke-handlers.js` | มีช่องโหว่ที่แตะเงินหรือการผูกห้อง: แย่งห้องคนอื่น, ยืนยันบิลผิดใบ/ผิดงวด, เลขใบเสร็จซ้ำ, void ไม่เก็บใบเดิม, limit หลุด, เพิกถอนสิทธิ์ไม่จริง, ตรวจสลิปผ่าน SlipOK ผิดสัญญา (เช่น ไม่ส่ง `log:true`/`amount`, อ่าน error body ผิดรูปว่าผ่าน), แก้ราคาห้อง/ตั้งค่าหอได้โดยไม่ใช่ owner, ตีกลับสลิปได้โดยไม่มีเหตุผล | handler ที่ชื่อใน assert (`api/qr.js`, `api/webhook.js`, `api/run.js`, `api/slip.js`, `api/bill.js`, `api/_verify.js`, `api/_promptpay.js`, `api/rooms.js`, `api/owner.js`) |
 | `smoke-reads.js` | อ่าน Blob เกินขอบเขต (จะช้าจน timeout บน production) หรือผู้เช่าอ่านห้องคนอื่นได้ | `api/rooms.js`, `api/bill.js` |
 | `smoke-usecases.js` | พฤติกรรมตาม use case เปลี่ยนจากที่ `docs/TEST-CASES.md` สัญญาไว้ — ข้อความที่พิมพ์ท้ายบอก id ที่ตก (เช่น `failed: TC-13-4`) เปิดแถวนั้นในเอกสารเพื่อดูผลที่คาด | ไฟล์ที่แถวนั้นอ้างถึง (`api/*.js`, `liff/bill.html`) |
 | `smoke-cron.js` | ผู้เช่าไม่ได้รับเตือน, เตือนซ้ำ, เตือนผิดขั้น/ผิดวัน, ทวงบิลที่จ่ายแล้ว, สรุปถึงเจ้าของผิด, cron เปิดให้คนไม่มี secret | `api/_remind.js`, `api/cron.js` |
@@ -285,26 +293,26 @@ cd ..\backend; $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@lo
 
 **ไม่มีการตั้ง coverage threshold ที่ไหนเลย** — ไม่มี `.coveragerc`, `.nycrc`, `pytest-cov`, หรือ `--cov` ใน CI และ `line-app` ไม่มี coverage tool (ทดสอบด้วย `assert` ตรง ๆ) ดังนั้นตัวเลข coverage ที่ "ควรมี" ไม่มีอยู่ใน repo นี้
 
-สิ่งที่พอวัดได้คือ **ความครอบของ use case** จาก [`docs/TEST-CASES.md`](TEST-CASES.md) (267 เคส / 19 UC):
+สิ่งที่พอวัดได้คือ **ความครอบของ use case** จาก [`docs/TEST-CASES.md`](TEST-CASES.md) (269 เคส / 19 UC) — นับจากแถว `| TC-xx-n |` ในเอกสารและคอลัมน์ "ทดสอบโดย" ของแต่ละแถว:
 
 | สถานะในเอกสาร | จำนวน | ใครตรวจ |
 |---|---|---|
-| ✅ automated — id ของตัวเองใน `smoke-usecases.js` | 156 | `line-app/smoke-usecases.js` |
-| ✅ automated — ชี้ไป backend pytest | 50 | `backend/tests/*.py` |
-| ✅ automated — ชี้ไปเคสที่ automate แล้วใน UC อื่น | 8 | `smoke-usecases.js` (เช่น `TC-14-3` → `TC-10-5`) |
+| ✅ automated — id ของตัวเองใน `smoke-usecases.js` | 168 | `line-app/smoke-usecases.js` |
+| ✅ automated — ชี้ไป backend pytest | 51 | `backend/tests/*.py` |
+| ✅ automated — ชี้ไปเคสที่ automate แล้วใน UC อื่น | 8 | `smoke-usecases.js` (`TC-10-12`→`TC-08-6`, `TC-11-16`→`TC-08-8`, `TC-14-3`→`TC-10-5`, `TC-15-1`→`TC-04-1`, `TC-17-24`→`TC-08-11`, `TC-17-25`→`TC-18-5`, `TC-17-26`→`TC-18-9`, `TC-18-12`→`TC-13-10`) |
 | ✅ automated — ชี้ไป `smoke-cron.js` | 1 | `line-app/smoke-cron.js` |
 | ✅ automated — ตรวจสลิป, สมาชิกห้อง, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป (`smoke-handlers.js`) | 16 | `line-app/smoke-handlers.js` |
 | 🖐 manual | 25 | คนกดกับ LINE OA + LIFF จริง (ข้อ 7) |
-| ⏳ ยังไม่สร้าง | 12 | ยังไม่มีฟีเจอร์ จึงยังไม่มี test |
-| **รวม** | **267** | |
+| ⏳ ยังไม่สร้าง | 0 | — (ทุกแถวมีคนตรวจแล้ว) |
+| **รวม** | **269** | |
 
-ตัวเลข 222 ไม่ได้แปลว่าโค้ดทุกบรรทัดถูกตรวจ — เคสหนึ่งอาจ assert หลายอย่างหรือแค่ทางเดียวของ handler
+ตัวเลข 244 ไม่ได้แปลว่าโค้ดทุกบรรทัดถูกตรวจ — เคสหนึ่งอาจ assert หลายอย่างหรือแค่ทางเดียวของ handler
 
 ---
 
 ## 7. Manual matrix — สิ่งที่ automation แตะไม่ได้
 
-ทั้งหมดนี้ต้องมี LINE OA จริง + LIFF จริง (HTTPS) + Vercel deployment เพราะ smoke test stub LINE และ Blob ไปแล้ว แต่ละแถวคือเคส 🖐 ใน `TEST-CASES.md` — ยกเว้นแถวสุดท้าย (ตรวจสลิปกับผู้ให้บริการจริง) ที่รวมเคส ✅ ซึ่ง automation ตรวจได้เฉพาะกับ stub:
+ทั้งหมดนี้ต้องมี LINE OA จริง + LIFF จริง (HTTPS) + Vercel deployment เพราะ smoke test stub LINE และ Blob ไปแล้ว แต่ละแถวคือเคส 🖐 ใน `TEST-CASES.md` — ยกเว้นแถวที่รวมเคส ✅ ไว้ด้วย (ตรวจ/ตีกลับสลิปจากหน้า LIFF, ตรวจสลิปกับผู้ให้บริการจริง) ซึ่ง automation ตรวจได้เฉพาะกับ stub:
 
 | flow | เคส | ขั้นตอนย่อ | ต้องเห็นอะไร |
 |---|---|---|---|
@@ -314,7 +322,9 @@ cd ..\backend; $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@lo
 | **move-confirm** | `TC-09-11` | บัญชีที่ผูกห้องอยู่แล้วสแกน QR ห้องอื่น | ขึ้นคำถามยืนยันก่อนย้าย (ไม่ย้ายเงียบ ๆ แม้มาจากลิงก์ `?bind=` ที่ถูก forward) · ยืนยันแล้วห้องเก่าเลิกผูก |
 | **ออกบิลจากหน้าจอ** | `TC-03-15` | เจ้าของกรอกหน่วยทุกห้อง กดออกบิล | ผลต่อห้องแสดงถูก · การ์ดถึงผู้เช่า · ปุ่มเปิดหน้าบิลถูกห้อง |
 | **ช่องหน่วยว่างใน LIFF** | `TC-02-14` | เว้นช่องน้ำหรือไฟของห้องหนึ่งแล้วกดออกบิล | ขึ้น "กรอกหน่วยน้ำและไฟให้ครบ" · ห้องนั้นไม่ถูกออกบิล (ไม่กลายเป็นบิลค่าเช่าล้วน) |
+| **เตือนเลขมิเตอร์ลดลง** | `TC-02-9` | กรอกหน่วยน้ำ/ไฟน้อยกว่าเดือนก่อนแล้วดูคำเตือนก่อนกดออกบิล | ขึ้น "น้ำ/ไฟน้อยกว่าเดือนก่อน (N หน่วย)" · เป็นคำเตือน ไม่บล็อกการบันทึกหรือการออกบิล (ผู้ใช้กดต่อได้) |
 | **ยืนยันการชำระจาก Flex card** | `TC-04-12` | owner กดปุ่ม "ยืนยันการชำระ" / "ดูสลิป" บนการ์ดในแชท (ไม่ใช่หน้าเว็บ) | webhook รับ postback จริง, บิลเป็น `paid`, ผู้เช่าได้การ์ดใบเสร็จ |
+| **ตรวจ/ตีกลับสลิปจากหน้า LIFF** | `TC-04-11`, `TC-04-12`, `TC-11-10`, `TC-11-12` | ผู้เช่าแนบสลิปจากมือถือ → เจ้าของเปิดแท็บ **"รอตรวจสลิป"** ในหน้า LIFF → เปิดรูป → กดยืนยัน **หรือ** กด "สลิปไม่ถูกต้อง (ตีกลับ)" แล้วใส่เหตุผล (ว่างไม่ได้) | รูปที่เห็นคือรูปที่ผู้เช่าส่งจริง · ยืนยันแล้วบิลเป็น `paid` และผู้เช่าได้การ์ดใบเสร็จ · ตีกลับแล้วบิลกลับเป็น `unpaid`, ผู้เช่าได้ข้อความพร้อมเหตุผล และแนบใหม่ได้ (บิลเป็น `pending` อีกครั้ง) · สลิปเดิมยังเปิดดูได้หลังตีกลับ · ปุ่มยืนยัน/ตีกลับหายเมื่อบิลไม่ใช่ `pending` · ผู้ช่วยไม่เห็นปุ่มตีกลับและกดยืนยันไม่ได้ |
 | **ใบเสร็จใน LINE + LIFF** | `TC-15-9` | ผู้เช่ากด "ดูใบเสร็จ" · เปิดงวดที่ยังไม่จ่าย · เปิดงวดที่ถูกยกเลิก · เจ้าของเปิดใบเสร็จของห้อง | หน้าตรงกับ API · งวดที่ยังไม่จ่ายขึ้น "ยังไม่มีใบเสร็จ" · งวดที่ยกเลิกขึ้น "ยกเลิกแล้ว" พร้อมเหตุผล · `#fragment` ไม่หายตอนล็อกอิน |
 | **ใบเสร็จบนมือถือ** | `TC-15-5` | เปิดใบเสร็จแล้วแคป/ส่งต่อในแชท (LIFF ยังไม่มีปุ่มบันทึก/แชร์) | ตัวหนังสืออ่านออก ยอดและเลขที่ถูก ไม่ถูกตัดขอบ |
 | **ยกเลิกบิลจาก LIFF** | `TC-18-11` | เจ้าของเปิดห้อง → "ยกเลิกบิล" → ใส่เหตุผล → ยืนยัน · ดูรายการห้อง/รายงาน/ใบเสร็จ · ผู้เช่าเปิดบิล | ต้องใส่เหตุผลก่อน · บิลที่จ่ายแล้วมีคำเตือนว่าใบเสร็จจะถูกยกเลิก · ผู้ช่วยไม่เห็นปุ่ม · ออกใหม่ได้ · ยอดรายงานไม่นับ void · ผู้เช่าเห็น "ยกเลิกแล้ว" |
@@ -325,7 +335,7 @@ cd ..\backend; $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@lo
 | **หน้าจอรายงาน/ค้างชำระ** | `TC-05-6`, `TC-06-4` | เจ้าของเปิด "ค้างชำระ" และ "รายงานรายรับ" | ตัวเลขตรงกับสถานะจริง · pending ไม่ถูกนับค้าง · ห้องไม่มี `due` ไม่ถูกนับ |
 | **ประวัติผู้เช่า/ผู้เช่าใหม่** | `TC-14-1`, `TC-08-17`, `TC-10-10` | ผู้เช่าเปิดหน้าบิลและประวัติ · หลังเปลี่ยนผู้เช่าเปิดด้วยบัญชีใหม่ | สถานะต่องวดถูก · ผู้เช่าใหม่เห็น "ยังไม่มีบิลรอบนี้" และประวัติว่าง |
 | **เตือนรายวันถึง LINE จริง** | `TC-16-9`, `TC-16-22` | รอรอบ 09:00 เวลาไทย (หรือเรียก `/api/cron` ด้วย Bearer) ในวันก่อนกำหนด/ครบกำหนด/เลยกำหนด | ผู้เช่าได้การ์ดตามขั้น ไม่ซ้ำในวันเดียว · เจ้าของได้สรุปเมื่อมีเลยกำหนด · เวลาไทยตรงวัน |
-| **rich menu** | `TC-07-15` | `node scripts/setup-richmenu.js` แล้ว `node scripts/set-richmenu-image.js` → ผูก/เพิกถอนผู้ใช้ | เมนูเปลี่ยนตามบทบาทเมื่อผูก และกลับเมนู tenant เมื่อถูกเพิกถอน |
+| **rich menu** | `TC-07-15` | `cd line-app && node scripts/setup-richmenu.js` แล้ว `node scripts/set-richmenu-image.js` → ผูก/เพิกถอนผู้ใช้ | เมนูเปลี่ยนตามบทบาทเมื่อผูก และกลับเมนู tenant เมื่อถูกเพิกถอน |
 | **ตรวจสลิปกับผู้ให้บริการจริง** | `TC-12-1`, `TC-12-2`, `TC-12-5`, `TC-12-8` | ตั้ง `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` ของ branch จริง แล้วแนบสลิปจริง (ยอดตรง · ยอดผิด · โอนเข้าบัญชีอื่น) จาก LIFF | `slipVerify` ตรงความจริง · สลิปยอดผิดขึ้น "ยอดในสลิปไม่ตรงกับบิล" · สลิปที่โอนเข้าบัญชีอื่นขึ้น "บัญชีผู้รับไม่ใช่บัญชีของหอ" · สลิปถูกใช้ซ้ำถูกปฏิเสธ (ทั้งจาก `1012` และ `slip-ref:<transRef>`) · คิดโควตา/ค่าบริการตามที่ตกลงกับผู้ให้บริการ |
 
 > หมายเหตุเรื่องใบเสร็จ/void/สลิปหลายงวด: **logic ฝั่ง handler ถูกตรวจใน CI แล้ว** (`smoke-handlers.js` กลุ่ม "receipts, void, one slip for several periods" และ `smoke-usecases.js` UC-15/UC-18) สิ่งที่ยังไม่มีใครตรวจคือ **ครึ่งที่ต้องมี LINE/LIFF จริง** — ปุ่มบนการ์ดจริง, การแสดงผลบนหน้าจอ, และการที่ผู้ใช้กดแล้วได้ผลตามที่เอกสารสัญญา (เคส 🖐 ข้างบน)
@@ -395,22 +405,20 @@ test อัตโนมัติที่ครอบส่วนนี้: `lin
 1. **ไม่มี browser/UI test เลย** — `liff/bill.html` มี inline JS หลายร้อยบรรทัดที่ CI ตรวจแค่ `node --check` ว่า parse ได้ ไม่มีใครตรวจว่าปุ่มทำงาน, สถานะแสดงถูก, หรือ layout ไม่พัง — และไม่มี test ของ sitemap/menu ที่ LINE วาด
 2. **ไม่มี LINE end-to-end ใน CI** — webhook, postback, rich menu และการส่งข้อความจริงถูก stub/monkeypatch ทั้งหมด; regression ที่เกิดจาก LINE API เปลี่ยนจะไม่ถูกจับ
 3. **ไม่มี test ของ Blob จริง** — `smoke-*.js` ใช้ `Map` แทน `api/_store.js`; พฤติกรรมของ `list`/`put`/`get` (pagination, overwrite, permission, latency) ไม่ถูกทดสอบ
-4. **race ของ line-app ไม่มี lock** — Blob store เป็น read-modify-write **ไม่มี compare-and-swap** (`api/_store.js` เขียนด้วย `allowOverwrite: true`):
-   - แนบสลิป 2 ครั้งพร้อมกัน → เขียนทับกัน, push การ์ด owner 2 ใบ
-   - owner กดยืนยัน 2 เครื่องพร้อมกัน → push ผู้เช่า 2 ครั้ง, เลขใบเสร็จอาจชนกัน
-   - 2 คนสแกน QR ห้องว่างเดียวกันเป๊ะ → คนหลังอาจทับคนแรก
+4. **race ของ line-app ไม่มี lock ในสโตร์ — อาศัย retry key ของ LINE** — Blob store เป็น read-modify-write **ไม่มี compare-and-swap** (`api/_store.js` เขียนด้วย `allowOverwrite: true`) เคสที่ยิงชนกันถูกจำลองแล้วด้วย `gate` (บังคับให้ทั้งสองอ่านก่อนใครเขียน) และการกันของซ้ำอยู่ที่ `X-Line-Retry-Key`:
+   - `TC-15-10` ยืนยันซ้อน (owner สองคน/ดับเบิลแท็ป) → push ใบเสร็จสองครั้งด้วยคีย์เดียวกัน LINE ตอบ 409 ให้ใบที่สอง และนับเป็นสำเร็จ
+   - `TC-16-23` cron สองรอบ → คีย์ `remind:<ห้อง>:<วัน>:<รอบ>:<ขั้น>:<rev>:<ยอด>:<due>` ทำให้รอบที่ซ้ำถูกตัด
+   - `TC-17-18` สลิปมาถึงขณะออกบิล → handler อ่านซ้ำหลังเขียนทั้งสองฝั่ง และการ์ดยืนยันซ้ำถูกตัดด้วยคีย์ `confirm:...`
 
-   เลขใบเสร็จ (`receiptNoOf`) **derive จากบิล** (`R<period>-<room>[-rev]`) ไม่ใช่ counter กลาง จึงไม่ชนกันข้ามห้อง — แต่การ์ดยืนยันสองใบของห้อง/งวดเดียวกันที่กดพร้อมกัน (หรือ void แล้วออกใหม่พร้อมกันจน `rev` เดียวกัน) ยังเป็นการอ่าน-แก้-เขียนทับกันได้
-
-   test ที่มีอยู่ยืนยันได้แค่เคส **sequential** (เช่น `ROOM_TAKEN` เมื่อผูกไปแล้ว) — เคสที่ต้องยิงพร้อมกันจริง (`TC-15-10`, `TC-16-23`, `TC-17-18`) ยังเป็น ⏳
-5. **cron เป็น at-least-once ไม่ใช่ exactly-once** — `api/cron.js` อ่าน `cron-lock` แล้วค่อยเขียน (ไม่มี CAS) จึงแค่ *ลด* ช่วงที่สองรอบซ้อนกัน ไม่ได้ปิดสนิท และ mark `reminded:*` ถูกเขียนหลัง push สำเร็จ: ถ้า process ตายระหว่าง push กับ mark ผู้เช่าจะได้เตือนซ้ำในรอบถัดไป (ยอมรับได้ แต่ต้องรู้) `TC-16-23` (สองรอบซ้อนกันจริง) ยังเป็น ⏳ เพราะจำลองใน-process ไม่ได้
+   สิ่งที่ยัง**ไม่**ถูกพิสูจน์: ทั้งหมดนี้คือโปรเซสเดียวกับ `gate` และ LINE ปลอม (stub ตอบ 409 เอง) ของจริงจึงขึ้นกับว่า LINE ยัง dedupe retry key ตามสัญญา (24 ชั่วโมง ตาม comment ใน `api/_line.js`) และคีย์แยกข้อความที่ต่างกันได้จริง — คีย์ซ้ำแต่เนื้อหาต่าง = ผู้เช่าไม่ได้รับใบใหม่; คีย์ต่างแต่เนื้อหาเหมือน = ได้ซ้ำ · **2 คนสแกน QR ห้องว่างเดียวกันพร้อมกันยังเขียนทับกันได้** (เส้นทางนั้นไม่มี retry key) · เลขใบเสร็จ (`receiptNoOf`) derive จากบิล (`R<period>-<room>[-rev]`) ไม่ใช่ counter กลาง จึงไม่ชนกันข้ามห้อง
+5. **cron ยังเป็น at-least-once ที่ชั้นสโตร์ แต่ LINE ตัดของซ้ำให้ใน 24 ชั่วโมง** — `api/cron.js` อ่าน `cron-lock` แล้วค่อยเขียน (ไม่มี CAS) จึงแค่ *ลด* ช่วงที่สองรอบซ้อนกัน และ mark `reminded:*` ถูกเขียนหลัง push สำเร็จ: ถ้า process ตายระหว่าง push กับ mark รอบถัดไปจะ push คีย์เดิมอีกครั้ง แล้ว LINE ตอบ 409 ซึ่งนับเป็น "ส่งแล้ว" ไม่ใช่ `failed` ผู้เช่าจึงไม่ควรได้ซ้ำภายในหน้าต่าง dedupe ของ LINE — แต่ไม่มีการรับประกันเกินกว่านั้น และสัญญา dedupe นั้นถูกจำลองใน test ไม่ได้ถูกตรวจกับ LINE จริง
 6. **backend กัน race ได้แค่บางจุด** — ยืนยันการชำระมี lock ระดับหอ (`test_confirm_waits_for_the_dorm_lock`) และ DB กันบิลซ้ำด้วย `UNIQUE(room_id, period)` แต่ไม่มี test ของ concurrent request จริงจากหลายโปรเซส (TestClient เป็น single-process)
 7. **`test_rls.py` พิสูจน์เฉพาะ policy ในทรานแซกชันเดียว** — ไม่ครอบว่า connection ทุกเส้นของแอปตั้ง `app.property_id` ก่อนใช้ (ถ้าลืม set ค่าจะ fail closed แต่จะเห็นเป็น 0 แถว ซึ่ง debug ยาก)
 8. **ไม่มี load/performance test** — ขอบเขต concurrency ของ read ถูก pin ด้วย `assert` (peak ≤ 72 และประวัติ ≤ 6) แต่ไม่ได้วัดเวลา
 9. **ไม่มี coverage measurement** — ดูข้อ 6
 10. **`prod-smoke.mjs` เป็น manual** — ไม่มี schedule หรือ workflow เรียก มันจึงเขียวค้างได้แม้ production พัง
-11. **`npm test` ไม่ได้รันทั้ง 5 ชุด** — `smoke-usecases.js` และ `smoke-cron.js` ต้องเรียกเอง (CI เรียกครบ แต่คนที่รัน `npm test` ก่อน push จะพลาด 156 + 1 ชุด)
-12. **20 เคสในเอกสารยังเป็น ⏳** — เช่น ปฏิเสธสลิปใน line-app (`TC-04-11`, `TC-13-5`), ค้างกี่งวดต่อห้อง (`TC-05-7`), ผู้เช่า `moved_out` ยังไม่มี pytest (`TC-16-11`), กฎอายุสลิป (`TC-12-7`), กดยืนยันพร้อมกัน (`TC-15-10`) — อย่านับว่า "มี test แล้ว" เพราะมีแถวในเอกสาร
+11. **`npm test` ไม่ได้รันทั้ง 5 ชุด** — `smoke-usecases.js` และ `smoke-cron.js` ต้องเรียกเอง (CI เรียกครบทั้ง 5 ชุด + `pytest` แต่คนที่รัน `npm test` ก่อน push จะพลาด 168 + 1 ชุด)
+12. **เอกสารไม่เหลือเคส ⏳ แล้ว — แต่ไม่ได้แปลว่าทุกอย่างถูกตรวจอัตโนมัติ** — 25 เคสยังเป็น 🖐 (ต้องมี LINE/LIFF จริง) และเคสที่เคยเป็นช่องว่างถูกปิดด้วย test ในโปรเซสเดียว: ปฏิเสธสลิป (`TC-04-11`, `TC-13-5`), ค้างกี่งวด/เกินกี่วัน (`TC-05-7`, `TC-05-8`), รายรับตามวันที่ชำระ (`TC-06-6`), ผู้เช่าที่ย้ายออก (`TC-16-11`), กฎอายุสลิป (`TC-12-7`), ยืนยันพร้อมกัน (`TC-15-10`), cron สองรอบ (`TC-16-23`), สลิปชนกับการออกบิล (`TC-17-18`) — ทั้งหมดพิสูจน์กับ stub/`gate` ไม่ใช่ของจริง (ดูข้อ 3–5)
 13. **ผู้ให้บริการตรวจสลิปถูก stub ทั้งชุด** — `smoke-handlers.js` ตรึงสัญญาไว้ครบ (endpoint, header, `log:true`, `amount`, code `1012/1013/1014/1006/1009`, provider 500, ยอดรวมของสลิปกลุ่ม, body ผิดรูปจริงของ SlipOK) แต่ **ไม่มีการเรียก SlipOK จริงใน CI** และไม่มี test ที่ยืนยันว่า branch ผูกบัญชีรับเงินถูกบัญชี — ถ้า SlipOK เปลี่ยนสัญญา test จะยังเขียว
 
 ---
@@ -437,7 +445,7 @@ test อัตโนมัติที่ครอบส่วนนี้: `lin
 
 ## เอกสารที่เกี่ยวข้อง
 
-- [`docs/TEST-CASES.md`](TEST-CASES.md) — catalogue 267 เคส / 19 UC พร้อมสถานะ ✅/🖐/⏳ และโค้ดที่แต่ละเคสอ้างถึง
+- [`docs/TEST-CASES.md`](TEST-CASES.md) — catalogue 269 เคส / 19 UC พร้อมสถานะ ✅/🖐/⏳ และโค้ดที่แต่ละเคสอ้างถึง
 - [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — โครงสร้างสองครึ่ง, data flow, state machine ของบิล
 - [`docs/CONFIGURATION.md`](CONFIGURATION.md) — env ทุกตัว (`TEST_DATABASE_URL`, `CRON_SECRET`, `DEV_AUTH`, `SLIPOK_API_KEY`/`SLIPOK_BRANCH_ID`)
 - [`backend/README.md`](../backend/README.md) — วิธีรัน backend และ seed
