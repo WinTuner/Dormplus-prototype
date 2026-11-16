@@ -55,6 +55,12 @@
   .btn:disabled{opacity:.45;cursor:default}
   .btn.sm{width:auto;padding:8px 12px;font-size:13px}
   .stack{display:flex;flex-direction:column;gap:8px}
+  /* a tappable list row: cheaper than a stack of full-width buttons */
+  .linkrow{display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;background:none;border:0;padding:14px 0;font-size:14px;text-align:left;cursor:pointer;color:var(--text)}
+  .linkrow + .linkrow{border-top:1px solid var(--line)}
+  .card > .linkrow:first-child{padding-top:0}
+  .card > .linkrow:last-child{padding-bottom:0}
+  .linkrow .go{color:var(--muted);font-size:13px;white-space:nowrap}
   .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .bottombar{position:sticky;bottom:0;background:var(--bar);border-top:1px solid var(--line);padding:12px var(--gutter) 16px;display:flex;flex-direction:column;gap:8px}
   .bottombar[hidden]{display:none}
@@ -93,8 +99,8 @@
   .slip{display:flex;gap:12px;align-items:flex-start}
   .thumb{width:52px;height:64px;border-radius:8px;background:var(--card2);border:1px solid var(--line);object-fit:cover;flex:none;display:grid;place-items:center;font-size:11px;color:var(--muted);cursor:pointer;overflow:hidden}
   .thumb img{width:100%;height:100%;object-fit:cover}
-  .qr{margin-top:12px;background:#fff;border-radius:8px;padding:12px;display:grid;place-items:center}
-  .qr svg{width:100%;max-width:200px;height:auto;display:block}
+  .qr{width:fit-content;margin:12px auto 0;background:#fff;border-radius:8px;padding:12px;display:grid;place-items:center}
+  .qr svg{width:100%;max-width:220px;height:auto;display:block}
   /* PromptPay placeholder on the tenant bill. Its own class: sharing .qr shrank the room QR to 132px. */
   .qr-ph{width:132px;height:132px;margin:0 auto;border:1px dashed var(--line2);border-radius:8px;display:grid;place-items:center;font-size:12px;color:var(--muted);text-align:center}
   .pick{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:240px;border:1px dashed var(--line2);border-radius:var(--radius);background:var(--card);cursor:pointer;text-align:center;overflow:hidden}
@@ -478,8 +484,7 @@ function tenantInvoice() {
       <div class="hint" style="text-align:center;margin-top:12px">เจ้าของหอยังไม่ได้ใส่ QR · โอนตามช่องทางที่หอแจ้ง แล้วแนบสลิป</div>
     </div>`}
     <div class="card">
-      <div class="m">ประวัติการชำระ</div>
-      <button class="btn" id="histBtn" style="margin-top:12px">ดูใบเสร็จย้อนหลัง</button>
+      <button class="linkrow" id="histBtn"><span>ประวัติการชำระ</span><span class="go">›</span></button>
       <div id="hist"></div>
     </div>
     ${b.status === "paid" ? advanceCard(T.advance) : ""}${friendCard()}`;
@@ -489,8 +494,9 @@ function tenantInvoice() {
 
   $("histBtn").onclick = async () => {
     const btn = $("histBtn");
+    const label = () => `<span>ประวัติการชำระ</span><span class="go">›</span>`;
     btn.disabled = true;
-    btn.textContent = "กำลังโหลด…";
+    btn.innerHTML = `<span>กำลังโหลด…</span><span class="go"></span>`;
     try {
       const h = await api(`/api/bill?room=${encodeURIComponent(b.room)}&history=1`);
       $("hist").innerHTML = h.items.length
@@ -504,7 +510,7 @@ function tenantInvoice() {
       $("hist").querySelectorAll("[data-rc]").forEach((el) => (el.onclick = () => go(`receipt/${el.dataset.rc}`)));
     } catch (e) {
       btn.disabled = false;
-      btn.textContent = "ดูใบเสร็จย้อนหลัง";
+      btn.innerHTML = label();
       toast(e.message, true);
     }
   };
@@ -771,27 +777,31 @@ function ownerHome() {
   const pending = bills.filter((b) => b.status === "pending").length;
   const overdue = bills.filter(isOverdue).length;
 
+  const left = total - read;
   view.innerHTML = `
     <div id="refundBox"></div>
     ${MYROLE === "viewer" ? `<div class="card"><div class="m">บัญชีนี้เป็น <b>ผู้ช่วย (ดูอย่างเดียว)</b> — ดูบิล/สลิป/รายงานได้ แต่ออกบิลหรือยืนยันการชำระไม่ได้</div></div>` : ""}
     <div class="card">
-      <div class="m">จดมิเตอร์แล้ว</div>
-      <div class="big">${read} / ${total} ห้อง</div>
+      <div class="row"><span class="m">จดมิเตอร์รอบนี้</span><span class="m">${read} / ${total} ห้อง</span></div>
       <div class="progress"><i style="width:${total ? (read / total) * 100 : 0}%"></i></div>
+      ${MYROLE === "viewer" ? ""
+        : left
+          ? `<button class="btn primary" data-go="rooms" style="margin-top:16px">จดมิเตอร์ต่อ · เหลือ ${left} ห้อง</button>`
+          : `<button class="btn primary" data-go="bill" style="margin-top:16px">จดครบแล้ว · ไปออกบิล</button>`}
     </div>
     <div class="stats">
       <button class="card" data-go="review/overdue"><div class="m">ยังไม่จ่าย</div><div class="big">${unpaid}</div></button>
       <button class="card" data-go="review/pending"><div class="m">รอตรวจสลิป</div><div class="big">${pending}</div></button>
       <button class="card" data-go="review/overdue"><div class="m">ค้างเกินกำหนด</div><div class="big">${overdue}</div></button>
     </div>
-    <div class="section">ทำต่อ</div>
-    <div class="stack">
-      <button class="btn primary" data-go="rooms">จดมิเตอร์</button>
-      ${MYROLE === "viewer" ? "" : `<button class="btn" data-go="bill">ออกบิลทั้งหอ</button>`}
-      <button class="btn" data-go="review/pending">สลิปรอตรวจ (${pending})</button>
-      <button class="btn" data-go="report">รายงานรายรับ</button>
-      ${MYROLE === "viewer" ? "" : `<button class="btn" data-go="owners">เจ้าของและผู้ช่วย</button>`}
-      <button class="btn" id="settings">ตั้งค่าหอ</button>
+    <div class="card">
+      ${MYROLE === "viewer" ? "" : `<button class="linkrow" data-go="bill"><span>ออกบิลทั้งหอ</span><span class="go">›</span></button>`}
+      <button class="linkrow" data-go="review/pending"><span>สลิปรอตรวจ</span><span class="go">${pending} ›</span></button>
+      <button class="linkrow" data-go="report"><span>รายงานรายรับ</span><span class="go">›</span></button>
+    </div>
+    <div class="card">
+      ${MYROLE === "viewer" ? "" : `<button class="linkrow" data-go="owners"><span>เจ้าของและผู้ช่วย</span><span class="go">›</span></button>`}
+      <button class="linkrow" id="settings"><span>ตั้งค่าหอ</span><span class="go">›</span></button>
     </div>`;
 
   view.querySelectorAll("[data-go]").forEach((el) => (el.onclick = () => go(el.dataset.go)));
@@ -1179,7 +1189,9 @@ function ownerRooms() {
     if (r.advance) pill = `<span class="pill warn">โอนล่วงหน้า</span> ${pill}`;
     const isNext = next && next.room === r.room;
     const who = r.members > 1 ? `${r.tenantName || "ผู้เช่า"} +${r.members - 1}` : r.tenantName || "";
-    const sub = isNext ? "ห้องถัดไป" : who || ((r.linked ?? r.tenant) ? "ผู้เช่า (ไม่ทราบชื่อ)" : "ยังไม่ผูก LINE");
+    const d = O.draft[r.room];
+    const filled = d ? `น้ำ ${fmt(d.water)} · ไฟ ${fmt(d.elec)}` : "";
+    const sub = isNext ? "ห้องถัดไป" : [who, filled].filter(Boolean).join(" · ") || ((r.linked ?? r.tenant) ? "ผู้เช่า (ไม่ทราบชื่อ)" : "ยังไม่ผูก LINE");
     return `<button class="roomcard${isNext ? " next" : ""}" data-room="${esc(r.room)}">
       <span><b>ห้อง ${esc(r.room)}</b>${sub ? `<div class="m">${esc(sub)}</div>` : ""}</span>${pill}</button>`;
   };
