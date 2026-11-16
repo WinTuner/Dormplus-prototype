@@ -64,7 +64,10 @@ async function verifySlip({ bytes, mime, amount }) {
 
   const { status, body } = answer;
   const data = body && body.data;
-  if (status !== 200 || !data || data.success === false) {
+  // SlipOK's error body is `{ code, message, data }` with no `success:false`, so "not an explicit
+  // success" is the only safe test: a missing flag must never read as verified.
+  const success = status === 200 && body && (body.success === true || (data && data.success === true));
+  if (!success) {
     const code = Number((body && (body.code || (body.error && body.error.code))) || 0);
     if (UNVERIFIABLE[code]) return { ...BASE, ok: null, reason: UNVERIFIABLE[code], code };
     if (code === 1012) return { ...BASE, ok: false, reason: "สลิปนี้ถูกใช้ไปแล้ว (สลิปซ้ำ)", code };
@@ -74,6 +77,10 @@ async function verifySlip({ bytes, mime, amount }) {
   }
 
   const paid = Number(data.amount);
+  if (!data.transRef) {
+    // A real bank slip always carries one; without it there is nothing to dedupe and nothing to show.
+    return { ...BASE, ok: null, reason: "ตรวจไม่ได้ (ไม่พบข้อมูลสลิป)" };
+  }
   // We already send `amount`, so a mismatch normally comes back as 1013; check anyway, because a
   // wrong total is the one failure that must never pass as verified.
   if (Number.isFinite(paid) && Number.isFinite(Number(amount)) && paid !== Number(amount)) {
