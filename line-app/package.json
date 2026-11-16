@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@vercel/blob": "^2.9.0",
+    "aws4fetch": "^1.0.20",
     "qrcode-svg": "^1.1.0"
   },
   "scripts": {

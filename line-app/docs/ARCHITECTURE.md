@@ -8,7 +8,13 @@
 
 อินพุตมีสองทาง: (1) LINE Messaging API ยิง webhook เข้า `POST /api/webhook` เมื่อมีข้อความ/postback และ (2) ผู้ใช้เปิดหน้า LIFF แล้วเรียก API ด้วย `Authorization: Bearer <idToken>` เอาต์พุตคือข้อความ/การ์ด Flex ที่ส่งกลับเข้าแชท LINE และ JSON ที่หน้า LIFF เอาไปวาด
 
-สถานะทั้งหมดเก็บใน **Vercel Blob แบบ private** โดยใช้เป็น key-value store: หนึ่ง key = หนึ่งไฟล์ JSON ใต้พาธ `kv/` ส่วนรูปสลิปเก็บแยกที่ `slips/` dependency ของโปรเจกต์มีสองตัวคือ `@vercel/blob` กับ `qrcode-svg` (`package.json`)
+สถานะทั้งหมดเก็บใน **object store แบบ private** โดยใช้เป็น key-value store: หนึ่ง key = หนึ่งไฟล์ JSON ใต้พาธ `kv/` ส่วนรูปสลิปเก็บแยกที่ `slips/` · backend เปลี่ยนได้ที่ `api/_store.js` ไฟล์เดียว: **Cloudflare R2** เมื่อตั้ง `R2_BUCKET` (S3 API, ผ่าน `aws4fetch`), ไม่งั้นใช้ **Vercel Blob** — พาธเหมือนกันทั้งสองฝั่ง ข้อมูลจึงคัดลอกไปมาได้ด้วย `scripts/migrate-blob-to-r2.js`
+
+การอ่านที่เปลี่ยนช้า (`dorm`, `room:`, `bills:`, `bill-state:`) ถูก cache ในหน่วยความจำของ instance 10 วินาที และทุกการเขียนล้าง cache ทันที · คีย์ที่เกี่ยวกับเงิน (`bill:`, `slip-ref:`, `qr-code:`) ไม่ถูก cache
+
+path แพงที่สุดเคยคือการอ่านบิลทีละงวด: `bill-state:<room>` เก็บสถานะย่อ (period/status/total/due/paidAt/issuedAt) ของแต่ละบิลรวมกันเป็นคีย์เดียว ทำให้ทวงรายวัน, `?overdue=1` และ `?income=` อ่าน 1 คีย์ต่อห้องแทน 13 คีย์
+
+dependency ของโปรเจกต์คือ `@vercel/blob`, `aws4fetch` และ `qrcode-svg` (`package.json`)
 
 การตรวจสลิปใช้บริการภายนอก **SlipOK** ผ่าน `fetch` + `FormData` ของ Node (ไม่เพิ่ม dependency) — เปิดใช้เมื่อตั้ง `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` และผลตรวจเป็น *หลักฐานให้เจ้าของ* ไม่ใช่การปิดบิล (§3.4)
 
@@ -30,7 +36,7 @@ graph TD
   EP --> LN
   EP --> RM["api/_rooms.js"]
   EP --> VR["api/_verify.js<br/>→ api.slipok.com"]
-  ST --> BLOB[("Vercel Blob (private)<br/>kv/*.json · slips/*")]
+  ST --> BLOB[("Object store (private)<br/>R2 หรือ Vercel Blob<br/>kv/*.json · slips/*")]
 ```
 
 - `api/config.js` เป็น endpoint เดียวที่เปิดสาธารณะ (คืนแค่ `liffId`) ไม่ผ่าน `_auth`

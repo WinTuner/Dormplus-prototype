@@ -161,6 +161,8 @@ webhook ฝั่งนี้บันทึกทุก event ลงตาร�
 | `BLOB_STORE_ID` | `@vercel/blob` | ไม่ต้อง — `vercel storage connect` ใส่ให้ |
 | `VERCEL_OIDC_TOKEN` | `@vercel/blob` (คู่กับ `BLOB_STORE_ID`) | ไม่ต้อง — Vercel ฉีดตอน runtime |
 | `BLOB_READ_WRITE_TOKEN` | — | **ไม่ถูกใช้** เพราะทุก call ใช้ `access: "private"` + OIDC |
+| `R2_BUCKET` | `api/_store.js` | **ตั้งเมื่อย้ายไป R2** — ถ้ามีค่านี้ ระบบใช้ R2 แทน Blob ทั้งหมด |
+| `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | `api/_store-r2.js` | ใช้คู่กับ `R2_BUCKET` (S3 API token ของ bucket) |
 
 <!-- VERIFY: ชื่อ/region ของ Blob store (`domplus-bills`, `sin1`) มาจาก README และ `vercel storage connect` ใส่ `BLOB_STORE_ID` จริงหรือไม่ — ตรวจ Project → Settings → Environment Variables -->
 <!-- VERIFY: Vercel ฉีด `VERCEL_OIDC_TOKEN` ทุก deployment รวม Preview หรือไม่ — ไม่มีไฟล์ในเรพยืนยัน -->

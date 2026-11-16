@@ -1168,7 +1168,7 @@ const { saveBill } = require("./api/_bills");
     try { r = await call(slip, { user: "Ujo", body: { image: png } }); } finally { store.get = g2; }
     assert.strictEqual(r.status, 200);
     assert.ok(!files.has(own), "the replaced photo is deleted");
-    assert.ok(reads <= 5, `a replaced photo needs no scan of the room's bills (${reads} reads)`);
+    assert.ok(reads <= 6, `a replaced photo scans no bills — 6 reads is the slip + the compact state index (${reads})`);
 
     global.fetch = realFetch;
   }
