@@ -3,22 +3,24 @@
 # สถาปัตยกรรมระบบ DormPlus
 
 เอกสารนี้อธิบายสถาปัตยกรรมระดับ repo ของทั้งโปรเจกต์ (ทั้ง `line-app/` และ `backend/`)
-ถ้าต้องการรายละเอียดเชิงลึกของครึ่ง LINE app (key map ของ Blob ทุก key, state machine ของบิล,
+ถ้าต้องการรายละเอียดเชิงลึกของครึ่ง LINE app (key map ทุก key, state machine ของบิล,
 ตารางสิทธิ์, ลำดับขั้นของ cron) อ่านที่ [`line-app/docs/ARCHITECTURE.md`](../line-app/docs/ARCHITECTURE.md)
 — เอกสารนี้จะไม่เขียนซ้ำ
 
 ## 1. ภาพรวมระบบ
 
-DormPlus เป็นระบบออกบิลและแจ้งเตือนค่าเช่าหอพัก ที่ผู้ใช้ปลายทางทั้งหมดอยู่ใน LINE:
+DormPlus เป็นระบบออกบิลและแจ้งเตือนค่าเช่าหอพัก ที่ **ผู้เช่าอยู่ใน LINE ทั้งหมด**:
 เจ้าของจดมิเตอร์ → ระบบออกบิล → ผู้เช่าเห็นการ์ดบิลในแชท → แนบสลิป → เจ้าของยืนยัน → ผู้เช่าได้ใบเสร็จ
-และถ้ายังไม่จ่าย ระบบทวงให้เองวันละครั้ง
+และถ้ายังไม่จ่าย ระบบทวงให้เองวันละครั้ง · เจ้าของมีทางเข้าสองแบบที่อยู่คนละ stack: LIFF ใน LINE
+(`line-app/liff/bill.html` — ตัวที่ใช้จริง) และหน้าเว็บ `/owner` ของ `backend/` ที่เปิดในเบราว์เซอร์
+แล้วล็อกอินด้วยรหัสเจ้าของหอ (`backend/owner/index.html` → `POST /v1/auth/owner`)
 
 repo นี้มี **สอง stack ที่เป็นอิสระจากกันโดยสมบูรณ์** และตั้งใจให้เป็นแบบนั้น:
 
 | stack | ภาษา/runtime | ที่เก็บสถานะ | ทางเข้า | สถานะ |
 |---|---|---|---|---|
-| `line-app/` | Node (CommonJS) บน Vercel serverless | Vercel Blob | LINE Messaging API webhook + LIFF + Vercel Cron รายวัน | ใช้งานจริง — เป็นตัวที่ผู้ใช้เห็น |
-| `backend/` | Python 3.11+ / FastAPI บน Vercel serverless | Neon Postgres | HTTP `/v1/*` (+ LIFF ของตัวเองที่ `/liff`) | deploy แล้ว ยังไม่มี UI เจ้าของ |
+| `line-app/` | Node (CommonJS) บน Vercel serverless | Vercel Blob หรือ Cloudflare R2 | LINE Messaging API webhook + LIFF + Vercel Cron รายวัน | ใช้งานจริง — เป็นตัวที่ผู้ใช้เห็น |
+| `backend/` | Python 3.11+ / FastAPI บน Vercel serverless | Neon Postgres | HTTP `/v1/*` (+ LIFF ของตัวเองที่ `/liff`, หน้าเจ้าของที่ `/owner`) | deploy แล้ว — มี UI เจ้าของแล้ว แต่เป็นหน้าเดียวล็อกอินด้วยรหัสร่วม ไม่มีบัญชีรายคน |
 
 รูปแบบสถาปัตยกรรม: *stateless serverless functions + ที่เก็บสถานะภายนอก* — ทั้งสองฝั่งไม่มี process
 ที่รันค้าง ไม่มี middleware กลาง และไม่มี shared code ระหว่างกัน · งานที่เป็น "ประจำ" (ทวงบิลรายวัน)
@@ -31,8 +33,8 @@ repo นี้มี **สอง stack ที่เป็นอิสระจ�
 
 1. **ไม่มีโค้ดฝั่งใดอ้างถึงอีกฝั่งเลย** — grep ในโค้ด/คอนฟิกไม่พบ URL ของ backend ใน `line-app/` (เจอแค่ใน
    เอกสารอย่าง `line-app/HANDOFF.md`) และไม่พบ hostname ของ line-app ใน `backend/` · ไม่มี environment variable ตัวไหนชี้ข้าม stack
-   (`line-app/api/*.js` อ่านแค่ env ของ LINE/Blob/ROOMS/CRON/SlipOK · `backend/app/config.py` อ่านแค่
-   DB/LINE/cron/session/property)
+   (`line-app/api/*.js` อ่านแค่ env ของ LINE/Blob-or-R2/ROOMS/CRON/SlipOK · `backend/app/config.py` อ่านแค่
+   DB/LINE/cron/session/property/owner-code)
 2. **ไม่มีสัญญาข้อมูลร่วมกัน** — `line-app/` ระบุห้องด้วยรายชื่อใน env `ROOMS`
    (`line-app/api/_rooms.js`, ค่าเริ่มต้น `201`–`212`) ขณะที่ `backend/` เก็บห้องในตาราง `rooms`
    ของ Postgres (`db/schema.sql`) · `line-app/` เก็บบิลเป็นไฟล์ JSON ใต้ `bill:<room>`
@@ -57,20 +59,21 @@ repo นี้มี **สอง stack ที่เป็นอิสระจ�
 
 ```mermaid
 graph TD
-  USER["ผู้ใช้ในแอป LINE<br/>(เจ้าของ · ผู้ช่วย · ผู้เช่า)"]
+  USER["ผู้ใช้ในแอป LINE<br/>(เจ้าของ · ผู้ช่วย · ผู้เช่า)<br/>+ เจ้าของบนเว็บ"]
   LINE["LINE Platform<br/>Messaging API · LIFF · LINE Login"]
   WH["line-app/api/webhook.js"]
   API["line-app/api/*.js<br/>+ liff/bill.html"]
-  BLOB[("Vercel Blob (private)<br/>kv/&lt;key&gt;.json · slips/*")]
+  BLOB[("Vercel Blob หรือ Cloudflare R2 (private)<br/>kv/&lt;key&gt;.json · slips/*")]
   SLIPOK["SlipOK API<br/>(ตรวจสลิป — ถ้าตั้ง key)"]
   CRON["Vercel Cron<br/>GET /api/cron · 0 2 * * *"]
   REM["line-app/api/_remind.js"]
-  BE["backend/app<br/>FastAPI /v1/*"]
+  BE["backend/app<br/>FastAPI /v1/*<br/>+ /owner (หน้าเจ้าของ)"]
   PG[("Neon Postgres<br/>rooms · invoices · procrastinate")]
 
   USER --> LINE
   LINE -->|"POST /api/webhook<br/>x-line-signature"| WH
   LINE -->|"LIFF: Bearer idToken"| API
+  USER -->|"เบราว์เซอร์: /owner<br/>POST /v1/auth/owner → dp_session"| BE
   WH --> API
   WH --> BLOB
   API --> BLOB
@@ -83,15 +86,18 @@ graph TD
   BE -->|"push"| LINE
 ```
 
-อ่านแผนผัง: มีสองเส้นทางที่แยกกันโดยสิ้นเชิง — เส้นบน (LINE → `line-app/` → Blob) และเส้นล่าง
-(`backend/` → Postgres → push) ทั้งสองเส้นบรรจบกันที่ LINE platform เท่านั้น
+อ่านแผนผัง: มีสองเส้นทางที่แยกกันโดยสิ้นเชิง — เส้นบน (LINE → `line-app/` → object store) และเส้นล่าง
+(`backend/` → Postgres → push) ทั้งสองเส้นบรรจบกันที่ LINE platform เท่านั้น — ยกเว้นลูกศรจาก `USER`
+ไป `BE` ซึ่งคือหน้า `/owner` ที่คุยกับ backend ตรง ๆ
 ไม่มีลูกศรระหว่าง `line-app/` กับ `backend/` · และ cron รายวันของทั้งระบบอยู่ที่ `line-app/` (เส้นบน)
-ไม่ใช่ที่ backend · นอกจาก LINE เอง (`api.line.me` สำหรับ reply/push และตรวจ idToken) แล้ว SlipOK เป็นบริการภายนอกเดียวที่ `line-app/` เรียกออกไป และเป็น *ตัวช่วยตัดสิน* ไม่ใช่
+ไม่ใช่ที่ backend · ข้อยกเว้นเดียวของ "ทุกคนเข้า LINE": เจ้าของเปิด `/owner` ในเบราว์เซอร์แล้วคุยกับ
+`backend/` ตรง ๆ ด้วย cookie ไม่ผ่าน LINE เลย (§3) · นอกจาก LINE เอง (`api.line.me` สำหรับ reply/push และตรวจ idToken) แล้ว SlipOK เป็นบริการภายนอกเดียวที่ `line-app/` เรียกออกไป และเป็น *ตัวช่วยตัดสิน* ไม่ใช่
 ผู้ออกใบเสร็จ (ปิดบิลยังเป็น postback ของเจ้าของที่ผ่าน `webhook.js`)
 
-## 3. LINE platform คือทางเข้าเดียวของผู้ใช้
+## 3. LINE platform คือทางเข้าของผู้เช่า — และหน้าเว็บ `/owner` ของเจ้าของ
 
-ผู้ใช้ไม่มีทางเข้าถึงระบบได้นอกจากผ่าน LINE และมีกลไกของ LINE สามตัวที่ถูกใช้ แต่อยู่คนละฝั่ง:
+ผู้เช่าไม่มีทางเข้าถึงระบบได้นอกจากผ่าน LINE และมีกลไกของ LINE สามตัวที่ถูกใช้ แต่อยู่คนละฝั่ง
+(หน้าเจ้าของของ `backend/` เป็นข้อยกเว้นข้อเดียว — ไม่ผ่าน LINE เลย ดูท้ายหัวข้อนี้):
 
 | กลไก | ใครใช้ | ที่อยู่ในโค้ด |
 |---|---|---|
@@ -122,19 +128,61 @@ graph TD
 ตอบ 503 `LINE_NOT_CONFIGURED` ถ้ายังไม่ตั้ง secret) แต่ endpoint นั้นยังไม่มี handler ที่ตอบผู้ใช้ และ
 webhook ของ OA ยังชี้ที่ `line-app`
 
+**หน้าเจ้าของของ `backend/` ที่ `/owner`** — เป็นทางเข้าเดียวของทั้งระบบที่ไม่ผ่าน LINE:
+`backend/app/main.py` mount `backend/owner/` เป็น static (`StaticFiles(..., html=True)`) ที่ path `/owner`
+เป็นหน้าเดียวจบ (ไม่มี build, inline CSS/JS) มีสี่แท็บตามงานที่เจ้าของทำจริง:
+
+| แท็บ | เรียกอะไร |
+|---|---|
+| จดมิเตอร์ | `GET /v1/rooms?period=` → `PUT /v1/rooms/{id}/reading` → `POST /v1/billing/run` |
+| บิล | `GET /v1/invoices?period=` → `POST /v1/invoices/{id}/confirm` · `/reject` |
+| สลิป | `GET /v1/invoices?period=&status=pending` (คิวรอตรวจ) |
+| รายงาน | `GET /v1/reports/summary?period=` |
+
+- ทุก call เป็น `credentials: "same-origin"` และพึ่ง cookie `dp_session` เท่านั้น — หน้าเว็บไม่เก็บ token
+  ที่ไหน · ตอน boot หน้ายิง `GET /v1/rooms` หนึ่งครั้ง ถ้าได้ 401/403 ก็แสดงหน้าใส่รหัส
+- `POST /v1/auth/owner` (`backend/app/routes/auth.py` `login_owner`) เทียบรหัสกับ `OWNER_ACCESS_CODE`
+  ด้วย `hmac.compare_digest` แล้วเซ็น cookie ผ่าน `_set_session_cookie()` **ตัวเดียวกับ LINE login**
+  (`{uid:"owner", role:"owner", property_id: PROPERTY_ID}`) — เจ้าของกับผู้เช่าจึงใช้กลไก session
+  ชุดเดียวกัน (HMAC-SHA256, 7 วัน, HttpOnly, SameSite=Lax)
+- เดารหัสผิดได้ 10 ครั้ง/ชั่วโมง/IP ผ่าน `backend/app/attempts.py` (`scope="owner-login"`,
+  `actor=request.client.host`) — นับเฉพาะครั้งที่ผิด ผู้ที่ล็อกอินถูกไม่ถูกหน่วง
+- ไม่ตั้ง `OWNER_ACCESS_CODE` = ตอบ 503 `OWNER_LOGIN_OFF` และหน้าเว็บบอกว่ารหัสยังไม่ถูกตั้ง
+- **หนึ่ง deployment = หนึ่งหอ ดังนั้นไม่มีบัญชีรายคน:** "เจ้าของ" คือใครก็ตามที่รู้รหัสร่วมนั้น
+  ไม่มี username ไม่มีตาราง owner · cookie พา `uid:"owner"` ไปด้วย ดังนั้น `audit_log.actor` ของทุก
+  การกระทำฝั่งเจ้าของ (`billing.run`, `invoice.confirm`, `invoice.reject`) เป็นค่า `owner` เหมือนกันหมด
+  — บอกได้ว่ามีคนทำ แต่บอกไม่ได้ว่าใคร (ข้อจำกัดใน §10)
+
 > มี LIFF สองใบที่ห้ามสับสน: `line-app/liff/bill.html` คือใบที่ OA ใช้จริง ส่วน
 > `backend/liff/index.html` เป็นหน้าของ stack backend (เรียก `/v1/*` ด้วย cookie) และยังไม่ผูกกับ OA
 > — ดูหมายเหตุใน `docs/HANDOFF.md`
 
-## 4. ที่เก็บสถานะ: Blob กับ Postgres
+## 4. ที่เก็บสถานะ: object store (Blob หรือ R2) กับ Postgres
 
 ทั้งสอง stack ใช้ที่เก็บต่างชนิดกันโดยเชิง และไม่มีตัวใดอ่านข้อมูลของอีกตัว
 
-### 4.1 `line-app/` → Vercel Blob แบบ private
+### 4.1 `line-app/` → object store แบบ private (Cloudflare R2 หรือ Vercel Blob)
 
-ใช้ Blob เป็น key-value store: หนึ่ง key = หนึ่งไฟล์ JSON ใต้พาธ `kv/` และรูปสลิปแยกที่ `slips/`
+ใช้ object store เป็น key-value store: หนึ่ง key = หนึ่งไฟล์ JSON ใต้พาธ `kv/` และรูปสลิปแยกที่ `slips/`
 (`line-app/api/_store.js` — `pathOf()` แปลง key เป็น `kv/${key.replace(/[^a-zA-Z0-9._-]/g,"-")}.json`
 คือ `:` กลายเป็น `-` และ path พวกนี้ย้อนกลับไม่ได้)
+
+**เบื้องหลังเลือกได้ด้วย env ตัวเดียว:** `_store.js` ตรวจ `R2_BUCKET` ตอน import — ถ้าตั้งจะใช้
+`line-app/api/_store-r2.js` (S3 API ของ Cloudflare R2 เซ็น request ด้วย `aws4fetch` แทน `@aws-sdk/client-s3`
+เพราะทุก function จ่ายค่า bundle ตอน cold start) ถ้าไม่ตั้งก็ยังเป็น Vercel Blob · ทั้งสองทางใช้ path
+เดียวกัน (`kv/*.json` + `slips/*`) การย้ายข้อมูลจึงเป็น "copy bucket แล้วตั้ง env" —
+`line-app/scripts/migrate-blob-to-r2.js` คัดลอกให้ (รันให้เสร็จ *ก่อน* ตั้ง `R2_BUCKET` เพื่อให้สลับได้ใน
+env ครั้งเดียว)
+
+**cost/reads:** ชั้นนี้ออกแบบเพื่อประหยัด read เพราะ Blob คิดโควตาต่อ *operation*
+(10,000 operations/เดือนบน free tier) ขณะที่หนึ่งรอบของ cron หรือหนึ่งหน้าจอ "ทุกห้อง" อ่านหลาย key ต่อห้อง
+ในคำขอเดียว
+<!-- VERIFY: Vercel Blob free tier = 10,000 operations/เดือน และ R2 ให้ 10M read ops/เดือน — เป็นข้อจำกัดของแพลตฟอร์ม (อ้างจากคอมเมนต์ใน line-app/api/_store.js และ _store-r2.js) ไม่ใช่ค่าที่ตรวจได้จากเรพ -->
+
+สองกลไกที่ลด read: **(1) cache ใน memory 10 วินาทีต่อ instance** สำหรับ key ที่เปลี่ยนช้า (`dorm`, `room:`,
+`bills:`, `bill-state:`) — ทุก `set()` ลบ entry ของ key นั้นทันที และ key ที่เป็นเงิน (`bill:`, `slip-ref:`,
+`qr-code:`) ไม่ถูก cache เลย cache hit จึงเป็นค่าที่เคยอ่านได้จริง (เก่าได้ไม่เกิน 10 วินาที — §10 ข้อ 15)
+**(2) key สรุป `bill-state:<room>`** ซึ่งแทนการอ่านบิลทีละรอบ (ย่อหน้าถัดจากตาราง)
 
 | ข้อมูล | key | pathname จริง |
 |---|---|---|
@@ -143,6 +191,7 @@ webhook ของ OA ยังชี้ที่ `line-app`
 | ผู้ใช้ที่เคยกด follow | `user:<userId>` | `kv/user-<userId>.json` |
 | บิลล่าสุดของห้อง | `bill:<room>` | `kv/bill-<room>.json` |
 | บิลต่อรอบ | `bill:<period>:<room>` + index `bills:<room>` (เก็บ ≤ 60 รอบ) | `kv/bill-<period>-<room>.json` |
+| สรุปสถานะบิลต่อห้อง | `bill-state:<room>` (≤ 24 รอบ — เขียนโดย `saveBills()` ผ่าน `_ledger.indexState()`) | `kv/bill-state-<room>.json` |
 | บิลที่ถูกยกเลิก | `bill-void:<period>:<room>:<rev>` + index `bill-voids:<room>` (≤ 200 รายการ) | `kv/bill-void-<period>-<room>-<rev>.json` |
 | บิลที่โอนเกินและยังไม่ได้คืน | `overpaid:<room>` (`["<period>:<rev>", …]` ≤ 200 รายการ) | `kv/overpaid-<room>.json` |
 | สลิปโอนล่วงหน้า (ยังไม่มีบิล) | `prepay:<room>` | `kv/prepay-<room>.json` |
@@ -157,6 +206,16 @@ webhook ของ OA ยังชี้ที่ `line-app`
 | ส่งเตือนไปแล้ว | `reminded:<room>:<period>:<kind>:<rev>` (+ key เดิมที่ไม่มี rev ซึ่งยังถูกอ่าน) | `kv/reminded-<room>-<period>-<kind>-<rev>.json` |
 | lock ของ cron | `cron-lock` | `kv/cron-lock.json` |
 | รูปสลิป | `slips/<room>-<ts>.<ext>` · `slips/<room>-advance-<ts>.<ext>` | pathname เดียวกัน (ไม่อยู่ใต้ `kv/`) |
+
+`bill-state:<room>` คือ **index ที่ย่อบิลเหลือเฉพาะฟิลด์ที่เส้นทาง "อ่านเงินตามเวลา" ใช้**:
+`_ledger.stateOf()` เก็บ `{ room, period, status, total, due, rev, issuedAt, paidAt, receiptNo, refundDue,
+refundedAt }` · `indexState()` (ถูกเรียกจาก `saveBills()` ทุกครั้ง จึงไม่มีทางที่ index กับบิลจริงจะไม่ตรงกัน)
+merge รอบที่เขียนลง key เดียวแล้วเก็บ 24 รอบล่าสุด · `stateBills(room)` อ่าน key นี้ครั้งเดียว —
+`_remind.js`, `GET /api/bill?overdue=1` และ `?income=` จึงจ่าย **หนึ่ง read ต่อห้อง** แทนหนึ่ง read
+ต่อรอบต่อห้อง ซึ่งเป็นการอ่านที่กินโควตา Blob มากที่สุด · ห้องที่เขียนไว้ก่อนมี key นี้: `stateBills()` จะ
+fallback ไป `recentBills()` (อ่านบิลจริง) **โดยไม่เขียนอะไรเลย** เพราะ read ต้องไม่ freeze รายการที่เก่าแล้ว
+— index จะถูกสร้างให้เองตอน `saveBills()` ครั้งถัดไปของห้องนั้น · เงินไม่เคยถูกตัดสินจาก key นี้: การยืนยัน/
+ยกเลิก/คืนเงินยังอ่านบิลจริง (`bill:<period>:<room>`) แล้วเขียนผ่าน `saveBills()`
 
 เอกสารของบิลเอง (`bill:<room>` และ `bill:<period>:<room>`) มีฟิลด์ที่เพิ่มมาหลังจากรอบแรกของระบบ:
 `rev` (เริ่ม 1, +1 ทุกครั้งที่ออกใหม่ทับบิลที่ถูกยกเลิก), `issuedAt`, `receiptNo` (เฉพาะบิล `paid`),
@@ -180,8 +239,9 @@ transRef?, paidAt?, bank? }` · `ok: null` แปลว่า "บอกไม�
 `R<yyyymm>-<room>` และต่อท้าย `-<rev>` ตั้งแต่รอบที่ออกใหม่ครั้งที่สอง เพราะ Blob ไม่มี transaction
 ถ้าใช้ counter กลาง เลขเดียวกันจะถูกแจกสองใบได้
 
-ทุกการอ่านระบุ `useCache: false` และทุกการเขียนเป็น `allowOverwrite: true` — ไม่มี transaction,
-ไม่มี conditional write, ไม่มี compare-and-set ดังนั้นรูปแบบ "อ่าน–แก้–เขียน" จึงเป็น race ได้
+ฝั่ง Blob ทุกการอ่านระบุ `useCache: false` และทุกการเขียนเป็น `allowOverwrite: true` (R2 ไม่มี flag
+เหล่านี้ — อ่าน/เขียน object ตรง ๆ ด้วย S3 API) · ทั้งสองเบื้องหลัง **ไม่มี transaction, ไม่มี conditional
+write, ไม่มี compare-and-set** ดังนั้นรูปแบบ "อ่าน–แก้–เขียน" จึงเป็น race ได้
 มีสองที่ที่ออกแบบรับข้อจำกัดนี้ไว้แล้วโดยตรง: `cron-lock` (บรรเทา overlap ของ cron) และการล้าง
 `prepay:<room>` ที่จะล้างเฉพาะเมื่อ `slipAt` ยังตรงกับใบที่เพิ่งใช้ไป (ดู §5.1) — ดูข้อจำกัดใน
 [`line-app/docs/ARCHITECTURE.md`](../line-app/docs/ARCHITECTURE.md)
@@ -194,6 +254,7 @@ transRef?, paidAt?, bank? }` · `ok: null` แปลว่า "บอกไม�
 ไม่ได้กันการเขียนทับข้อมูล — Blob ยังไม่มี compare-and-set
 
 <!-- VERIFY: Blob store ถูกผูกกับโปรเจกต์ Vercel ผ่าน OIDC (ไม่มีการใส่ token ในโค้ด) และชื่อ store/env มาจากการตั้งค่าบน Vercel ไม่ใช่จากไฟล์ในเรพ — โค้ดเรียก @vercel/blob โดยไม่ระบุ token -->
+<!-- VERIFY: ถ้าเปิดใช้ R2 ค่า R2_ACCOUNT_ID / R2_BUCKET / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY ถูกตั้งบน Vercel และ bucket มีข้อมูลครบ (คัดลอกด้วย scripts/migrate-blob-to-r2.js แล้ว) — ไม่มีค่าใดในเรพที่ยืนยันได้ และถ้า R2_BUCKET ถูกตั้งแต่ credential ไม่ครบ createStore() จะ throw ทุก request -->
 
 ### 4.2 `backend/` → Neon Postgres
 
@@ -249,15 +310,16 @@ RLS ทำงานจริงตั้งแต่ migration `0004`:
 2. คำนวณ "วันนี้" ตามเวลาไทยด้วย `Intl.DateTimeFormat(..., { timeZone: "Asia/Bangkok" })`
    ไม่ใช่วัน UTC ของ server
 3. อ่าน `cron-lock`; ถ้ามี lock ที่อายุน้อยกว่า 15 นาที ตอบ 200 `{ skipped }` แล้วจบ
-   (Vercel อาจ retry run ที่ timeout ขณะ run แรกยังทำงาน — Blob ไม่มี compare-and-set จึงทำได้แค่
+   (Vercel อาจ retry run ที่ timeout ขณะ run แรกยังทำงาน — object store ไม่มี compare-and-set จึงทำได้แค่
    บรรเทา ไม่ได้กันได้ 100%) · เขียน lock แล้วลบใน `finally`
 4. `_remind.runReminders({ today, baseUrl })` แล้วตอบ `{ ok, today, sent, failed }`
 
 `line-app/api/_remind.js` เป็นที่ที่กฎการทวงอยู่ (ไม่ผูกกับ HTTP จึงเทสต์ด้วยวันที่ใดก็ได้):
 
-- ต่อห้อง (ทำพร้อมกัน 4 ห้องด้วย `mapLimit`): อ่าน `bill:<room>` + `bills:<room>` แล้วอ่านบิลเก่า
-  เพิ่มไม่เกิน 12 รอบ ผ่าน `_ledger.recentBills()` — หน้าต่างเดียวกันกับที่ `GET /api/bill?overdue=1`
-  ใช้ แล้วกรองเหลือเฉพาะที่ยัง `unpaid` และมี `due`
+- ต่อห้อง (ทำพร้อมกัน 4 ห้องด้วย `mapLimit`): อ่าน `bill-state:<room>` **ครั้งเดียว**
+  (`_ledger.stateBills()`) แล้วกรองเหลือเฉพาะที่ยัง `unpaid` และมี `due` — ไม่ต้องอ่านบิลทีละรอบ ·
+  บิลจริง (`bill:<room>` / `bill:<period>:<room>`) ถูกอ่านเฉพาะใบที่ถูกเลือกจริงตอนประกอบข้อความ ·
+  index เก็บ 24 รอบ ซึ่งเป็นหน้าต่างเดียวกับ `GET /api/bill?overdue=1` และ `?income=` (§4.1, §6.7)
 - เทียบ `due` กับ `today` เป็น *หน้าต่าง* ไม่ใช่วันเป๊ะ — พลาด cron ไปหนึ่งวัน ข้อความยังออกในวันถัดไป:
 
   | เงื่อนไข | kind |
@@ -454,8 +516,10 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 5. อ่านข้อมูล: `GET /v1/me/invoices` ใช้ `tenant_session` และเอา `room_id` จาก session เท่านั้น
    (`backend/app/routes/me.py`) · การแนบสลิป `POST /v1/invoices/{id}/slip` ใช้ `OWN_INVOICE_SQL`
    ที่บังคับ `room_id = session.room_id` (`backend/app/routes/billing.py`)
-6. ฝั่งเจ้าของ: `GET /v1/rooms`, `PUT /v1/rooms/{id}/reading`, `POST /v1/billing/run`, `GET /v1/invoices`,
-   `POST /v1/invoices/{id}/confirm|reject`, `GET /v1/reports/summary` ใช้ `owner_session` และกรอง
+6. ฝั่งเจ้าของ: เปิด `/owner` → `POST /v1/auth/owner` ด้วย `OWNER_ACCESS_CODE` (§3) ได้ cookie
+   `role:"owner"` ที่ผูก `property_id` จาก `PROPERTY_ID` ของ deployment แล้วหน้าเว็บเรียก
+   `GET /v1/rooms`, `PUT /v1/rooms/{id}/reading`, `POST /v1/billing/run`, `GET /v1/invoices`,
+   `POST /v1/invoices/{id}/confirm|reject`, `GET /v1/reports/summary`; ทุก route ใช้ `owner_session` และกรอง
    `property_id` จาก session เสมอ (RLS ใน §4.2 เป็นชั้นที่สอง) · `reports/summary` อยู่ที่
    `backend/app/routes/reports.py`: `period` ไม่ระบุ = เดือนปัจจุบัน (`period_of(today())`), คืน
    `billed`/`paid`/`pending`/`unpaid` (ผลรวม `invoices.total` หน่วยเดียวกับตาราง) และ
@@ -463,7 +527,7 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
    `rooms_overdue` นับบิล `unpaid` ที่ `due_date < today` · `rooms_total` นับทุกห้องของหอ ไม่ว่าออกบิลแล้วหรือไม่
 
 `line-app/` มีการผูกห้องของตัวเองแบบคู่ขนาน (`GET/POST /api/qr?room=` ใน `line-app/api/qr.js`, code
-เก็บใน Blob key `qr-code:<code>`, หน้าตา LIFF รับ `?bind=`) — เป็นคนละ implementations คนละที่เก็บข้อมูล
+เก็บใน key `qr-code:<code>`, หน้าตา LIFF รับ `?bind=`) — เป็นคนละ implementations คนละที่เก็บข้อมูล
 ไม่เกี่ยวกับ `link_codes` ของ backend · ต่างจาก backend ตรงที่ QR ใช้ได้ครั้งเดียวต่อผู้เช่าและต้องให้
 เจ้าของกด "เปลี่ยนผู้เช่า" ก่อนจึงจะเปลี่ยนคนได้ (กันคนถ่ายรูป QR หน้าห้องแล้วยึดห้อง)
 
@@ -511,10 +575,11 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 | `?voided=1` | เจ้าของ/ผู้ช่วยเท่านั้น | archive ของบิลที่ถูกยกเลิก (`readVoids`) ใหม่→เก่า กรอง `period=` ได้ |
 | `?voided=1&refunds=1` | เจ้าของ/ผู้ช่วยเท่านั้น | **เงินที่ยังต้องคืน** ทั้งหอ (`room=` เพื่อกรอง) สองชนิดพร้อม `kind`: `void` (บิล `paid` ที่ถูกยกเลิก) และ `overpaid` (บิล `paid` ที่สลิปมากกว่ายอด — `refundDue` คือส่วนเกิน) · `{ count, total, items }` เฉพาะที่ยัง `!refundedAt` |
 
-ข้อจำกัดที่ตั้งใจ: `?income` อ่านแบบมีขอบเขต — ต่อห้องเริ่มจาก 12 เดือนก่อนเดือนที่ถามขึ้นไป (`billsInPeriods`,
-`INCOME_LOOKBACK_MONTHS = 12`) บิลเดียวที่ไม่ถูกนับคือใบที่จ่ายช้ากว่า `period` เกิน 12 เดือน ·
-`?overdue` และ `_remind` ใช้หน้าต่างเดียวกัน (`recentBills` = บิลล่าสุด + 12 รอบล่าสุดจาก index) บิลที่ค้าง
-เกินปีจึงต้องให้เจ้าของจัดการ ไม่ใช่เพิ่มแถวในรายการ · ตัว tag `overpaid:<room>` เป็นเพียง index:
+ข้อจำกัดที่ตั้งใจ: ทั้ง `?overdue` และ `?income` อ่านจาก `bill-state:<room>` (24 รอบล่าสุด — §4.1)
+ไม่ใช่จาก index `bills:<room>` 60 รอบ · `?income` กรองต่อจาก `from = shiftMonth(month, -12)`
+(`INCOME_LOOKBACK_MONTHS = 12`) บิลเดียวที่อาจไม่ถูกนับคือใบที่จ่ายช้ากว่า `period` เกิน 12 เดือน หรือเก่ากว่า
+24 รอบ · `?overdue` และ `_remind` เห็นบิลค้างในหน้าต่าง 24 รอบเดียวกัน บิลที่ค้างเกินนั้นจึงต้องให้เจ้าของ
+จัดการ ไม่ใช่เพิ่มแถวในรายการ · ตัว tag `overpaid:<room>` เป็นเพียง index:
 บิลคือ source of truth — tag ที่บิลถูกออกใหม่ (rev อื่น) คืนเงินแล้ว หรือถูกยกเลิกจะถูกข้าม
 
 ## 7. Trust boundaries
@@ -533,6 +598,7 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 | cron → `backend` (ไม่ได้ตั้ง schedule แล้ว) | `Authorization: Bearer <CRON_SECRET>` เทียบด้วย `hmac.compare_digest`; token ใน query ถูกปฏิเสธ | `backend/app/routes/cron.py`, `.../dunning.py` | 401 `UNAUTHORIZED` |
 | ผู้ใช้ → `backend` | signed cookie `dp_session` (HMAC ด้วย `SESSION_SECRET`) | `backend/app/session.py` (`sign`/`unsign`) | cookie ปลอม/หมดอายุ = ตกลงไปที่ 401 |
 | session ผู้เช่า → DB | ตรวจ `still_linked()` ทุก request (ไม่รอ cookie หมดอายุ) | `backend/app/auth.py` | 401 `SESSION_REVOKED` |
+| ผู้ใช้ → `/owner` (`backend`) | รหัสเจ้าของหอร่วม เทียบกับ `OWNER_ACCESS_CODE` ด้วย `hmac.compare_digest` · ผิดได้ 10 ครั้ง/ชม./IP · ไม่ตั้งรหัส = ปิดทางเข้า | `backend/app/routes/auth.py` (`login_owner`), `backend/app/attempts.py` | 503 `OWNER_LOGIN_OFF` · 401 `UNAUTHORIZED` · 429 `TOO_MANY_ATTEMPTS` |
 | role ใน `backend` | `owner_session` / `tenant_session` เป็น dependency ของ route | `backend/app/auth.py` | 403 `FORBIDDEN` |
 | หอ → ข้อมูลใน DB | RLS ของ `0004` + `app.property_id` ที่ผูกตอน connect | `backend/migrations/versions/0004_rls_property.py`, `backend/app/db.py` | แถวของหออื่นไม่ถูกอ่าน/เขียน (ไม่ error แต่ไม่เห็น) |
 | รหัสเชิญ | เก็บเฉพาะ hash · ใช้ครั้งเดียว · TTL 7 วัน · rate limit 10 ครั้ง/ชม. | `backend/app/invites.py`, `backend/app/attempts.py` | 404 / 409 / 410 / 429 |
@@ -546,9 +612,11 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
   ส่วน `backend/` ยังรับชื่อเก่า `DUNNING_TOKEN` ผ่าน `AliasChoices` · ทั้งสองใช้ env ตัวเดียวกันได้
   แต่ไม่มีใครส่ง secret ข้าม stack
 - **session ของเจ้าของใน `backend` ไม่ถูก re-check กับ DB** — `still_linked()` ทำงานเฉพาะ
-  `role == "tenant"` · ทั้งนี้ `POST /v1/auth/line` ออกได้แค่ session ผู้เช่า และ **ไม่มี endpoint login
-  สำหรับเจ้าของ** ดังนั้นใน production เส้นทาง `/v1/*` ของเจ้าของจึงเข้าถึงได้ทางเดียวคือ `DEV_AUTH`
-  ซึ่งถูกปิดบน production
+  `role == "tenant"` · เจ้าของมีทางเข้าแล้ว (`/owner` → `POST /v1/auth/owner`) แต่เป็น **รหัสเดียวของหอ
+  ไม่ใช่บัญชีรายคน**: cookie บอกแค่ `role` + `property_id` จึงไม่มีอะไรให้เทียบกับ DB และ **การเปลี่ยน
+  `OWNER_ACCESS_CODE` ไม่ทำให้ session ที่ออกไปแล้วหลุด** (cookie เซ็นด้วย `SESSION_SECRET`) —
+  จะตัดทุกคนต้องเปลี่ยน `SESSION_SECRET` ซึ่งตัดผู้เช่าด้วย · `DEV_AUTH` ยังเป็นทางลัดเฉพาะ dev
+  และถูกปิดบน production
 - **การยืนยันสลิปไม่มี CSRF/nonce** ทั้งสองฝั่ง — `line-app` กันด้วยการตรวจ `isOwner` ใน postback
   และบังคับให้บิลเป็น `pending` + ระบุรอบตรงกับการ์ด แต่ replay ของ event เดิมยังทำได้จนบิลเป็น `paid`
   (การกดซ้ำไม่ได้สร้างใบเสร็จซ้ำ เพราะบิลที่ `paid` แล้วจะตอบ "ยืนยันไปแล้ว") · การตรวจสลิปด้วย SlipOK
@@ -563,13 +631,14 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 
 | Abstraction | ที่อยู่ | หน้าที่ |
 |---|---|---|
-| `get` / `set` / `keysWith` | `line-app/api/_store.js` | ทางเดียวที่โค้ดส่วนใหญ่แตะ Blob (ยกเว้นไฟล์รูปที่เรียก `putFile`/`getFile`/`delFile`) |
+| `get` / `set` / `keysWith` (+ `putFile`/`getFile`/`delFile`) | `line-app/api/_store.js` | ทางเดียวที่โค้ดส่วนใหญ่แตะ storage · เลือก R2 หรือ Vercel Blob จาก `R2_BUCKET` และถือ cache 10 วินาทีของ key ที่เปลี่ยนช้า (เขียนแล้วลบทันที) |
+| `indexState` / `stateBills` / `stateOf` | `line-app/api/_ledger.js` | key `bill-state:<room>` (24 รอบ): `saveBills()` เรียก `indexState()` ให้ index ตรงกับบิลเสมอ · `stateBills()` อ่านครั้งเดียวแล้ว fallback ไปบิลจริงแบบไม่เขียนอะไร |
 | `saveBills(bills, {latest})` / `saveBill` | `line-app/api/_bills.js` | เขียนบิลหลายรอบของห้องเดียวพร้อมกัน (per-period + index + `bill:<room>`) และไม่ให้รอบเก่าทับรอบใหม่ · `latest` ที่ผู้เรียกอ่านมาแล้วถูกส่งเข้ามาเพื่อลด round trip |
 | `archiveVoid` | `line-app/api/_bills.js` | เก็บสำเนาบิลที่ถูกยกเลิกเป็น `bill-void:<period>:<room>:<rev>` + index (idempotent) |
 | `tenancyOf` / `visibleToTenant` | `line-app/api/_bills.js` | กฎเดียวที่ตอบว่า "บิลนี้เป็นของผู้เช่าคนปัจจุบันหรือเปล่า" |
 | `receiptNoOf` | `line-app/api/_bills.js` | เลขใบเสร็จที่คำนวณจากบิล (`R<yyyymm>-<room>[-<rev>]`) ไม่ใช้ counter |
 | `withAmounts` / `confirmKey` / `tagOverpaid` / `overpaidOf` | `line-app/api/_bills.js` | ฟิลด์ยอดเงินบนบิล (`slipAmount`/`overpaid`/`shortBy`), key ของการ์ดยืนยัน, index `overpaid:<room>` และกฎ "ยอดเกินตกที่รอบใหม่สุดของกลุ่มเท่านั้น" |
-| `bangkokToday` / `bangkokMonth` / `daysBetween` / `recentBills` / `billsInPeriods` / `overdueOf` | `line-app/api/_ledger.js` | กติกาเงินตามเวลา: วันนี้/เดือนนี้ตามเวลาไทย, ผลต่างวัน, หน้าต่างบิลที่อ่าน (ใช้ร่วมกันโดย `_remind` กับ `GET /api/bill?overdue=1`) และการนับบิลเลยกำหนด |
+| `bangkokToday` / `bangkokMonth` / `daysBetween` / `recentBills` / `overdueOf` | `line-app/api/_ledger.js` | กติกาเงินตามเวลา: วันนี้/เดือนนี้ตามเวลาไทย, ผลต่างวัน, การอ่านบิลจริงแบบมีขอบเขต (`recentBills` เป็น fallback ของห้องที่ยังไม่มี `bill-state:`) และการนับบิลเลยกำหนด |
 | `attachPrepay` / `usable` / `clearPrepay` | `line-app/api/_prepay.js` | ผูกสลิปโอนล่วงหน้าเข้ากับบิล (`run.js` และ `slip.js` เรียกตัวเดียวกัน จึงได้เนื้อหาเหมือนกันและ push ถูก dedupe) · ล้าง `prepay` เฉพาะใบที่ใช้จริง (`slipAt` ตรง) |
 | `configFor(room)` | `line-app/api/_rooms.js` | ราคาที่ใช้จริง = `DEFAULTS` จาก env ทับด้วย `room:<room>` — จุดเดียวที่ตัดสินว่าราคาห้องคือเท่าไร |
 | `verifySlip({bytes, mime, amount})` | `line-app/api/_verify.js` | ตรวจสลิปกับ SlipOK แล้วคืน `{ ok: true\|false\|null, reason?, transRef?, amount? }` · ไม่ throw และไม่เคยปฏิเสธการแนบสลิป |
@@ -584,6 +653,7 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 | `mapLimit(list, n, fn)` | `line-app/api/_async.js` | จำกัด concurrency ตอนวนหลายห้อง (กัน function หมดเวลา) |
 | `current_session` | `backend/app/auth.py` | แปลง cookie/DEV headers เป็น `Session(user_id, role, property_id, room_id)` |
 | `sign` / `unsign` | `backend/app/session.py` | session cookie แบบ signed-not-encrypted ด้วย stdlib HMAC |
+| `_set_session_cookie` / `start_tenant_session` | `backend/app/routes/auth.py` | ที่เดียวที่เซ็น cookie `dp_session` — LINE login กับ `login_owner` ใช้ร่วมกัน (เจ้าของได้ `uid:"owner"`, `role:"owner"`) จึงมีกลไก session ชุดเดียว |
 | `attach_property(engine, property_id)` | `backend/app/db.py` | ผูก `app.property_id` ให้ทุก connection ตอน connect (เงื่อนไขที่ RLS ทำงาน) |
 | `ApiError` + `install(app)` | `backend/app/errors.py` | บังคับ error ทุกแบบให้เป็น `{"error":{"code","message"}}` ตาม `docs/API.md` |
 | `due_for_reminder` / `queue_reminders` | `backend/app/dunning.py` | แยก "เลือกบิล" (ทดสอบได้ ไม่แตะคิว) ออกจาก "ส่งเข้าคิว" |
@@ -596,21 +666,22 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 
 ```text
 pakdee-prototype/
-├─ line-app/               # stack ที่ใช้งานจริง: Node serverless + Blob
+├─ line-app/               # stack ที่ใช้งานจริง: Node serverless + object store (Blob หรือ R2)
 │  ├─ api/                 # 1 ไฟล์ = 1 serverless function (ชื่อไฟล์คือ route) — 12 ไฟล์ = เต็มเพดาน
-│  │  ├─ _*.js             # helper ที่ require() กันตรง ๆ (ไม่ใช่ endpoint)
-│  │  │                    #   _store _bills _ledger _prepay _promptpay _verify _remind _auth _line
+│  │  ├─ _*.js             # helper ที่ require() กันตรง ๆ (ไม่ใช่ endpoint) — 14 ไฟล์
+│  │  │                    #   _store _store-r2 _bills _ledger _prepay _promptpay _verify _remind _auth _line
 │  │  │                    #   _rooms _async _limit _qr
 │  │  └─ *.js              # endpoint: bill config cron dev me owner qr rooms run slip slip-image webhook
 │  ├─ liff/bill.html       # UI เดียวของ stack นี้ (ไม่มี build, inline JS/CSS)
-│  ├─ scripts/             # สคริปต์ rich menu (setup-richmenu.js, set-richmenu-image.js)
+│  ├─ scripts/             # rich menu (setup-richmenu.js, set-richmenu-image.js) + migrate-blob-to-r2.js
 │  ├─ docs/                # เอกสารเฉพาะ stack นี้
 │  └─ vercel.json          # crons: GET /api/cron · rewrite / → /liff/bill.html · security headers
 ├─ backend/                # stack เป้าหมาย: FastAPI + Postgres
 │  ├─ api/index.py         # entrypoint ของ Vercel (จาก app.main import app)
-│  ├─ app/                 # main, config, db, auth, session, line, queue, tasks, dunning
+│  ├─ app/                 # main, config, db, auth, session, attempts, line, queue, tasks, dunning
 │  │  └─ routes/           # auth, properties, rooms, billing, me, dunning, cron, invites, reports, webhooks
 │  ├─ liff/index.html      # หน้า LIFF ผู้เช่าของ stack นี้ (เสิร์ฟที่ /liff)
+│  ├─ owner/index.html     # หน้าเจ้าของของ stack นี้ (เสิร์ฟที่ /owner, 4 แท็บ, ไม่มี build)
 │  ├─ migrations/          # Alembic (schema จริงที่รัน) — 0001…0005 (0004 = RLS, 0005 = line_events)
 │  ├─ tests/               # pytest (ต้องมี Postgres) — รวม test_rls.py
 │  └─ vercel.json          # ไม่มี crons แล้ว (งานประจำวันย้ายไป line-app)
@@ -624,7 +695,12 @@ pakdee-prototype/
 
 - **แบนราบตาม platform ไม่ใช่ตาม layer** — ทั้งสอง stack ใช้ "ไฟล์ = route" ของ Vercel
   ไม่มี routing layer หรือ bundler · ใน `line-app/` ไฟล์ที่ขึ้นต้นด้วย `_` คือ shared module
-  (ต้องเป็น CommonJS เพราะ `require()` กันตรง ๆ)
+  (ต้องเป็น CommonJS เพราะ `require()` กันตรง ๆ) · หน้าเจ้าของของ `backend/` ก็ไม่มี build:
+  HTML ไฟล์เดียวเสิร์ฟด้วย `StaticFiles` (`backend/app/main.py`)
+- **`line-app/` มี dependency สามตัว** — `@vercel/blob`, `aws4fetch`, `qrcode-svg` (ที่เหลือเป็น stdlib
+  ของ Node) · `aws4fetch` ถูกเลือกแทน `@aws-sdk/client-s3` เพราะเซ็นแค่สี่ verb แต่ SDK เต็มกิน
+  หลาย MB ซึ่งทุก function จ่ายตอน cold start · QR วาดด้วย `qrcode-svg` (`_qr.js`) เพราะหน้า LIFF
+  ไม่มีไลบรารีและ bundle ต้องเล็ก
 - **ชนเพดานจำนวน function แล้ว** — `line-app/api/` มี endpoint 12 ไฟล์พอดี (bill, config, cron, dev,
   me, owner, qr, rooms, run, slip, slip-image, webhook) ซึ่งเท่าเพดาน 12 function ต่อ deployment
   ของ Hobby · ทางเดียวที่จะเพิ่ม endpoint คือรวมเข้าไฟล์เดิม ซึ่งเป็นเหตุผลที่ `api/qr.js` รวม GET/POST
@@ -632,7 +708,7 @@ pakdee-prototype/
   (`bill` / `advance` / `archived`), `api/owner.js` รวม GET/POST/DELETE ของสิทธิ์เจ้าของ และ
   `api/rooms.js` รวมอ่านทุกห้อง (GET) + ตั้งราคาห้องเดียว (POST) และ `api/bill.js` รวมอ่านบิล (`GET`,
   ทุกโหมด query) + `void`/`reject`/`refunded` (`POST`) ในไฟล์เดียว · helper ใหม่ (`_verify`, `_ledger`,
-  `_prepay`, `_promptpay`) จึงถูกเพิ่มเป็นไฟล์ `_` ไม่ใช่ endpoint — และโค้ดที่สอง endpoint ต้องใช้เหมือนกัน
+  `_prepay`, `_promptpay`, `_store-r2`) จึงถูกเพิ่มเป็นไฟล์ `_` ไม่ใช่ endpoint — และโค้ดที่สอง endpoint ต้องใช้เหมือนกัน
   (หน้าต่างบิล/วันที่ไทย, การผูกสลิปโอนล่วงหน้า) ถูกย้ายลง `_ledger`/`_prepay` แทนการเขียนซ้ำ
 - **business rules อยู่ใกล้ที่เก็บข้อมูล** — `line-app/` คำนวณเงินใน `api/run.js` จาก `configFor()`
   (ราคาที่เจ้าของแก้ต่อห้องอยู่ใน `room:<room>` เขียนโดย `POST /api/rooms`; env เป็นเพียงค่าเริ่มต้น);
@@ -645,14 +721,17 @@ pakdee-prototype/
 
 ## 10. ข้อจำกัดเชิงสถาปัตยกรรม
 
-1. **ไม่มี single source of truth** — บิลของผู้ใช้จริงอยู่ใน Blob (`line-app/`) ส่วนบิลใน Postgres
+1. **ไม่มี single source of truth** — บิลของผู้ใช้จริงอยู่ใน object store ของ `line-app/` (Blob หรือ R2) ส่วนบิลใน Postgres
    (`backend/`) ถูกสร้างด้วย seed/migration แยกกัน · การย้ายข้อมูลข้าม stack ยังไม่มีเครื่องมือในเรพ
-2. **`line-app/` ไม่มี transaction และไม่มี compare-and-set** — เขียนทับทั้งไฟล์ ไม่มี lock ระดับ key
+2. **`line-app/` ไม่มี transaction และไม่มี compare-and-set** — เขียนทับทั้ง object (ทั้ง Blob และ R2) ไม่มี lock ระดับ key
    (`cron-lock` และการล้าง `prepay` แบบเทียบ `slipAt` เป็นเพียงการบรรเทา) · เลขใบเสร็จจึงถูกคำนวณ
    ไม่นับ และการทวงเป็น at-least-once · ข้อความซ้ำถูกลดลงด้วย `X-Line-Retry-Key` (LINE ตอบ 409 = ส่งไปแล้ว)
    แต่ยังซ้ำได้ถ้าเขียน mark ไม่สำเร็จแล้วรันอีกวัน (key มีวันที่) — ข้อมูลที่เขียนทับกันยังเป็น race อยู่
-3. **`backend/` ไม่มีทางเข้าเจ้าของบน production** — ไม่มี owner login, `DEV_AUTH` ถูกปิดบน production
-   (ดูข้อ 7)
+3. **เจ้าของ `backend/` ไม่มีตัวตนรายคน** — เข้าได้ที่ `/owner` ด้วยรหัสเดียวของหอ
+   (`OWNER_ACCESS_CODE`) ไม่มี username/บัญชี/ตาราง owner และไม่มีเพิกถอนสิทธิ์รายคน: ทุกคนที่รู้รหัส
+   คือ "เจ้าของ" คนเดียวกันในสายตา `audit_log` · รหัสหลุด = ต้องเปลี่ยนรหัส และถ้าต้องตัด session
+   ที่ค้างอยู่ต้องเปลี่ยน `SESSION_SECRET` (ซึ่งตัดผู้เช่าด้วย) · ไม่มี MFA และไม่มี CSRF token
+   (พึ่ง cookie `SameSite=Lax` อย่างเดียว) · `DEV_AUTH` ถูกปิดบน production (ดูข้อ 7)
 4. **RLS แยกหอได้ แต่หนึ่ง deployment = หนึ่งหอ** — `app.property_id` มาจาก env `PROPERTY_ID` ตอน
    connect ไม่ใช่จาก request · ถ้า role ที่ใช้ต่อมี `BYPASSRLS` (เช่น `neondb_owner` ของ Neon)
    policy จะถูกข้ามทั้งหมด จึงต้องใช้ role อย่าง `dormplus_app`
@@ -683,7 +762,7 @@ pakdee-prototype/
 10. **ไม่มี background job อื่นนอกจาก cron รายวัน** — บิลรอบใหม่ยังเกิดเมื่อเจ้าของกดจากหน้าจอเท่านั้น
     (`POST /api/run`) ไม่มี auto-billing และไม่มี retry ของ push ที่ล้มนอกเหนือจากการรอรอบถัดไป
 11. **ไฟล์รูปที่ถูกแทนที่ไม่ถูกลบในเส้นทาง prepay** — `slip.js` ตั้งใจไม่ลบรูปของ `prepay` ใบเก่า
-    เพราะ Blob บอกไม่ได้ว่าไฟล์ยังถูกอ้างถึงหรือไม่ (orphan file ถูกกว่าบิลที่รูป 404) ·
+    เพราะ object store บอกไม่ได้ว่าไฟล์ยังถูกอ้างถึงหรือไม่ (orphan file ถูกกว่าบิลที่รูป 404) ·
     รูปที่ถูกแทนในบิลปกติถูกลบแบบ best-effort ผ่าน `dropIfUnused()`
 12. **`slip-ref:<transRef>` ไม่มีวันหมดอายุและไม่ถูกลบ** — สลิปที่เคยใช้กับบิลที่ถูกยกเลิกจะถูกมองว่า
     "ใช้ไปแล้ว" เมื่อผู้เช่าอัปโหลดรูปเดิมซ้ำ (เจ้าของยังยืนยันด้วยมือได้ แต่ระบบจะขึ้น pill แดง) ·
@@ -694,8 +773,13 @@ pakdee-prototype/
 14. **เงินคืนเป็น to-do ที่ต้องมีคนกดปิด** — `refundDue` ไม่กันการออกบิลใหม่และระบบไม่รู้ว่าคืนเงินจริงหรือยัง
     จนเจ้าของยิง `POST /api/bill { action:"refunded" }` · รายการที่อ่านได้ (เงินค้างคืน, void archive,
     ใบเสร็จย้อนหลัง) ล้วนอิง index ที่มีเพดาน — `bill-voids:<room>`/`overpaid:<room>` 200 รายการ,
-    `bills:<room>` 60 รอบ, `?income` มองย้อน 12 เดือน, `?overdue`/`_remind` เห็นบิลค้างไม่เกิน 12 รอบต่อห้อง —
-    เกินกว่านั้นต้องอ่าน key ตรงหรือ archive เอง (การตัดรายการเก่าเกิดเงียบ ๆ ไม่มี error)
+    `bill-state:<room>` 24 รอบ (ใช้ร่วมกันโดย `?overdue`, `?income` และ `_remind`), `bills:<room>` 60 รอบ,
+    `?income` มองย้อน 12 เดือน — เกินกว่านั้นต้องอ่าน key ตรงหรือ archive เอง
+    (การตัดรายการเก่าเกิดเงียบ ๆ ไม่มี error)
+15. **cache 10 วินาทีของ `_store.js` เป็น per-instance** — instance ที่ cache key ไว้จะตอบค่าเดิมได้
+    อีกไม่เกิน 10 วินาทีหลังมีการเขียนจาก instance อื่น (การเขียนล้าง cache เฉพาะ instance ที่เขียน)
+    ทั้งหน้ารวมห้องกับ `?overdue` จึงอาจเห็นรายการต่างกันชั่วครู่ · key ที่เป็นเงินไม่ถูก cache เลย
+    (ยืนยัน/ยกเลิก/คืนเงินอ่านบิลจริงทุกครั้ง) — trade-off นี้ยอมรับเพื่อลด operation ของ Blob (§4.1)
 
 ## เอกสารที่เกี่ยวข้อง
 

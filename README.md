@@ -6,7 +6,7 @@ Repo นี้มีของจริง 2 ส่วน — เลือกอ�
 
 | ส่วน | stack | deploy | เอกสาร |
 |---|---|---|---|
-| [`line-app/`](line-app/) | Node · Vercel serverless · Vercel Blob · LINE Messaging API + LIFF | **ใช้จริง** — https://line-app-iota.vercel.app | [`line-app/README.md`](line-app/README.md) · [`line-app/docs/`](line-app/docs/) |
+| [`line-app/`](line-app/) | Node · Vercel serverless · Vercel Blob หรือ Cloudflare R2 · LINE Messaging API + LIFF | **ใช้จริง** — https://line-app-iota.vercel.app | [`line-app/README.md`](line-app/README.md) · [`line-app/docs/`](line-app/docs/) |
 | [`backend/`](backend/) | Python · FastAPI · Postgres (Neon) | **ใช้จริง** — https://line-backend-ten.vercel.app | [`backend/README.md`](backend/README.md) |
 
 `line-app/` คือของที่ผู้เช่า/เจ้าของใช้จริง: จดมิเตอร์ → ออกบิล → การ์ดใน LINE → แนบสลิป → เจ้าของยืนยัน
@@ -54,7 +54,7 @@ pip install -e ".[dev]"
 docker compose up -d          # Postgres 17 (พอร์ต 5432)
 alembic upgrade head
 python -m app.seed
-uvicorn app.main:app --reload # http://127.0.0.1:8000/docs
+uvicorn app.main:app --reload # http://127.0.0.1:8000/docs · หน้าเจ้าของที่ /owner (ต้องตั้ง OWNER_ACCESS_CODE)
 pytest
 ```
 
@@ -74,7 +74,7 @@ pytest
 | ตรวจสลิปอัตโนมัติกับธนาคาร | ✅ `line-app` ต่อ SlipOK (`api/_verify.js`, เรียกจาก `api/slip.js`) — ยอดไม่ตรง (`1013`) · บัญชีผู้รับไม่ใช่ของหอ (`1014`) · สลิปซ้ำ (`1012`); ผลอยู่บน `bill.slipVerify` เป็น `ok:true|false|null` โดย `ok:null` = **ตรวจไม่ได้** ไม่ใช่ของปลอม · เปิดเมื่อตั้ง env `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` ครบทั้งคู่ · ยังไม่ auto-confirm: เจ้าของกดยืนยันเหมือนเดิม · ฝั่ง `backend` `slip.verify` ยัง manual |
 | สลิปใบเดียวจ่ายสองบิลไม่ได้ | ✅ Blob key `slip-ref:<transRef>` จำว่า transRef นั้นถูกใช้กับห้องไหนแล้ว (ของเราเอง ไม่พึ่งหน่วยความจำของผู้ให้บริการ) |
 | แก้ไขราคาห้อง | ✅ `POST /api/rooms` (เจ้าของเท่านั้น · รับ `rent` / `waterRate` / `elecRate` เป็นจำนวนเต็ม) + ปุ่ม "แก้ไขราคาห้อง" ใน LIFF · เก็บที่ `room:<room>` · ราคาใหม่มีผลกับบิลที่ออกหลังจากนั้น บิลที่ออกแล้วต้อง void แล้วออกใหม่ |
-| หน้าจอเจ้าของของ backend (Thai web UI) | ⬜ `line-app/` มีหน้าจดมิเตอร์ของเจ้าของแล้ว |
+| หน้าจอเจ้าของของ backend (Thai web UI) | ✅ `/owner` — หน้าเดียว 4 แท็บ (มิเตอร์ · บิล · สลิป · รายงาน) · ล็อกอินด้วยรหัสหอ `POST /v1/auth/owner` → cookie `dp_session` (`role=owner`) · ไม่ได้ตั้ง `OWNER_ACCESS_CODE` = `503 OWNER_LOGIN_OFF` · กันเดารหัสด้วย `app/attempts.py` (429 `TOO_MANY_ATTEMPTS`) |
 | QR ผูกผู้เช่ากับห้อง | ✅ `GET/POST /api/qr?room=` (เจ้าของสร้าง/หมุน) · ผู้เช่าสแกน → ผูกทันที |
 | หลายเจ้าของ + ผู้ช่วย (ดูอย่างเดียว) | ✅ QR จากเจ้าของเดิม · สิทธิ์ `owner` / `viewer` · `/api/me` คืน `role` |
 | ประวัติบิลย้อนหลัง | ✅ `bill:<period>:<room>` + หน้าดูย้อนหลังใน LIFF (เริ่มนับจากรอบที่ออกหลังฟีเจอร์นี้) |
@@ -127,10 +127,11 @@ pytest
 `line-app/` กับ `backend/` เป็น **สองสแตกอิสระ** — ไม่มีโค้ดร่วม ไม่มีฐานข้อมูลร่วม และ **ไม่เรียก HTTP หากัน** · deploy แยกเป็น 2 โปรเจกต์ Vercel (root directory คนละโฟลเดอร์)
 
 ```text
-LINE Platform ──webhook──▶ line-app/ ──▶ Vercel Blob (kv/*.json, slips/*)
+LINE Platform ──webhook──▶ line-app/ ──▶ Vercel Blob หรือ R2 (kv/*.json, slips/*)
                               └─ LIFF bill.html (ล็อกอินด้วย idToken)
 
 backend/ ──▶ Postgres (Neon)      ← webhook ยังไม่ผูก (OA ชี้ที่ line-app)
+   └─ /owner (หน้าเว็บเจ้าของ · cookie จากรหัสหอ)
    ▲
 docs/API.md ← สัญญา v1 ที่ทั้งคู่ยึด (เป็นข้อตกลง ไม่ใช่การเชื่อมต่อ)
 ```
@@ -141,12 +142,26 @@ docs/API.md ← สัญญา v1 ที่ทั้งคู่ยึด (เ�
 
 | เรื่อง | `line-app/` | `backend/` |
 |---|---|---|
-| เก็บข้อมูล | Vercel Blob: `kv/*.json` + `slips/*` | Postgres (Neon) ตาม [`db/schema.sql`](db/schema.sql) |
-| ทางเข้า | LINE webhook · หน้า LIFF (`liff/bill.html`) | `/liff` ของ backend · curl · pytest |
-| auth | LINE idToken ทุก request (`api/_auth.js`) | cookie `dp_session` จาก LINE Login หรือ `X-Dev-*` ตอน dev |
+| เก็บข้อมูล | Vercel Blob หรือ Cloudflare R2 (`api/_store.js` เลือกให้): `kv/*.json` + `slips/*` | Postgres (Neon) ตาม [`db/schema.sql`](db/schema.sql) |
+| ทางเข้า | LINE webhook · หน้า LIFF (`liff/bill.html`) | `/liff` · `/owner` (หน้าเว็บเจ้าของ) · curl · pytest |
+| auth | LINE idToken ทุก request (`api/_auth.js`) | cookie `dp_session` จาก LINE Login หรือรหัสหอ (`POST /v1/auth/owner`) หรือ `X-Dev-*` ตอน dev |
 | ส่งข้อความ LINE | reply + push (การ์ดบิล/ยืนยัน) + push เตือนรายวันจาก `/api/cron` | push เตือนผ่านคิว (`app/line_push.py`) |
 | cron / คิว | Vercel Cron → `GET /api/cron` (ทวงค่าเช่ารายวัน) | Vercel Cron → Procrastinate (หัวข้อถัดไป) |
-| dependency | `@vercel/blob`, `qrcode-svg` | FastAPI · SQLAlchemy · Alembic · procrastinate |
+| dependency | `@vercel/blob`, `aws4fetch`, `qrcode-svg` | FastAPI · SQLAlchemy · Alembic · procrastinate |
+
+## ที่เก็บข้อมูลของ `line-app` — Blob หรือ R2
+
+ทุกอย่างที่แตะ storage ผ่าน [`line-app/api/_store.js`](line-app/api/_store.js) ตัวเดียว (เทสต์สลับเป็นในหน่วยความจำได้) มีสอง backend:
+
+| เงื่อนไข | backend | โค้ด |
+|---|---|---|
+| ไม่ได้ตั้ง `R2_BUCKET` | Vercel Blob | `@vercel/blob` |
+| ตั้ง `R2_BUCKET` | Cloudflare R2 (S3 API) | [`line-app/api/_store-r2.js`](line-app/api/_store-r2.js) + `aws4fetch` (ไม่ใช้ `@aws-sdk/client-s3` — ประหยัดขนาด bundle ตอน cold start) |
+
+- R2 ต้องมี env ครบสี่ตัว: `R2_ACCOUNT_ID` · `R2_BUCKET` · `R2_ACCESS_KEY_ID` · `R2_SECRET_ACCESS_KEY` (ขาดตัวใดตัวหนึ่ง = throw ตอนสร้าง store)
+- path คงรูปเดิม `kv/<key>.json` และ `slips/*` ทั้งสอง backend — ย้ายข้อมูลด้วย [`line-app/scripts/migrate-blob-to-r2.js`](line-app/scripts/migrate-blob-to-r2.js) (`BLOB_READ_WRITE_TOKEN=… R2_*=… node scripts/migrate-blob-to-r2.js [--dry] [--only=kv|slips]`) **ก่อน** ตั้ง `R2_BUCKET` บน deployment จะได้สลับด้วย env ตัวเดียว
+- `bill-state:<room>` คือสำเนาย่อของบิลแต่ละงวด (period/status/total/due/paidAt/issuedAt/receiptNo/refundDue…) เก็บ 24 งวดล่าสุดต่อห้อง · เขียนโดย `saveBills()` ใน [`line-app/api/_bills.js`](line-app/api/_bills.js) (เรียก `indexState()` ใน [`line-app/api/_ledger.js`](line-app/api/_ledger.js)) · ทวงรายวัน, `GET /api/bill?overdue=1` และ `?income=` อ่านคีย์นี้คีย์เดียวต่อห้องแทนที่จะไล่อ่านทีละงวด (ห้องที่ยังไม่มีคีย์จะถูกสร้างใหม่จากบิลจริงตอนอ่าน)
+- แคชในหน่วยความจำ 10 วินาที เฉพาะคีย์ที่เปลี่ยนช้า (`dorm`, `room:`, `bill-state:`, `bills:`, `rooms:`) · คีย์ที่เกี่ยวกับเงิน (`bill:`, `slip-ref:`, `qr-code:`) ไม่แคช และทุกครั้งที่เขียนจะล้างแคชของคีย์นั้น
 
 ## ทดสอบ (ไม่ต้องต่อเน็ต)
 

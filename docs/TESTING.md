@@ -6,7 +6,7 @@ repo นี้แยกเป็นสองครึ่งที่ deploy แ�
 
 ตัวเลขในเอกสารนี้คือ **snapshot ที่วัดจาก repo ณ ตอนเขียน** ไม่ใช่สัญญา — ถ้าเพิ่ม test ตัวเลขจะขยับ
 
-ที่มา: `line-app/smoke.js`, `line-app/smoke-handlers.js`, `line-app/smoke-reads.js`, `line-app/smoke-usecases.js`, `line-app/smoke-cron.js`, `line-app/package.json`, `backend/tests/*.py`, `backend/pyproject.toml`, `backend/docker-compose.yml`, `docs/TEST-CASES.md`, `.github/workflows/ci.yml`, `scripts/prod-smoke.mjs`
+ที่มา: `line-app/smoke.js`, `line-app/smoke-handlers.js`, `line-app/smoke-reads.js`, `line-app/smoke-usecases.js`, `line-app/smoke-cron.js`, `line-app/api/_store-r2.js`, `line-app/package.json`, `backend/tests/*.py`, `backend/pyproject.toml`, `backend/docker-compose.yml`, `docs/TEST-CASES.md`, `.github/workflows/ci.yml`, `scripts/prod-smoke.mjs`
 
 ---
 
@@ -14,10 +14,10 @@ repo นี้แยกเป็นสองครึ่งที่ deploy แ�
 
 | ชั้น | ไฟล์ | รันด้วย | ต้องมีอะไร | ครอบอะไร |
 |---|---|---|---|---|
-| `line-app` โครงสร้าง/handler | `smoke.js`, `smoke-handlers.js`, `smoke-reads.js` | `node` (หรือ `npm test`) | Node ≥ 20 · ไม่ต้องมีเน็ต · **ไม่ต้อง `npm install`** | signature ของ webhook, Flex card, QR binding + move-confirm, rate limit, ยืนยันการชำระ + ใบเสร็จ, ยกเลิก/ออกบิลใหม่, สลิปหนึ่งใบหลายงวด, roles/invite, slip limits, **ตรวจสลิปผ่าน SlipOK (stub)**, **แก้ราคาห้อง**, สมาชิกห้อง/รูมเมท, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป, concurrency ของ read + `/api/bill?overdue=` / `?income=` / `?refunds=1` |
-| `line-app` use case | `smoke-usecases.js` | `node smoke-usecases.js` | เหมือนข้างบน | **168 เคส** ที่ id ตรงกับ `docs/TEST-CASES.md` (TC-xx-n) ไล่ตาม UC-01 … UC-18 (ไม่มี UC-19 ซึ่งเป็น pytest) |
-| `line-app` cron เตือนรายวัน | `smoke-cron.js` | `node smoke-cron.js` | เหมือนข้างบน | auth ของ `/api/cron`, lock กันรอบซ้อน, 6 หน้าต่างเตือน, dedup, catch-up, ข้ามบิลที่ไม่ควรเตือน, retry, สรุปถึงเจ้าของ |
-| `backend` API | `backend/tests/*.py` (14 ไฟล์ · 142 ฟังก์ชัน `def test_`) | `pytest` | Python ≥ 3.11 · **Postgres** สำหรับ test ที่แตะ DB | สัญญา error, session cookie, LINE idToken, ห้อง/มิเตอร์, ออกบิล + ส่งบิลเข้า LINE, สลิป/ยืนยัน/ตีกลับ, ผูก LINE, dunning, cron, **RLS**, webhook signature + dedupe, รายงานสรุป |
+| `line-app` โครงสร้าง/handler | `smoke.js`, `smoke-handlers.js`, `smoke-reads.js` | `node` (หรือ `npm test`) | Node ≥ 20 · ไม่ต้องมีเน็ต · **`smoke.js` ต้องมี `npm ci` ก่อน** (บล็อก R2 ใช้ `aws4fetch`) · `smoke-handlers.js`/`smoke-reads.js` ไม่ต้องมี `node_modules` | signature ของ webhook, Flex card, QR binding + move-confirm, rate limit, ยืนยันการชำระ + ใบเสร็จ, ยกเลิก/ออกบิลใหม่, สลิปหนึ่งใบหลายงวด, roles/invite, slip limits, **ตรวจสลิปผ่าน SlipOK (stub)**, **แก้ราคาห้อง**, สมาชิกห้อง/รูมเมท, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป, concurrency ของ read, **adapter R2 เทียบ S3 ปลอม (get/404/put/delete/list paging)** และ `/api/bill?overdue=` / `?income=` / `?refunds=1` |
+| `line-app` use case | `smoke-usecases.js` | `node smoke-usecases.js` | Node ≥ 20 · ไม่ต้องมีเน็ต · ไม่ต้องมี `node_modules` | **168 เคส** ที่ id ตรงกับ `docs/TEST-CASES.md` (TC-xx-n) ไล่ตาม UC-01 … UC-18 (ไม่มี UC-19 ซึ่งเป็น pytest) |
+| `line-app` cron เตือนรายวัน | `smoke-cron.js` | `node smoke-cron.js` | Node ≥ 20 · ไม่ต้องมีเน็ต · ไม่ต้องมี `node_modules` | auth ของ `/api/cron`, lock กันรอบซ้อน, 6 หน้าต่างเตือน, dedup, catch-up, ข้ามบิลที่ไม่ควรเตือน, retry, สรุปถึงเจ้าของ |
+| `backend` API | `backend/tests/*.py` (15 ไฟล์ · 148 ฟังก์ชัน `def test_` · 150 test node) | `pytest` | Python ≥ 3.11 · **Postgres** สำหรับ test ที่แตะ DB | สัญญา error, session cookie, LINE idToken, owner login + หน้า `/owner`, ห้อง/มิเตอร์, ออกบิล + ส่งบิลเข้า LINE, สลิป/ยืนยัน/ตีกลับ, ผูก LINE, dunning, cron, **RLS**, webhook signature + dedupe, รายงานสรุป |
 | LIFF inline script | `line-app/liff/bill.html` | `node --check` (ใน CI) | Node | แค่ **parse ได้** ไม่ได้รัน logic |
 | production หลัง deploy | `scripts/prod-smoke.mjs` | `node scripts/prod-smoke.mjs` | เน็ต + URL จริง | **14 ข้อ**: build ปัจจุบัน, security header, endpoint ที่ต้อง auth ตอบ 401, dev endpoint ปิด, cron ป้องกัน secret |
 
@@ -33,10 +33,11 @@ repo นี้แยกเป็นสองครึ่งที่ deploy แ�
 
 ```bash
 cd line-app
+npm ci                   # จำเป็นสำหรับ smoke.js (บล็อก R2 ใช้ aws4fetch)
 
 npm test                 # = node smoke.js && node smoke-handlers.js && node smoke-reads.js
 
-node smoke.js            # signature + Flex card + auth guards
+node smoke.js            # signature + Flex card + auth guards + adapter R2 (ต้องมี aws4fetch)
 node smoke-handlers.js   # dev gate, QR binding, สมาชิกห้อง, rate limit, confirm, ออกบิล, roles, slip limits, ใบเสร็จ, void, ตรวจสลิป (SlipOK), ราคาห้อง, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป
 node smoke-reads.js      # concurrency, ลำดับ, history, overdue, income, refunds, สิทธิ์
 node smoke-usecases.js   # 168 เคสตาม UC (id ตรง docs/TEST-CASES.md)
@@ -47,7 +48,7 @@ node smoke-cron.js       # เตือนรายวัน: auth, lock, หน
 
 > ⚠️ **`npm test` รันแค่ 3 ไฟล์** — `smoke-usecases.js` (168 เคส) และ `smoke-cron.js` ไม่ได้อยู่ใน script นี้ CI รันครบทั้ง 5 ไฟล์แยกเป็น step (`ci.yml`) พร้อม `pytest` ของ backend ดังนั้นก่อน push ให้รันเองทั้ง 5 หรือรันตามข้อ 4
 
-**ไม่ต้อง `npm install`:** ทั้งห้าไฟล์ `require` เฉพาะ builtin ของ Node (`assert`, `crypto`, `module`, `path`) และ stub dependency เองผ่าน `Module._load` / `require.cache` — ข้อยกเว้นเดียวคือ block QR ใน `smoke.js` ที่จะพิมพ์ `qrcode-svg not installed, QR check skipped` ถ้ายังไม่ได้ติดตั้ง (`smoke.js` บรรทัด 88–101)
+**`smoke.js` ต้องมี `node_modules`:** `smoke-handlers.js`, `smoke-reads.js`, `smoke-usecases.js` และ `smoke-cron.js` `require` เฉพาะ builtin ของ Node (`assert`, `crypto`, `module`, `path`) และ stub dependency เองผ่าน `Module._load` / `require.cache` จึงรันได้โดยไม่ต้องติดตั้งอะไร แต่บล็อก R2 adapter ใน `smoke.js` (`smoke.js` บรรทัด 103–141) `require` `./api/_store-r2` ซึ่ง `require` `aws4fetch` — ถ้ายังไม่ `npm ci` ไฟล์จะล้มด้วย `MODULE_NOT_FOUND` และ `exit 1` (ไม่ได้ skip) · บล็อก QR ยังข้ามได้เองและพิมพ์ `qrcode-svg not installed, QR check skipped` (`smoke.js` บรรทัด 88–101)
 
 ### 2.2 `smoke.js` — ตรวจอะไร
 
@@ -59,6 +60,7 @@ node smoke-cron.js       # เตือนรายวัน: auth, lock, หน
 | bypass ของ seed token | `BYPASS_ALLOWED` เป็น `false` เมื่อไม่มี env / production (แม้เปิด opt-in) / preview, เป็น `true` เมื่อ preview + `ALLOW_SEED_BYPASS=true` หรือ `vercel dev` |
 | owner/viewer | `OWNER_USER_ID` เป็น owner · คนที่ถูกเชิญเป็น owner ได้ · viewer ไม่ใช่ owner แต่ `canView` ได้ · ผู้เช่าไม่ใช่อะไรทั้งนั้น · ไม่ตั้ง `OWNER_USER_ID` → เฉพาะคนที่ถูกเชิญเป็น owner |
 | QR | SVG เริ่มด้วย `<svg`, มี `viewBox`, ไม่มี `width` ตายตัว (ถ้าติดตั้ง `qrcode-svg`) |
+| R2 adapter (`api/_store-r2.js`) | รันกับ `fetch` ปลอม (ไม่แตะเน็ต ไม่มีบัคเก็ต): `getText` คืน body และ URL เป็น `/<bucket>/<path>` · key ที่ไม่มี (404) → `null` ไม่ throw · `putText` ส่ง `PUT` พร้อม body ตรงตัว · `delFile` ที่ตอบ 404 ไม่ throw · `listPaths` ทำตาม `NextContinuationToken` จน `IsTruncated=false` แล้วคืนครบทั้งสอง key |
 
 ### 2.3 `smoke-handlers.js` — ตรวจอะไร
 
@@ -74,7 +76,7 @@ stub ทั้งหมด: Blob store เป็น `Map` ในหน่วย�
 | ออกบิล | บิลที่ `paid` แล้วไม่ถูกรีเซ็ต · บิล `unpaid` ออกซ้ำได้ (แก้เลขผิด) · หน่วยติดลบ/ไม่ใช่จำนวนเต็ม/ห้องนอก `ROOMS` → error และไม่เขียนบิล · บิล legacy ที่ใช้ key `bill:<room>` ก็ถูกกัน · ผู้เช่าเรียก → 403 · period ผิดรูปแบบ → 400 |
 | idToken cache | token เดิมยืนยันกับ LINE ครั้งเดียว · token ที่ถูกปฏิเสธไม่ถูก cache |
 | roles / invite / revoke | `/api/me` คืน `role`/`owner`/`root` ถูก · owner ที่ถูกเชิญสร้าง owner ใหม่ไม่ได้แต่สร้าง viewer ได้ · viewer เชิญใครไม่ได้ · invite ที่สร้างโดย non-root ก่อนกฎนี้ → 410 · คนที่ไม่ใช่ root ไม่เห็น userId ของสมาชิก · root ลบตัวเองไม่ได้ (409) · userId ที่มี `../` → 400 · เพิกถอนแล้วสิทธิ์หายใน request ถัดไป และ invite ที่คนนั้นสร้างตายตาม · invite ที่ถูกใช้แล้วใช้ซ้ำไม่ได้ |
-| slip limits | note > 500 ตัวอักษร หรือ note ไม่ใช่ string → 400 · 1 สลิป/30 วินาที (`SLIP_TOO_SOON`) · 5 สลิป/บิล (`SLIP_LIMIT`) · แนบใหม่ลบไฟล์เก่า · `slipCount` ใน history เพิ่ม · owner ไม่ติด limit |
+| slip limits | note > 500 ตัวอักษร หรือ note ไม่ใช่ string → 400 · 1 สลิป/30 วินาที (`SLIP_TOO_SOON`) · 5 สลิป/บิล (`SLIP_LIMIT`) · แนบใหม่ลบไฟล์เก่า · `slipCount` ใน history เพิ่ม · owner ไม่ติด limit · แนบรูปใหม่แทนของเดิมอ่านสโตร์ไม่เกิน **6** ครั้ง — สลิป 1 + ค่าคงที่ของ index `bill-state` 1 (ไม่ได้อ่านต่อบิล; เพดานเดิม 5 ถูกขยับขึ้นเป็น 6 โดยตั้งใจ) |
 | ออกบิลห้องซ้ำใน request เดียว | อันที่สองตก, ยอดที่ออกคืออันแรก |
 | ลำดับ period | บิลเดือนใหม่ยังเป็น "ใบปัจจุบัน" แม้เขียนเดือนเก่าทีหลัง |
 | slip image | ผู้เช่าห้องอื่น → 403 · owner เปิดสลิปที่ไม่มี → 404 |
@@ -118,7 +120,7 @@ cd line-app && node smoke-usecases.js
 
 - แต่ละเคสห่อด้วย `tc(id, title, fn)` — ผ่านพิมพ์ `✓ <id> <title>`, ตกพิมพ์ error แล้วสรุปท้ายเป็น `failed: TC-xx-n, ...` พร้อม `process.exit(1)` (CI จึงแดง)
 - ครอบ UC-01 คิดยอดบิล · UC-02 บันทึกมิเตอร์ · UC-03 ออกบิล · UC-04 ยืนยันการชำระ + ใบเสร็จ · UC-05 ดูห้องค้างชำระ · UC-06 รายงานรายรับ · UC-07 เพิ่ม/ถอนเจ้าของและผู้ช่วย · UC-08 เปลี่ยนผู้เช่า/หมุน QR · UC-09 ผูก LINE · UC-10 ดูบิลและประวัติ · UC-11 แนบสลิป · UC-12 ตรวจสลิป (เฉพาะกฎอายุ/เวลาสลิป) · UC-13 สลิปหลายงวด · UC-14 ประวัติของผู้เช่า · UC-15 ใบเสร็จ · UC-16 เตือนรายวัน (ฝั่ง line-app) · UC-17 แจ้งชำระก่อนบิลออก · UC-18 ยกเลิกบิล
-- **UC-12 (ตรวจสลิปอัตโนมัติ) มีฟีเจอร์แล้วและครบ 7 ใน 8 เคส** — 6 เคสอยู่ใน `smoke-handlers.js` (บล็อก `slip verification (SlipOK)`) และ `TC-12-7` (กฎอายุสลิป/โอนก่อนบิลออก) อยู่ในไฟล์นี้ แต่ **ผู้ให้บริการถูก stub**: `TC-12-8` (ยิง sandbox จริง) ยังเป็น 🖐 (คำนำของ UC-12 ใน `TEST-CASES.md` ยังเขียนว่า "ยังไม่สร้างทั้งสองส่วน" ซึ่งล้าสมัย — ให้ยึดคอลัมน์ "ทดสอบโดย" ของแต่ละแถว)
+- **UC-12 (ตรวจสลิปอัตโนมัติ) มีฟีเจอร์แล้วและครบ 7 ใน 8 เคส** — 6 เคสอยู่ใน `smoke-handlers.js` (บล็อก `slip verification (SlipOK)`) และ `TC-12-7` (กฎอายุสลิป/โอนก่อนบิลออก) อยู่ในไฟล์นี้ แต่ **ผู้ให้บริการถูก stub**: `TC-12-8` (ยิง sandbox จริง) ยังเป็น 🖐 — ยึดคอลัมน์ "ทดสอบโดย" ของแต่ละแถวเป็นหลัก
 - UC-14 มีบล็อกของตัวเอง 1 เคส (`TC-14-2` ยอดค้างรวมฝั่งผู้เช่า) และ `TC-14-3` ชี้ไป `TC-10-5` โดยตั้งใจ
 - UC-19 (รับ event จาก LINE ฝั่ง backend) ไม่มีบล็อกในไฟล์นี้ — ทั้ง 6 เคสเป็น pytest (`backend/tests/test_webhook.py`)
 
@@ -145,7 +147,7 @@ harness เดียวกับ `smoke-handlers.js` แต่เพิ่ม: `
 
 ### 2.7 ข้อจำกัดของชุดนี้
 
-- ทุกอย่างถูก stub: **ไม่ได้ทดสอบ Vercel Blob จริง, LINE Messaging API จริง, SlipOK จริง, runtime ของ Vercel, หรือ LIFF**
+- ทุกอย่างถูก stub: **ไม่ได้ทดสอบ Vercel Blob จริง, LINE Messaging API จริง, SlipOK จริง, runtime ของ Vercel, หรือ LIFF** — adapter R2 ก็ถูกตรวจแค่กับ endpoint S3 ปลอมใน `smoke.js` (ไม่ได้ต่อ Cloudflare R2 จริง จึงไม่รู้ว่า `aws4fetch` เซ็น request ได้ตรงที่ R2 ยอมรับ หรือ permission ของบัคเก็ตถูก)
 - ตรวจได้เฉพาะ request ที่เรียก handler ตรง ๆ ด้วย `req`/`res` ปลอม — routing, header ที่ platform ใส่, และ timeout ไม่ถูกทดสอบ
 - เคสที่ยิงพร้อมกันถูกจำลองด้วย `gate` (บังคับลำดับการอ่าน/เขียน) และด้วย LINE ที่ตอบ 409 ให้ retry key ซ้ำ — **ไม่ใช่สองโปรเซสจริงบนเครือข่ายจริง** และการกันของซ้ำฝั่ง LINE อาศัยหน้าต่าง dedupe ของ LINE (24 ชั่วโมง) ไม่ใช่ lock ในสโตร์ของเรา (ดูข้อ 10 ข้อ 4–5)
 
@@ -198,15 +200,16 @@ pytest -q
 
 | สภาพ | ผล |
 |---|---|
-| `pytest --collect-only -q` | **144 test node จาก 142 ฟังก์ชัน `def test_` ใน 14 ไฟล์** (`test_rooms.py` มี `parametrize` 1 ตัวที่แตกเป็น 3 node) |
-| `pytest -q` ไม่มี Postgres | **23 passed, 121 skipped** (วัดบนเครื่องที่เขียนเอกสาร — test ที่ไม่ต้องใช้ DB รันได้หมด ที่เหลือถูก skip) |
-| `pytest -q` มี Postgres ตาม `TEST_DATABASE_URL` | ทั้ง **144 node รันจริง** — CI รันแบบนี้ทุกครั้งด้วย service `postgres:16` (job `backend` ใน `ci.yml`) เอกสารนี้ไม่รายงานเลข passed จากเครื่อง local เพราะเครื่องที่เขียนไม่มี Postgres ที่พอร์ต 5432 |
+| `pytest --collect-only -q` | **150 test node จาก 148 ฟังก์ชัน `def test_` ใน 15 ไฟล์** (`test_rooms.py` มี `parametrize` 1 ตัวที่แตกเป็น 3 node) |
+| `pytest -q` ไม่มี Postgres | **25 passed, 125 skipped** (วัดบนเครื่องที่เขียนเอกสาร — test ที่ไม่ต้องใช้ DB รันได้หมด ที่เหลือถูก skip) |
+| `pytest -q` มี Postgres ตาม `TEST_DATABASE_URL` | ทั้ง **150 node รันจริง** — CI รันแบบนี้ทุกครั้งด้วย service `postgres:16` (job `backend` ใน `ci.yml`) เอกสารนี้ไม่รายงานเลข passed จากเครื่อง local เพราะเครื่องที่เขียนไม่มี Postgres ที่พอร์ต 5432 |
 
 ### 3.3 ไฟล์ test แต่ละไฟล์
 
 | ไฟล์ | ต้องมี DB | ครอบอะไร |
 |---|---|---|
 | `test_app.py` | บางตัว (`test_healthz_ok`) | `/docs` เปิดนอก production / ปิดบน production · `DEV_AUTH` ถูกเพิกเฉยบน production · 404 ใช้รูป `{"error": {"code","message"}}` · `/healthz` 503 เมื่อ DB ล่ม |
+| `test_owner_ui.py` | บางตัว (4 จาก 6) | `POST /v1/auth/owner`: รหัสถูก → 200 `{role:"owner", property_id}` + cookie `dp_session` แล้ว `/v1/rooms?period=2026-11` เห็นครบ 42 ห้อง · รหัสผิด → 401 ไม่มี cookie และเดาครบ `MAX_FAILURES` (10 ครั้ง/ชั่วโมง) → 429 `TOO_MANY_ATTEMPTS` แม้ยิงด้วยรหัสถูก · ไม่ตั้ง `OWNER_ACCESS_CODE` → 503 `OWNER_LOGIN_OFF` · cookie ของผู้เช่าเปิด `/v1/rooms`, `/v1/reports/summary`, `POST /v1/billing/run` → 403 · logout → 204 แล้ว `/v1/rooms` 401 · `GET /owner` และ `/owner/` ถูกเสิร์ฟ (200, มีคำว่า "เจ้าของหอ" และ `/v1/auth/owner` ใน HTML) |
 | `test_session_and_line.py` | ไม่ | cookie sign/unsign, token ถูกแก้, secret อื่น, หมดอายุ, default secret ถูกปฏิเสธ · idToken `aud` ต้องตรง channel · `POST /v1/auth/line` → 503 เมื่อยังไม่ตั้ง `LINE_CHANNEL_ID` |
 | `test_cron.py` | ไม่ (stub queue) | `GET /v1/cron/daily`: ไม่มี secret / secret ผิด / token ทาง query → 401 · secret ถูก → 200 `{"queued":1,"drained":true}` และ drain ใน invocation เดียว · ไม่ตั้ง `CRON_SECRET` → fail closed |
 | `test_rooms.py` | ใช่ | 401 ไม่มี session · `DEV_AUTH` header เลือก session · ผู้เช่า → 403 · หออื่นเห็น/แก้ห้องนี้ไม่ได้ · list ตาม period + invoice ของ period · บันทึกมิเตอร์เทียบเดือนก่อน, ส่งซ้ำทับได้, เลขลดลงเตือนแต่บันทึก, ออกบิลแล้วแก้ไม่ได้ (409), ห้องไม่รู้จัก, ค่าผิด → 422 |
@@ -240,7 +243,7 @@ pytest -q
 - `TestClient` เรียก ASGI app ในโปรเซสเดียว — ไม่มี network, TLS, reverse proxy, หรือ timeout จริง
 - ไม่มี worker ของ Procrastinate: `test_cron.py` แทน `due_for_reminder`, `queue_reminders`, `drain_queue` ด้วย stub ทั้งสามตัว · `test_dunning.py` stub แค่ `queue_reminders` แล้วทดสอบ `due_for_reminder` ตัวจริง
 - การ push LINE ถูก monkeypatch — ไม่มีข้อความจริงถูกส่ง
-- test ที่ต้อง DB ทั้งหมด **ไม่รัน** ถ้าไม่มี Postgres: เขียวทั้ง suite ทั้งที่ตัวที่รันจริงเหลือ 23 ตัว (ดูข้อ 10)
+- test ที่ต้อง DB ทั้งหมด **ไม่รัน** ถ้าไม่มี Postgres: เขียวทั้ง suite ทั้งที่ตัวที่รันจริงเหลือ 25 ตัว (ดูข้อ 10)
 - `test_rls.py` ตรวจ policy ในทรานแซกชันเดียวที่สลับ role — ไม่ได้พิสูจน์ว่า connection pool ของแอปตั้ง `app.property_id` ถูกทุกครั้ง (นั่นคือหน้าที่ของ `attach_property` ซึ่ง test ไม่ครอบ)
 
 ---
@@ -249,6 +252,7 @@ pytest -q
 
 ```bash
 cd line-app
+npm ci
 node smoke.js && node smoke-handlers.js && node smoke-reads.js && node smoke-usecases.js && node smoke-cron.js
 cd ../backend
 TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/domplus_test pytest -q
@@ -276,14 +280,14 @@ cd ..\backend; $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@lo
 
 | ชุดที่ตก | ความหมาย | ไปดูตรงไหนก่อน |
 |---|---|---|
-| `smoke.js` | signature ของ webhook เพี้ยน (จะรับของปลอมหรือทิ้งของจริง) · การ์ดบิลผิดยอด/ผิดปุ่ม · seed bypass เปิดได้บน production · สิทธิ์ owner/viewer เพี้ยน | `api/_line.js`, `api/_auth.js` |
+| `smoke.js` | signature ของ webhook เพี้ยน (จะรับของปลอมหรือทิ้งของจริง) · การ์ดบิลผิดยอด/ผิดปุ่ม · seed bypass เปิดได้บน production · สิทธิ์ owner/viewer เพี้ยน · adapter R2 อ่าน/เขียน/ลบ/list ไม่ตรงกับที่ `_store.js` คาด (key หาย, list ไม่ครบ, 404 ไม่กลายเป็น `null`) | `api/_line.js`, `api/_auth.js`, `api/_store-r2.js` |
 | `smoke-handlers.js` | มีช่องโหว่ที่แตะเงินหรือการผูกห้อง: แย่งห้องคนอื่น, ยืนยันบิลผิดใบ/ผิดงวด, เลขใบเสร็จซ้ำ, void ไม่เก็บใบเดิม, limit หลุด, เพิกถอนสิทธิ์ไม่จริง, ตรวจสลิปผ่าน SlipOK ผิดสัญญา (เช่น ไม่ส่ง `log:true`/`amount`, อ่าน error body ผิดรูปว่าผ่าน), แก้ราคาห้อง/ตั้งค่าหอได้โดยไม่ใช่ owner, ตีกลับสลิปได้โดยไม่มีเหตุผล | handler ที่ชื่อใน assert (`api/qr.js`, `api/webhook.js`, `api/run.js`, `api/slip.js`, `api/bill.js`, `api/_verify.js`, `api/_promptpay.js`, `api/rooms.js`, `api/owner.js`) |
 | `smoke-reads.js` | อ่าน Blob เกินขอบเขต (จะช้าจน timeout บน production) หรือผู้เช่าอ่านห้องคนอื่นได้ | `api/rooms.js`, `api/bill.js` |
 | `smoke-usecases.js` | พฤติกรรมตาม use case เปลี่ยนจากที่ `docs/TEST-CASES.md` สัญญาไว้ — ข้อความที่พิมพ์ท้ายบอก id ที่ตก (เช่น `failed: TC-13-4`) เปิดแถวนั้นในเอกสารเพื่อดูผลที่คาด | ไฟล์ที่แถวนั้นอ้างถึง (`api/*.js`, `liff/bill.html`) |
 | `smoke-cron.js` | ผู้เช่าไม่ได้รับเตือน, เตือนซ้ำ, เตือนผิดขั้น/ผิดวัน, ทวงบิลที่จ่ายแล้ว, สรุปถึงเจ้าของผิด, cron เปิดให้คนไม่มี secret | `api/_remind.js`, `api/cron.js` |
 | pytest (ไฟล์ที่ต้อง DB) | สัญญา API หรือ state machine เปลี่ยน — บ่อยสุดคือ migration ไม่ตรงกับ model หรือ constraint ถูกถอด | `backend/app/routes/*`, `backend/migrations/` |
 | pytest `test_rls.py` | policy รั่วหรือปิดเกิน: เห็นข้ามหอ, fail open เมื่อไม่ตั้ง `app.property_id`, หรือเขียนแถวข้ามหอได้ | `backend/migrations/versions/0004_rls_property.py`, `backend/app/db.py` (`attach_property`) |
-| pytest (ไฟล์ที่ไม่ต้อง DB) | session cookie / cron auth / error shape พัง ซึ่งเป็นชั้น security | `app/session.py`, `app/routes/cron.py`, `app/errors.py` |
+| pytest (ไฟล์ที่ไม่ต้อง DB) | session cookie / cron auth / error shape / owner login พัง ซึ่งเป็นชั้น security | `app/session.py`, `app/routes/cron.py`, `app/routes/auth.py`, `app/attempts.py`, `app/errors.py` |
 | `prod-smoke.mjs` | deploy ไม่ตรงกับโค้ด: build เก่า, header หาย, dev endpoint ยังเปิด, endpoint ที่ต้อง auth ตอบ 200 | Vercel deployment + env ของโปรเจกต์นั้น |
 | `node --check` ของ `liff/bill.html` (ใน CI) | inline script ของหน้า LIFF parse ไม่ได้ — ถ้า merge ไปจะเห็นเป็นจอขาวใน LINE | `line-app/liff/bill.html` |
 
@@ -402,9 +406,9 @@ test อัตโนมัติที่ครอบส่วนนี้: `lin
 
 ## 10. ช่องว่างที่รู้อยู่ (อย่าอ่านว่า "ผ่าน test แล้วปลอดภัย")
 
-1. **ไม่มี browser/UI test เลย** — `liff/bill.html` มี inline JS หลายร้อยบรรทัดที่ CI ตรวจแค่ `node --check` ว่า parse ได้ ไม่มีใครตรวจว่าปุ่มทำงาน, สถานะแสดงถูก, หรือ layout ไม่พัง — และไม่มี test ของ sitemap/menu ที่ LINE วาด
+1. **ไม่มี browser/UI test เลย** — `liff/bill.html` มี inline JS หลายร้อยบรรทัดที่ CI ตรวจแค่ `node --check` ว่า parse ได้ ไม่มีใครตรวจว่าปุ่มทำงาน, สถานะแสดงถูก, หรือ layout ไม่พัง — และไม่มี test ของ sitemap/menu ที่ LINE วาด · หน้า owner ของ backend (`backend/owner/index.html` ~380 บรรทัด พร้อม inline script 1 ก้อนที่เรียก `/v1/*`) ก็**ไม่มี browser test**: `test_owner_ui.py` ตรวจแค่ route (`POST /v1/auth/owner`, logout, 403 ของผู้เช่า, rate limit) และ `GET /owner` ตอบ 200 — ไม่มีใครรัน JS ในหน้านั้นเลย
 2. **ไม่มี LINE end-to-end ใน CI** — webhook, postback, rich menu และการส่งข้อความจริงถูก stub/monkeypatch ทั้งหมด; regression ที่เกิดจาก LINE API เปลี่ยนจะไม่ถูกจับ
-3. **ไม่มี test ของ Blob จริง** — `smoke-*.js` ใช้ `Map` แทน `api/_store.js`; พฤติกรรมของ `list`/`put`/`get` (pagination, overwrite, permission, latency) ไม่ถูกทดสอบ
+3. **ไม่มี test ของ Blob/R2 จริง** — `smoke-*.js` ใช้ `Map` แทน `api/_store.js`; พฤติกรรมของ `list`/`put`/`get` (pagination, overwrite, permission, latency) ไม่ถูกทดสอบ · adapter R2 (`api/_store-r2.js`) ถูกตรวจใน `smoke.js` แต่เทียบกับ `fetch` ปลอม — ไม่มีการต่อ Cloudflare R2 จริง การเซ็น request, permission ของบัคเก็ต และ latency จึงไม่ถูกพิสูจน์
 4. **race ของ line-app ไม่มี lock ในสโตร์ — อาศัย retry key ของ LINE** — Blob store เป็น read-modify-write **ไม่มี compare-and-swap** (`api/_store.js` เขียนด้วย `allowOverwrite: true`) เคสที่ยิงชนกันถูกจำลองแล้วด้วย `gate` (บังคับให้ทั้งสองอ่านก่อนใครเขียน) และการกันของซ้ำอยู่ที่ `X-Line-Retry-Key`:
    - `TC-15-10` ยืนยันซ้อน (owner สองคน/ดับเบิลแท็ป) → push ใบเสร็จสองครั้งด้วยคีย์เดียวกัน LINE ตอบ 409 ให้ใบที่สอง และนับเป็นสำเร็จ
    - `TC-16-23` cron สองรอบ → คีย์ `remind:<ห้อง>:<วัน>:<รอบ>:<ขั้น>:<rev>:<ยอด>:<due>` ทำให้รอบที่ซ้ำถูกตัด
@@ -430,7 +434,7 @@ test อัตโนมัติที่ครอบส่วนนี้: `lin
 - เลือกไฟล์ให้ตรงหมวด: `smoke.js` = โครงสร้าง/สิทธิ์พื้นฐาน · `smoke-handlers.js` = handler ที่แตะเงิน/ผูกห้อง · `smoke-reads.js` = read/concurrency · `smoke-usecases.js` = เคสตาม use case (และเพิ่มแถวใน `docs/TEST-CASES.md` ด้วย id เดียวกัน) · `smoke-cron.js` = เตือนรายวัน
 - ถ้าสร้างไฟล์ใหม่ ต้องเพิ่ม step ใน `.github/workflows/ci.yml` เอง — `npm test` ใน `line-app/package.json` ยังรันแค่ 3 ไฟล์เดิม (จะเพิ่มเข้า `"test"` ด้วยก็ได้ แต่ระวังเวลารัน)
 - ใช้ `node:assert` และ stub แบบเดิม: `require.cache[require.resolve("./api/_store")] = {...}` สำหรับ store, แทน `global.fetch` สำหรับ LINE และ SlipOK (เคสสลิปตั้งตัวแปร `slipok` แล้วเรียก `call(slip, ...)` — ตั้ง `SLIPOK_API_KEY`/`SLIPOK_BRANCH_ID` ให้ครบและ `delete` ทิ้งเมื่อจบ), `call(handler, {body, user})` สำหรับ handler, `await tc("TC-xx-n", "ชื่อ", async () => {...})` สำหรับเคสใน `smoke-usecases.js`
-- ทุกเคสต้องรันได้โดยไม่ต้องมีเน็ตและไม่ต้องมี `node_modules` — ถ้าต้องใช้ dependency ให้ stub ผ่าน `Module._load` เหมือน `qrcode-svg`
+- ทุกเคสต้องรันได้โดยไม่ต้องมีเน็ต — ไฟล์ที่ไม่แตะ `aws4fetch` ไม่ต้องมี `node_modules`; ถ้าต้องใช้ dependency ให้ stub ผ่าน `Module._load` เหมือน `qrcode-svg` (บล็อก R2 ใน `smoke.js` เป็นข้อยกเว้นเดียวที่พึ่ง `npm ci` ตามที่ CI ติดตั้งให้)
 - ห้ามใช้ `process.env` ของเครื่องจริง: ตั้งค่าที่ต้องใช้บนหัวไฟล์ (ไฟล์ที่มีอยู่ตั้ง `LINE_CHANNEL_SECRET`, `OWNER_USER_ID`, `ROOMS`, `CRON_SECRET` เอง)
 
 ### backend

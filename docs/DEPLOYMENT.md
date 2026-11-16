@@ -6,8 +6,10 @@
 เขียนจากไฟล์จริง: `line-app/vercel.json`, `backend/vercel.json`, `backend/api/index.py`, `backend/app/db.py`,
 `backend/app/queue.py`, `backend/app/routes/cron.py`, `line-app/api/cron.js`, `line-app/api/_remind.js`,
 `backend/migrations/versions/`, `line-app/api/_verify.js`, `scripts/prod-smoke.mjs`, `Dockerfile`,
-`line-app/scripts/setup-richmenu.js`,
-`.github/workflows/ci.yml` และ `.vercel/project.json` ของทั้งสองโฟลเดอร์
+`line-app/scripts/setup-richmenu.js`, `.github/workflows/ci.yml` และ `.vercel/project.json` ของทั้งสองโฟลเดอร์
+· หน้า owner: `backend/app/main.py`, `backend/app/routes/auth.py`, `backend/owner/index.html`
+· storage/R2: `line-app/api/_store.js`, `line-app/api/_store-r2.js`, `line-app/scripts/migrate-blob-to-r2.js`
+· index บิล: `line-app/api/_bills.js`, `line-app/api/_ledger.js`
 
 รายละเอียดเชิงลึกของครึ่ง LINE app (Blob store, rich menu, LINE Console, ตาราง error string) อยู่ใน
 [`line-app/docs/DEPLOYMENT.md`](../line-app/docs/DEPLOYMENT.md) — เอกสารนี้ไม่เขียนซ้ำ
@@ -43,6 +45,10 @@
 - **ทางเลือกที่ไม่ใช่ Vercel:** `Dockerfile` ที่ root ของ repo สร้าง image ของ backend (`COPY backend/ /app/`,
   `uvicorn` ฟัง `${PORT:-8000}`) สำหรับ Railway/Cloud Run — ไม่มี CI ไหน build image นี้ และ **image ไม่รัน migration
   ให้เอง** ต้อง `alembic upgrade head` ก่อน start หรือทำเป็น release command ของผู้ให้บริการ
+- **หน้าเจ้าของหอ `/owner` อยู่ใน deployment ของ `backend`** — `backend/app/main.py` mount
+  `backend/owner/index.html` ไว้ที่ `/owner` (StaticFiles, `html=True`) และล็อกอินด้วย `POST /v1/auth/owner`
+  ที่เทียบรหัสกับ env `OWNER_ACCESS_CODE` · ไม่มี owner account/ตาราง owner เพราะหนึ่ง deployment = หนึ่งหอ
+  · **ไม่ตั้ง `OWNER_ACCESS_CODE` = ล็อกอินตอบ `503 OWNER_LOGIN_OFF`** (หน้าเปิดได้ แต่เข้าไม่ได้) — ข้อ 3.1
 
 ---
 
@@ -109,7 +115,7 @@ vercel --prod
 | โปรเจกต์ | env ที่ต้องมีบน Vercel | หมายเหตุ |
 |---|---|---|
 | `line-app` | `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`, `LIFF_ID`, `OWNER_USER_ID`, `CRON_SECRET` (≥ 16 ตัว) (+ `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` ถ้าเปิดตรวจสลิป · `RICHMENU_OWNER_ID` / `RICHMENU_TENANT_ID` ถ้าใช้ rich menu · `PUBLIC_BASE_URL` ไม่บังคับ — ถ้าไม่ตั้ง โค้ดใช้ `https://${req.headers.host}`) | `BLOB_STORE_ID` มาจาก `vercel storage connect` ไม่ต้องตั้งเอง · `SEED_TOKEN` / `ALLOW_SEED_BYPASS` **ปิดบน production เสมอ** · ไม่มี `CRON_SECRET` = ไม่มีการทวงบิลอัตโนมัติเลย · `ROOMS` / `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` ควรตั้งให้ตรงหอ (ค่าในแอปทับ env ได้ — §2.1 ของ `CONFIGURATION.md`) |
-| `line-backend` | `DATABASE_URL` (pooled + `?sslmode=require`, **role ที่ไม่มี `BYPASSRLS`**), `SESSION_SECRET`, `LINE_CHANNEL_ID`, `LIFF_ID`, `COOKIE_SECURE=true`, `DEV_AUTH=false`, `PROPERTY_ID` · `CRON_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` เฉพาะเมื่อจะยิง cron/dunning ของฝั่งนี้ด้วยมือ | `DEV_AUTH=true` ถูกเพิกเฉยเมื่อ `VERCEL_ENV=production` · backend ไม่มี cron ที่ลงทะเบียนแล้ว จึงไม่ต้องมี `CRON_SECRET` เพื่อให้ระบบทำงานปกติ |
+| `line-backend` | `DATABASE_URL` (pooled + `?sslmode=require`, **role ที่ไม่มี `BYPASSRLS`**), `SESSION_SECRET`, `LINE_CHANNEL_ID`, `LIFF_ID`, `COOKIE_SECURE=true`, `DEV_AUTH=false`, `PROPERTY_ID`, `OWNER_ACCESS_CODE` (ถ้าใช้หน้า `/owner`) · `CRON_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` เฉพาะเมื่อจะยิง cron/dunning ของฝั่งนี้ด้วยมือ | `DEV_AUTH=true` ถูกเพิกเฉยเมื่อ `VERCEL_ENV=production` · backend ไม่มี cron ที่ลงทะเบียนแล้ว จึงไม่ต้องมี `CRON_SECRET` เพื่อให้ระบบทำงานปกติ · ไม่ตั้ง `OWNER_ACCESS_CODE` = หน้า `/owner` ล็อกอินไม่ได้ (`503 OWNER_LOGIN_OFF`) |
 
 - **`DATABASE_URL` ของ runtime ต้องเป็น role อย่าง `dormplus_app`** — DML บนทุกตาราง + sequences แต่ **ไม่มี
   `BYPASSRLS`** ไม่งั้น policy ของ migration `0004` ถูกข้ามทั้งหมด · alembic ใช้ role ที่มีสิทธิ์ DDL (owner) แยกกัน
@@ -128,10 +134,11 @@ vercel --prod
   (`vercel storage connect` ใส่ `BLOB_STORE_ID` ไว้ให้แล้ว) · **`BLOB_READ_WRITE_TOKEN` ไม่ถูกอ่านโดยโค้ด**
   เพราะทุก call ใช้ `access: "private"` — ถ้าเห็นตัวแปรนี้ค้างอยู่ ลบได้ ไม่มีผล
   <!-- VERIFY: Blob store ที่ผูกกับโปรเจกต์ `line-app` (ชื่อ/region) — ดูที่ Project → Storage -->
-- **ย้ายที่เก็บไป Cloudflare R2 (`line-app`)** — ตัวเลือกเมื่อโควตา Blob (10,000 ops/เดือน) ไม่พอ:
-  1. สร้าง bucket + S3 API token แล้วคัดลอกข้อมูล: `BLOB_READ_WRITE_TOKEN=… R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… R2_BUCKET=… node line-app/scripts/migrate-blob-to-r2.js --dry` (ดูจำนวน/ขนาด) แล้วรันซ้ำโดยไม่มี `--dry`
-  2. ตั้ง `R2_BUCKET` + credential ทั้งสามบน Vercel (Production) **หลัง** คัดลอกเสร็จ — มี `R2_BUCKET` เมื่อไร โค้ดใช้ R2 ทันที ไม่ต้องแก้โค้ด
-  3. redeploy แล้วตรวจ `/api/config` + 1 บิล 1 สลิป · ถ้าอยากถอยกลับ แค่ลบ `R2_BUCKET` แล้ว redeploy (ข้อมูลช่วงที่อยู่บน R2 จะยังไม่กลับไป Blob — คัดลอกย้อนก่อนถ้าจำเป็น)
+- **ย้ายที่เก็บไป Cloudflare R2 (`line-app`) — ทางเลือกเมื่อโควตา Blob ไม่พอ** — Vercel Blob free tier ให้
+  **10,000 simple operations/เดือน** <!-- VERIFY: โควตา Blob free tier = 10,000 operations/เดือน เป็นข้อจำกัดของแพลตฟอร์ม อ้างจากคอมเมนต์ใน `line-app/api/_store.js` / `_store-r2.js` ไม่ใช่ค่าที่ตรวจได้จากเรพ --> และหนึ่งรอบของ
+  หน้าจอเจ้าของ (`?overdue=1`, `?income=`) หรือ cron รายวัน **เคยอ่าน ~168 คีย์** — `ROOMS` เริ่มต้น 12 ห้อง ×
+  (`bill:<room>` + `bills:<room>` + 12 รอบล่าสุดจาก `_ledger.OLDER_PERIODS`) — หลังมี `bill-state:<room>`
+  เส้นทางเดิมอ่าน **1 คีย์ต่อห้อง** (12 reads/รอบ) · ขั้นตอนย้ายแบบเต็มอยู่ข้อ 3.2
   <!-- VERIFY: ชื่อ bucket / region / สถานะ R2 บน Cloudflare dashboard และโควตาจริงที่ใช้อยู่ — อยู่นอกเรพ -->
 - **ขั้นตอนที่ทำได้จาก dashboard เท่านั้น** (ไม่มีคำสั่งในเรพ):
   - Vercel → Project → Settings → **Environment Variables** (ผูกกับ Production/Preview) และ **Root Directory**
@@ -151,6 +158,68 @@ vercel --prod
 - CLI: `vercel --prod` หรือ dashboard → Deployments → ⋯ → **Redeploy**
 - หรือแก้จาก CLI: `vercel env rm <NAME> production --yes` แล้ว `"<value>" | vercel env add <NAME> production`
   (รูปแบบนี้ทีมใช้อยู่ตอนสลับ rich menu — ดู [`line-app/docs/DEPLOYMENT.md`](../line-app/docs/DEPLOYMENT.md))
+
+### 3.1 หน้าเจ้าของหอ `/owner` — ต้องมี `OWNER_ACCESS_CODE`
+
+- หน้า `/owner` มาจาก deployment ของ `backend` — `backend/app/main.py` mount
+  `app.mount("/owner", StaticFiles(directory=BACKEND_DIR / "owner", html=True))` ชี้ไปที่ `backend/owner/index.html`
+  **ไม่ต้องมีโปรเจกต์/static site แยก** และ `backend/vercel.json` ไม่มี `rewrites` สำหรับมัน
+- ล็อกอิน: `POST /v1/auth/owner` (`backend/app/routes/auth.py` → `login_owner`) เทียบรหัสกับ
+  `Settings.owner_access_code` (env `OWNER_ACCESS_CODE`, default `""` — `backend/app/config.py`) ด้วย
+  `hmac.compare_digest` แล้วออก cookie ที่เซ็นด้วย `SESSION_SECRET` · ผิด 10 ครั้ง/ชม./IP → `429 TOO_MANY_ATTEMPTS`
+- **ไม่ตั้ง `OWNER_ACCESS_CODE` → `503 OWNER_LOGIN_OFF`** ("ยังไม่ได้ตั้ง OWNER_ACCESS_CODE บนเซิร์ฟเวอร์")
+  หน้าเว็บยังเปิดได้ แต่ทุกโค้ดถูกปฏิเสธ — ไม่มีรหัส default ให้เดา
+- checklist: ตั้ง `OWNER_ACCESS_CODE` (รหัสสุ่มยาว ใช้ร่วมทั้งหอ) **และ** `SESSION_SECRET` ที่ไม่ใช่ placeholder
+  `dev-only-change-me` บนโปรเจกต์ `line-backend` (Production) แล้ว redeploy ตามข้อ 3
+- env นี้ไม่ปรากฏใน `/healthz` และ `scripts/prod-smoke.mjs` ไม่ตรวจ `/owner` — ต้องเปิดหน้าและล็อกอินเองหนึ่งครั้ง (ข้อ 7)
+  <!-- VERIFY: โปรเจกต์ `line-backend` ตั้ง `OWNER_ACCESS_CODE` ไว้แล้วหรือยัง และรหัสคืออะไร — เห็นได้ที่ Project → Settings → Environment Variables เท่านั้น -->
+
+### 3.2 ย้าย Blob → Cloudflare R2 (`line-app`) — runbook
+
+ทำตามลำดับนี้เท่านั้น ลำดับผิด = โค้ดชี้ R2 ที่ยังไม่มีข้อมูล (อ่านได้ `null` ทุก key)
+
+1. **Cloudflare:** สร้าง bucket + S3 API token (สิทธิ์ Object Read & Write เฉพาะ bucket นั้น) → ได้
+   `R2_ACCOUNT_ID`, `R2_BUCKET`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`
+2. **Vercel:** สร้าง **read/write token ของ Blob store** (Project `line-app` → Storage → Blob store → Tokens)
+   — token นี้ใช้แค่ใน shell ตอนคัดลอกเท่านั้น · **runtime ไม่ใช้ token**: `_store.js` ใช้ `BLOB_STORE_ID` +
+   `VERCEL_OIDC_TOKEN` ที่ platform ฉีดให้ ดังนั้นห้ามตั้ง `BLOB_READ_WRITE_TOKEN` บน deployment
+3. **dry run ก่อนเสมอ** (อ่าน Blob ได้ แต่ไม่เขียน R2 · ไม่ต้องมี credential R2):
+   ```bash
+   cd line-app
+   BLOB_READ_WRITE_TOKEN=vercel_blob_rw_… node scripts/migrate-blob-to-r2.js --dry
+   ```
+   ดูจำนวนไฟล์/ขนาดของ `kv/` และ `slips/` แล้วเทียบกับที่คาด (`--only=kv` / `--only=slips` แยกได้)
+4. **รันจริง** ด้วย env ครบห้าตัว (Blob token + R2 ทั้งสี่):
+   ```bash
+   cd line-app
+   BLOB_READ_WRITE_TOKEN=vercel_blob_rw_… \
+   R2_ACCOUNT_ID=… R2_ACCESS_KEY_ID=… R2_SECRET_ACCESS_KEY=… R2_BUCKET=… \
+   node scripts/migrate-blob-to-r2.js
+   ```
+   รันซ้ำได้ปลอดภัย (เขียนทับด้วยไบต์เดิม) · path คงเดิม (`kv/<key>.json`, `slips/…`) จึงไม่ต้อง rewrite อะไร
+5. **ตั้ง env บน Vercel (Production) หลังคัดลอกเสร็จ** — `R2_BUCKET` + `R2_ACCOUNT_ID` + `R2_ACCESS_KEY_ID` +
+   `R2_SECRET_ACCESS_KEY` **ครบทั้งสี่ตัวในรอบ deploy เดียวกัน** · มี `R2_BUCKET` เมื่อไร `_store.js`
+   (`process.env.R2_BUCKET ? createStore() : null`, ตอน module load) เปลี่ยนไป R2 ทั้งระบบทันที; ขาดตัวใดตัวหนึ่ง
+   `createStore()` โยน error ทุก request ที่แตะ storage และ **ไม่ fallback กลับ Blob**
+6. **redeploy** แล้วตรวจ `/api/config` + 1 บิล + 1 สลิป (รูปสลิปต้องเปิดได้) + `bill-state:` ของห้องที่เพิ่งบันทึกบิล
+
+**Rollback:** ลบ `R2_BUCKET` (และ credential R2) แล้ว redeploy — `_store.js` กลับไปใช้ Blob ทันที
+⚠️ **ข้อมูลที่เขียนลง R2 ในช่วงนั้นจะไม่ย้ายกลับเอง** — Blob จะยังเป็นสำเนาก่อนการย้าย ถ้าต้องการข้อมูลช่วงนั้นคืน
+ต้องคัดลอกกลับเองก่อน (ยังไม่มีสคริปต์ทิศทางย้อนกลับในเรพ)
+
+<!-- VERIFY: ชื่อ bucket, region, สถานะ R2 และว่า token ที่สร้างเป็น read/write ของ bucket เดียว — ดูได้ที่ Cloudflare dashboard เท่านั้น -->
+
+### 3.3 `bill-state:<room>` — ไม่มี migration และไม่ต้อง block deploy
+
+key ใหม่นี้ **ถูกสร้างเองแบบ lazy** โดย `saveBills()` ครั้งถัดไปของแต่ละห้อง (`_ledger.indexState()` ถูกเรียกใน
+`saveBills()` ทุกครั้ง — `line-app/api/_bills.js`) ดังนั้น:
+
+- **ไม่มี migration script และไม่มีข้อมูลต้อง rewrite** — อย่าถือว่านี่เป็นงานที่ต้องทำก่อน merge/deploy
+- ห้องที่ยังไม่มี key: `stateBills()` (`_ledger.js`) fallback ไป `recentBills()` (อ่านบิลจริง) **โดยไม่เขียนอะไร**
+  คำตอบจึงถูกทุกกรณี แค่จ่าย read แบบเดิม (หลายคีย์ต่อห้อง) จนกว่าห้องนั้นจะถูกเขียนบิลครั้งแรก
+- การอ่านไม่สร้าง key โดยตั้งใจ (read ต้องไม่ freeze รายการเก่าลงใน index) · หลังบิลใหม่ของห้องหนึ่งถูกบันทึก
+  เส้นทาง overdue/income/cron ของห้องนั้นเหลือ **1 read**
+- ถ้าจะย้ายข้อมูลไป R2 (ข้อ 3.2) `kv/bill-state-*.json` ถูกคัดลอกไปเหมือน key อื่น — ไม่มีขั้นตอนพิเศษ
 
 <!-- VERIFY: env ถูกตั้งแยก Production/Preview หรือใช้ค่าร่วมกัน — ต้องดู Project → Settings → Environment Variables · preview ของ line-app ใช้ Blob store เดียวกับ production หรือไม่ก็ยืนยันจากเรพไม่ได้ -->
 
@@ -421,6 +490,10 @@ exit code 1 ถ้ามีข้อไหนตก — ใช้เป็น ga
 **หลัง deploy ที่แตะ RLS (ข้อ 4.4) ต้องเพิ่มการเช็คด้วยตา:** เปิดหน้า owner แล้วดูว่ามีห้อง/บิลขึ้น
 (`/healthz` ผ่านไม่ได้แปลว่าเห็นข้อมูล — มันแค่ `select 1`)
 
+**หน้า `/owner` (ฝั่ง backend):** `curl -I https://line-backend-ten.vercel.app/owner` ต้องได้ `200` + HTML
+แล้วเปิดในเบราว์เซอร์ ล็อกอินด้วย `OWNER_ACCESS_CODE` หนึ่งครั้ง — prod-smoke ไม่ครอบส่วนนี้ และถ้าได้
+`503 OWNER_LOGIN_OFF` แปลว่ายังไม่ได้ตั้ง env (ข้อ 3.1)
+
 **line-app เพิ่มเติม (เฉพาะครั้งแรกหรือหลังเปลี่ยนรูปเมนู):**
 
 ```bash
@@ -536,6 +609,8 @@ DATABASE_URL="postgresql+psycopg://…unpooled…" alembic current          # �
 | cron ทวงซ้อนสองรอบ / ส่งข้อความซ้ำ | เปิด `crons` ทั้ง `line-app` และ backend | ให้ `line-app/vercel.json` เป็นที่เดียว · backend ต้องไม่มี `crons` (ข้อ 6) |
 | cron ของ backend ตอบ 503 `QUEUE_UNAVAILABLE` | ยังไม่รัน `python -m app.queue` บนฐานข้อมูลนั้น | รันด้วย unpooled URL (ข้อ 5) — หรือไม่ต้องใช้ endpoint นี้เลยถ้าทวงที่ line-app |
 | หน้า LIFF ยังเป็น build เก่า / `qr-ph` หาย | deploy ไม่ขึ้น (กิ่งไม่ใช่ `master`/`preview-*`) หรือ alias ยังชี้ deployment เก่า | ดู Deployments ล่าสุด + `node scripts/prod-smoke.mjs` |
+| **`/owner` เปิดได้แต่ล็อกอินไม่ผ่าน — `503 OWNER_LOGIN_OFF`** | ไม่ได้ตั้ง `OWNER_ACCESS_CODE` บนโปรเจกต์ `line-backend` (หรือตั้งแล้วยังไม่ redeploy) | ตั้งรหัสแล้ว redeploy (ข้อ 3.1) — ตัวหน้าเว็บยัง serve ปกติ ไม่ใช่ deploy ล้ม |
+| หลังย้าย R2 แล้วบิล/สลิปหายทั้งหมด | ตั้ง `R2_BUCKET` ก่อนคัดลอกข้อมูล หรือ bucket ว่าง/credential ไม่ครบ (`createStore()` throw ทุก request และไม่ fallback Blob) | คัดลอกด้วย `scripts/migrate-blob-to-r2.js` ตามข้อ 3.2 · ถอยกลับชั่วคราว: ลบ `R2_BUCKET` แล้ว redeploy (ข้อมูลช่วง R2 ไม่กลับเอง) |
 
 <!-- VERIFY: ข้อ "Git author ต้องเป็นสมาชิกทีม" เป็นพฤติกรรมฝั่ง Vercel account ไม่ใช่สิ่งที่เรพพิสูจน์ได้ — ถ้า deploy จาก Git ไม่ขึ้น ให้ดูที่ Project → Settings → Git ว่า author ของ commit ถูกมองเป็นสมาชิกทีมหรือไม่ -->
 <!-- VERIFY: อาการ "Root Directory ไม่ตรง" ขึ้นกับสถานะการผูก `.vercel/project.json` ในเครื่องที่สั่ง — ตัวไฟล์ถูก gitignore จึงยืนยันจากเรพไม่ได้ว่าค่าปัจจุบันถูกต้อง -->
