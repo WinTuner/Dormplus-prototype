@@ -10,104 +10,116 @@
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#0B0F14;--bar:#111820;--card:#121A22;--card2:#0E151C;--line:#24333F;
-    --text:#E6EDF3;--muted:#8B9AAB;--accent:#4FD8D2;--primary:#147A80;--primary-text:#F2FFFE;
-    --warn:#F59E0B;--bad:#FF7A7A;--radius:12px;--gutter:16px
+    --bg:#0B0F14;--bar:#0F151C;--card:#121A22;--card2:#18222C;
+    --line:rgba(230,237,243,.08);--line2:rgba(230,237,243,.14);
+    --text:#E6EDF3;--muted:#93A1B0;--accent:#4FD8D2;
+    --warn:#E3A008;--bad:#F0726B;
+    --radius:12px;--gutter:16px
   }
   *{box-sizing:border-box;margin:0;padding:0}
-  body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans Thai',system-ui,sans-serif;min-height:100vh;display:flex;justify-content:center}
+  body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans Thai',system-ui,sans-serif;font-variant-numeric:tabular-nums;min-height:100vh;display:flex;justify-content:center}
   button{font-family:inherit;color:inherit}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
   .app{width:100%;max-width:430px;min-height:100vh;display:flex;flex-direction:column}
 
   /* top bar: optional back chevron + kicker + title */
-  .topbar{background:var(--bar);border-bottom:1px solid var(--line);padding:14px var(--gutter) 12px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:5}
-  .back{background:none;border:none;width:28px;height:28px;display:grid;place-items:center;cursor:pointer;color:var(--text);margin-left:-6px;flex:none}
+  .topbar{background:var(--bar);border-bottom:1px solid var(--line);padding:16px var(--gutter) 12px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:5}
+  .back{background:none;border:none;width:32px;height:32px;display:grid;place-items:center;cursor:pointer;color:var(--text);margin-left:-8px;flex:none}
   .back[hidden]{display:none}
-  .kick{font-size:11px;color:var(--muted);line-height:1.4}
-  h1{font-size:17px;font-weight:700;line-height:1.4}
+  .kick{font-size:12px;color:var(--muted);line-height:1.4}
+  h1{font-size:18px;font-weight:600;line-height:1.4}
 
-  main{flex:1;padding:14px var(--gutter) 24px;display:flex;flex-direction:column;gap:10px}
-  .section{font-size:12px;font-weight:600;color:var(--text);margin-top:6px}
-  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px}
+  main{flex:1;padding:16px var(--gutter) 24px;display:flex;flex-direction:column;gap:12px}
+  body.has-bar main{padding-bottom:88px}
+  .section{font-size:12px;font-weight:500;color:var(--muted);margin-top:4px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:16px}
   .m{font-size:12px;color:var(--muted);line-height:1.6}
   .row{display:flex;justify-content:space-between;align-items:center;gap:8px}
-  .rows{display:flex;flex-direction:column;gap:8px;font-size:13px}
-  .rows .total{border-top:1px solid var(--line);padding-top:10px;margin-top:2px;font-weight:700}
-  .big{font-size:22px;font-weight:700}
-  .huge{font-size:30px;font-weight:700;line-height:1.3}
-  .unit{font-size:12px;color:var(--muted);font-weight:400}
-  .progress{height:6px;background:var(--line);border-radius:99px;overflow:hidden;margin-top:10px}
-  .progress i{display:block;height:100%;background:var(--primary);border-radius:99px}
-  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
-  .stats .card{padding:12px;cursor:pointer;text-align:left}
-  .stats .big{margin-top:4px}
+  .rows{display:flex;flex-direction:column;gap:10px;font-size:13px}
+  .rows .total{border-top:1px solid var(--line);padding-top:12px;margin-top:4px;font-weight:600}
+  .big{font-size:20px;font-weight:600;line-height:1.3}
+  .huge{font-size:28px;font-weight:600;line-height:1.2;letter-spacing:-.01em}
+  .unit{font-size:13px;color:var(--muted);font-weight:400}
+  .progress{height:4px;background:var(--line2);border-radius:2px;overflow:hidden;margin-top:12px}
+  .progress i{display:block;height:100%;background:var(--accent);border-radius:2px}
 
-  .btn{display:block;width:100%;background:transparent;border:1px solid var(--line);border-radius:10px;padding:12px;font-size:14px;font-weight:600;text-align:center;cursor:pointer;color:var(--text)}
-  .btn.primary{background:var(--primary);border-color:var(--primary);color:var(--primary-text)}
+  /* counts: one card, three columns split by a hairline */
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);background:var(--card);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+  .stats .card{background:none;border:0;border-left:1px solid var(--line);border-radius:0;padding:14px 12px;cursor:pointer;text-align:left}
+  .stats .card:first-child{border-left:0}
+  .stats .big{margin-top:8px}
+
+  .btn{display:block;width:100%;background:transparent;border:1px solid var(--line2);border-radius:10px;padding:12px;font-size:15px;font-weight:500;text-align:center;cursor:pointer;color:var(--text);transition:background-color .12s,transform .12s}
+  .btn:active{transform:scale(.99)}
+  .btn.primary{background:var(--text);border-color:var(--text);color:#0B0F14;font-weight:600}
   .btn:disabled{opacity:.45;cursor:default}
-  .btn.sm{width:auto;padding:8px 14px;font-size:12px}
+  .btn.sm{width:auto;padding:8px 12px;font-size:13px}
   .stack{display:flex;flex-direction:column;gap:8px}
   .pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
   .bottombar{position:sticky;bottom:0;background:var(--bar);border-top:1px solid var(--line);padding:12px var(--gutter) 16px;display:flex;flex-direction:column;gap:8px}
   .bottombar[hidden]{display:none}
 
-  .chips{display:flex;gap:6px;flex-wrap:wrap}
-  .chip{font-size:12px;padding:4px 12px;border-radius:99px;border:1px solid var(--line);background:transparent;cursor:pointer;color:var(--muted)}
-  .chip.on{background:var(--primary);border-color:var(--primary);color:var(--primary-text)}
-  .pill{font-size:11px;padding:3px 10px;border-radius:99px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
-  .pill.todo{background:var(--primary);border-color:var(--primary);color:var(--primary-text)}
-  .pill.ok{border-color:rgba(79,216,210,.5);color:var(--accent)}
-  .pill.warn{border-color:rgba(245,158,11,.6);color:var(--warn)}
-  .pill.bad{border-color:rgba(255,122,122,.6);color:var(--bad)}
+  .chips{display:flex;gap:8px;flex-wrap:wrap}
+  .chip{font-size:13px;padding:6px 12px;border-radius:8px;border:1px solid var(--line2);background:transparent;cursor:pointer;color:var(--muted)}
+  .chip.on{background:var(--card2);border-color:var(--line2);color:var(--text)}
 
-  .roomcard{display:flex;justify-content:space-between;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;cursor:pointer;width:100%;text-align:left;font-size:14px}
-  .roomcard b{font-weight:600}
-  .roomcard .m{font-size:11px;line-height:1.4}
-  .roomcard.next{border-color:var(--primary)}
+  /* status is a dot and a quiet label, not a coloured pill */
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap}
+  .pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+  .pill.todo{color:var(--muted)}
+  .pill.ok{color:var(--accent)}
+  .pill.warn{color:var(--warn)}
+  .pill.bad{color:var(--bad)}
 
-  .field{display:flex;flex-direction:column;gap:6px}
+  .roomcard{display:flex;justify-content:space-between;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;cursor:pointer;width:100%;text-align:left;font-size:14px}
+  .roomcard b{font-weight:500}
+  .roomcard .m{font-size:12px;line-height:1.5;margin-top:2px}
+  .roomcard.next{box-shadow:inset 2px 0 0 var(--accent)}
+
+  .field{display:flex;flex-direction:column;gap:8px}
   .field label{font-size:12px;color:var(--muted)}
-  .in{display:flex;align-items:center;gap:10px}
-  .in input{flex:1;background:var(--card);border:1px solid var(--line);color:var(--text);border-radius:10px;padding:12px;font-family:inherit;font-size:16px;width:100%}
-  .in input:focus{outline:none;border-color:var(--accent)}
-  .in input:disabled{opacity:.6}
-  .prev{display:flex;gap:24px;margin-top:6px}
-  .prev b{font-size:20px}
+  /* stacked fields inside one card need air between them; the card itself only pads the edges */
+  .card .field + .field,.card .hint + .field,.card .field + .hint{margin-top:12px}
+  .in{display:flex;align-items:center;gap:8px}
+  .in input,.field>input{flex:1;background:var(--card);border:1px solid var(--line2);color:var(--text);border-radius:10px;padding:12px;font-family:inherit;font-size:16px;width:100%}
+  .in input:disabled,.field>input:disabled{opacity:.6}
+  .prev{display:flex;gap:24px;margin-top:8px}
+  .prev b{font-size:18px;font-weight:600}
 
-  .seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:4px}
-  .seg button{background:none;border:none;border-radius:8px;padding:8px;font-size:12px;font-weight:600;cursor:pointer;color:var(--muted)}
-  .seg button.on{background:var(--primary);color:var(--primary-text)}
+  .seg{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:4px}
+  .seg button{background:none;border:none;border-radius:8px;padding:8px;font-size:13px;font-weight:500;cursor:pointer;color:var(--muted)}
+  .seg button.on{background:var(--card2);color:var(--text)}
 
   .slip{display:flex;gap:12px;align-items:flex-start}
-  .thumb{width:52px;height:64px;border-radius:8px;background:var(--card2);border:1px solid var(--line);object-fit:cover;flex:none;display:grid;place-items:center;font-size:10px;color:var(--muted);cursor:pointer;overflow:hidden}
+  .thumb{width:52px;height:64px;border-radius:8px;background:var(--card2);border:1px solid var(--line);object-fit:cover;flex:none;display:grid;place-items:center;font-size:11px;color:var(--muted);cursor:pointer;overflow:hidden}
   .thumb img{width:100%;height:100%;object-fit:cover}
-.qr{margin-top:12px;background:#fff;border-radius:12px;padding:10px;display:grid;place-items:center}
-.qr svg{width:100%;max-width:280px;height:auto;display:block}
+  .qr{margin-top:12px;background:#fff;border-radius:8px;padding:12px;display:grid;place-items:center}
+  .qr svg{width:100%;max-width:200px;height:auto;display:block}
   /* PromptPay placeholder on the tenant bill. Its own class: sharing .qr shrank the room QR to 132px. */
-  .qr-ph{width:132px;height:132px;margin:0 auto;border:1px solid var(--line);border-radius:10px;display:grid;place-items:center;font-size:12px;color:var(--muted);text-align:center}
-  .pick{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:240px;border:1px dashed var(--line);border-radius:var(--radius);background:var(--card);cursor:pointer;text-align:center;overflow:hidden}
+  .qr-ph{width:132px;height:132px;margin:0 auto;border:1px dashed var(--line2);border-radius:8px;display:grid;place-items:center;font-size:12px;color:var(--muted);text-align:center}
+  .pick{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;min-height:240px;border:1px dashed var(--line2);border-radius:var(--radius);background:var(--card);cursor:pointer;text-align:center;overflow:hidden}
   .pick img{width:100%;max-height:420px;object-fit:contain;display:block}
   input[type=file]{display:none}
   .hint{font-size:12px;color:var(--muted);line-height:1.6}
   .warnText{color:var(--warn)}
   .err{color:var(--bad);font-size:13px;line-height:1.6}
-  .empty{text-align:center;padding:28px 12px}
+  .empty{text-align:center;padding:24px 12px}
 
-  .sheet{position:fixed;inset:0;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;padding:var(--gutter);z-index:20}
+  .sheet{position:fixed;inset:0;background:rgba(4,7,10,.72);display:flex;align-items:center;justify-content:center;padding:var(--gutter);z-index:20}
   .sheet .card{width:100%;max-width:398px;max-height:90vh;overflow:auto}
-  .sheet img{width:100%;border-radius:10px;margin-top:10px;display:block}
+  .sheet img{width:100%;border-radius:8px;margin-top:12px;display:block}
 
-  .receipt{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:18px 16px}
-  .receipt .brand{font-size:12px;font-weight:700;letter-spacing:.5px;color:var(--accent)}
-  .receipt h2{font-size:20px;font-weight:700;margin:2px 0 4px}
+  .receipt{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px 16px}
+  .receipt .brand{font-size:12px;font-weight:500;color:var(--muted)}
+  .receipt h2{font-size:18px;font-weight:600;margin:2px 0 4px}
   .receipt .rows{margin-top:12px}
-  .opt{display:flex;align-items:center;gap:10px;font-size:13px;padding:8px 0;cursor:pointer}
-  .opt input{width:18px;height:18px;accent-color:var(--primary);flex:none}
+  .opt{display:flex;align-items:center;gap:12px;font-size:13px;padding:8px 0;cursor:pointer}
+  .opt input{width:18px;height:18px;accent-color:var(--accent);flex:none}
   .opt .grow{flex:1}
 
-  .toast{position:fixed;left:50%;top:84px;transform:translateX(-50%);max-width:calc(100% - 32px);background:var(--card);border:1px solid var(--accent);color:var(--text);font-size:13px;padding:10px 14px;border-radius:10px;z-index:30;opacity:0;pointer-events:none;transition:opacity .2s}
+  .toast{position:fixed;left:50%;top:80px;transform:translateX(-50%);max-width:calc(100% - 32px);background:var(--card2);border:1px solid var(--line2);color:var(--text);font-size:13px;padding:10px 14px;border-radius:10px;z-index:30;opacity:0;pointer-events:none;transition:opacity .16s}
   .toast.show{opacity:1}
-  .toast.err{border-color:var(--bad)}
+  .toast.err{border-color:rgba(240,114,107,.5)}
 </style>
 </head>
 <body>
@@ -166,6 +178,8 @@ function bottom(html) {
   const el = $("bottom");
   el.innerHTML = html;
   el.hidden = !html;
+  // The bar floats over the page, so the last card needs room beneath it.
+  document.body.classList.toggle("has-bar", !!html);
 }
 
 let toastTimer = null;
@@ -322,7 +336,7 @@ function friendCard() {
   if (FRIEND !== false) return "";
   return `<div class="card">
     <div class="m">ยังไม่ได้เพิ่ม DormPlus เป็นเพื่อน — บิลและใบเสร็จจะไม่ถูกส่งเข้าแชท LINE ของคุณ</div>
-    <button class="btn primary" id="addFriend" style="margin-top:10px">เพิ่มเพื่อน DormPlus</button>
+    <button class="btn primary" id="addFriend" style="margin-top:12px">เพิ่มเพื่อน DormPlus</button>
     <button class="btn sm" id="recheckFriend" style="margin-top:8px">ตรวจอีกครั้ง</button>
   </div>`;
 }
@@ -427,7 +441,7 @@ function tenantOverdueCard() {
   const o = T.overdue;
   if (!o || !o.count) return "";
   return `<div class="card"><div class="m"><b>ค้างชำระ ${o.count} งวด · รวม ${fmt(o.total)} บาท · เกินกำหนดสูงสุด ${o.maxDaysOverdue} วัน</b></div>
-    <div class="hint" style="margin-top:6px">งวด ${o.items.map((i) => periodTh(i.period)).join(" · ")}</div></div>`;
+    <div class="hint" style="margin-top:8px">งวด ${o.items.map((i) => periodTh(i.period)).join(" · ")}</div></div>`;
 }
 
 function tenantInvoice() {
@@ -452,20 +466,20 @@ function tenantInvoice() {
       </div>
       ${note ? `<div class="hint" style="margin-top:12px">${esc(note)}</div>` : ""}
       ${b.status === "paid" && b.receiptNo ? `<div class="m" style="margin-top:8px">ใบเสร็จเลขที่ ${esc(b.receiptNo)}</div>
-        <button class="btn" id="rcptBtn" style="margin-top:10px">ดูใบเสร็จ</button>` : ""}
+        <button class="btn" id="rcptBtn" style="margin-top:12px">ดูใบเสร็จ</button>` : ""}
     </div>
     ${b.status === "paid" || b.status === "void" ? "" : b.pay ? `<div class="card">
       <div class="m">สแกนจ่ายผ่านพร้อมเพย์</div>
-      <div class="qr" style="margin-top:10px">${b.pay.qr}</div>
+      <div class="qr" style="margin-top:12px">${b.pay.qr}</div>
       <div class="m" style="text-align:center;margin-top:8px">${fmt(b.total)} บาท</div>
-      <div class="hint" style="text-align:center;margin-top:6px">สแกนด้วยแอปธนาคาร แล้วแนบสลิปด้านล่างให้เจ้าของตรวจ</div>
+      <div class="hint" style="text-align:center;margin-top:8px">สแกนด้วยแอปธนาคาร แล้วแนบสลิปด้านล่างให้เจ้าของตรวจ</div>
     </div>` : `<div class="card">
       <div class="qr-ph">QR พร้อมเพย์</div>
-      <div class="hint" style="text-align:center;margin-top:10px">เจ้าของหอยังไม่ได้ใส่ QR · โอนตามช่องทางที่หอแจ้ง แล้วแนบสลิป</div>
+      <div class="hint" style="text-align:center;margin-top:12px">เจ้าของหอยังไม่ได้ใส่ QR · โอนตามช่องทางที่หอแจ้ง แล้วแนบสลิป</div>
     </div>`}
     <div class="card">
       <div class="m">ประวัติการชำระ</div>
-      <button class="btn" id="histBtn" style="margin-top:10px">ดูใบเสร็จย้อนหลัง</button>
+      <button class="btn" id="histBtn" style="margin-top:12px">ดูใบเสร็จย้อนหลัง</button>
       <div id="hist"></div>
     </div>
     ${b.status === "paid" ? advanceCard(T.advance) : ""}${friendCard()}`;
@@ -480,12 +494,12 @@ function tenantInvoice() {
     try {
       const h = await api(`/api/bill?room=${encodeURIComponent(b.room)}&history=1`);
       $("hist").innerHTML = h.items.length
-        ? `<div class="rows" style="margin-top:10px">${h.items
+        ? `<div class="rows" style="margin-top:12px">${h.items
             .map((i) => i.status === "paid"
               ? `<div class="row" data-rc="${esc(i.period)}" style="cursor:pointer"><span class="m">${periodTh(i.period)}</span><span>${fmt(i.total)} บาท ${statusPill(i.status)} <span class="m">ใบเสร็จ ›</span></span></div>`
               : `<div class="row"><span class="m">${periodTh(i.period)}</span><span>${fmt(i.total)} บาท ${statusPill(i.status)}</span></div>`)
             .join("")}</div>`
-        : `<div class="hint" style="margin-top:10px">ยังไม่มีประวัติ — ระบบเริ่มเก็บประวัติตั้งแต่รอบนี้</div>`;
+        : `<div class="hint" style="margin-top:12px">ยังไม่มีประวัติ — ระบบเริ่มเก็บประวัติตั้งแต่รอบนี้</div>`;
       btn.remove();
       $("hist").querySelectorAll("[data-rc]").forEach((el) => (el.onclick = () => go(`receipt/${el.dataset.rc}`)));
     } catch (e) {
@@ -543,7 +557,7 @@ function tenantSlip() {
     }
     const newest = open[0].period; // history is newest first
     periods = new Set([newest]);
-    $("multi").innerHTML = `<div class="m" style="margin-top:10px">จ่ายหลายงวดในสลิปเดียว</div>` + open
+    $("multi").innerHTML = `<div class="m" style="margin-top:12px">จ่ายหลายงวดในสลิปเดียว</div>` + open
       .map((i) => `<label class="opt"><input type="checkbox" value="${esc(i.period)}" ${i.period === newest ? "checked" : ""}>
           <span class="grow">${periodTh(i.period)} ${statusPill(i.status)}</span><span>${fmt(i.total)} บาท</span></label>`)
       .join("");
@@ -916,7 +930,7 @@ function ownerReport() {
       ${line(`ยังไม่ชำระ (${unpaid.length} ห้อง)`, sum(unpaid))}
       <div id="overdueRow"></div>
     </div>
-    <div class="card" id="incomeCard"><div class="m">รับเงินเดือนนี้ (ตามวันที่ชำระ)</div><div class="hint" style="margin-top:6px">กำลังโหลด…</div></div>
+    <div class="card" id="incomeCard"><div class="m">รับเงินเดือนนี้ (ตามวันที่ชำระ)</div><div class="hint" style="margin-top:8px">กำลังโหลด…</div></div>
     <div id="worstBox"></div>
     <div class="hint">ยอดรอบบิลนับจากบิลล่าสุดของแต่ละห้อง · "รับเงินเดือนนี้" นับตามวันที่เจ้าของยืนยันการชำระ (เวลาไทย) ไม่ว่าเป็นบิลของรอบไหน · รายการค้างนับจากบิลย้อนหลังไม่เกิน 13 งวด</div>`;
 
@@ -926,7 +940,7 @@ function ownerReport() {
       <div class="big">${money(inc.total)}</div>
       <div class="m">${fmt(inc.count)} รายการ</div>`;
   }).catch((e) => {
-    if (route() === "report") $("incomeCard").innerHTML = `<div class="m">รับเงินเดือนนี้ (ตามวันที่ชำระ)</div><div class="err" style="margin-top:6px">โหลดไม่สำเร็จ: ${esc(e.message)}</div>`;
+    if (route() === "report") $("incomeCard").innerHTML = `<div class="m">รับเงินเดือนนี้ (ตามวันที่ชำระ)</div><div class="err" style="margin-top:8px">โหลดไม่สำเร็จ: ${esc(e.message)}</div>`;
   });
 
   loadOverdue().then(() => {
@@ -978,7 +992,7 @@ function ownerInvite() {
               (m, i) => `<div class="row">
                 <span><b>${esc(m.name || "(ไม่ทราบชื่อ)")}</b>${m.you ? ` <span class="m">· คุณ</span>` : ""}
                   <div class="m">${roleTh(m)}${m.addedAt ? ` · เพิ่มเมื่อ ${timeTh(m.addedAt)}` : ""}</div></span>
-                ${r.root && !m.root && m.userId ? `<button class="btn" data-revoke="${i}" style="width:auto;padding:6px 12px">ถอนสิทธิ์</button>` : ""}
+                ${r.root && !m.root && m.userId ? `<button class="btn sm" data-revoke="${i}">ถอนสิทธิ์</button>` : ""}
               </div>`
             )
             .join("")
@@ -1014,10 +1028,10 @@ function ownerInvite() {
         <div class="card">
           <div class="m">ให้เขาสแกน QR นี้ในแอป LINE (หรือส่งลิงก์ให้เปิดใน LINE)</div>
           ${r.qr ? `<div class="qr">${r.qr}</div>` : ""}
-          <div class="row" style="margin-top:10px"><span class="m">สิทธิ์</span><b>${r.role === "viewer" ? viewerLabel : "เจ้าของหอ"}</b></div>
-          <div class="row" style="margin-top:6px"><span class="m">รหัส</span><b style="font-size:18px;letter-spacing:2px">${esc(r.code)}</b></div>
-          ${r.url ? `<div class="m" style="margin-top:6px;word-break:break-all">${esc(r.url)}</div>` : `<div class="m warnText" style="margin-top:6px">ยังไม่ได้ตั้ง LIFF_ID — ส่งรหัสให้เขาพิมพ์เองไม่ได้</div>`}
-          <div class="m" style="margin-top:6px">หมดอายุ ${timeTh(r.expiresAt)}</div>
+          <div class="row" style="margin-top:12px"><span class="m">สิทธิ์</span><b>${r.role === "viewer" ? viewerLabel : "เจ้าของหอ"}</b></div>
+          <div class="row" style="margin-top:8px"><span class="m">รหัส</span><b style="font-size:18px;letter-spacing:2px">${esc(r.code)}</b></div>
+          ${r.url ? `<div class="m" style="margin-top:8px;word-break:break-all">${esc(r.url)}</div>` : `<div class="m warnText" style="margin-top:8px">ยังไม่ได้ตั้ง LIFF_ID — ส่งรหัสให้เขาพิมพ์เองไม่ได้</div>`}
+          <div class="m" style="margin-top:8px">หมดอายุ ${timeTh(r.expiresAt)}</div>
         </div>`;
       $("out").scrollIntoView({ behavior: "smooth" });
     } catch (e) {
@@ -1070,8 +1084,8 @@ function ownerQr(room, addMode = false) {
           ? "ให้ผู้เช่าคนที่สองของห้องสแกน — เพิ่มเป็นสมาชิกโดยไม่เปลี่ยนผู้เช่าหลัก"
           : "ให้ผู้เช่าสแกนในแอป LINE — ผูกกับห้องนี้ทันที (ไม่ต้องพิมพ์เลขห้อง)"}</div>
         ${r.qr ? `<div class="qr">${r.qr}</div>` : `<div class="m warnText">ยังไม่ได้ตั้ง LIFF_ID — สร้าง QR ไม่ได้</div>`}
-        <div class="row" style="margin-top:10px"><span class="m">รหัส${addMode ? "เชิญ" : "ห้อง"}</span><b style="letter-spacing:2px">${esc(r.code)}</b></div>
-        ${r.url ? `<div class="m" style="margin-top:6px;word-break:break-all">${esc(r.url)}</div>` : ""}
+        <div class="row" style="margin-top:12px"><span class="m">รหัส${addMode ? "เชิญ" : "ห้อง"}</span><b style="letter-spacing:2px">${esc(r.code)}</b></div>
+        ${r.url ? `<div class="m" style="margin-top:8px;word-break:break-all">${esc(r.url)}</div>` : ""}
       </div>
       <div class="card">
         ${addMode
@@ -1224,28 +1238,28 @@ function ownerEntry(roomNo) {
     </div>
     ${r.advance ? `<div class="card"><div class="m">ผู้เช่าโอนล่วงหน้าแล้ว ${esc(timeTh(r.advance.slipAt))} — จะติดไปกับบิลที่ออกรอบนี้</div>
       ${verifyLine(r.advance.verify)}
-      ${r.advance.hasSlip ? `<button class="btn" id="advSlip" style="margin-top:10px">ดูสลิป</button>` : ""}</div>` : ""}
+      ${r.advance.hasSlip ? `<button class="btn" id="advSlip" style="margin-top:12px">ดูสลิป</button>` : ""}</div>` : ""}
     <div class="card rows" id="calc"></div>
     <div class="hint warnText" id="hint"></div>
     ${locked ? `<div class="hint">ห้องนี้ออกบิลรอบ ${periodTh(O.period)} แล้ว — แก้ไขไม่ได้</div>` : ""}
     ${r.bill ? `<div class="card">
       <div class="row"><span class="m">บิลล่าสุด ${periodTh(r.bill.period)}</span>${statusPill(r.bill.status)}</div>
       <div class="big" style="margin-top:4px">${fmt(r.bill.total)} <span class="unit">บาท</span></div>
-      ${r.bill.status === "void" && r.bill.voidReason ? `<div class="hint" style="margin-top:6px">ยกเลิก — ${esc(r.bill.voidReason)}</div>` : ""}
+      ${r.bill.status === "void" && r.bill.voidReason ? `<div class="hint" style="margin-top:8px">ยกเลิก — ${esc(r.bill.voidReason)}</div>` : ""}
       ${r.bill.status === "void" && r.bill.refundDue
         ? (r.bill.refundedAt
-          ? `<div class="m" style="margin-top:6px"><span class="pill ok">คืนเงินแล้ว ${esc(bangkokDateTh(r.bill.refundedAt))}</span> ${fmt(r.bill.refundDue)} บาท</div>`
-          : `<div class="m" style="margin-top:6px"><span class="pill bad">ต้องคืนเงิน ${fmt(r.bill.refundDue)} บาท</span></div>
+          ? `<div class="m" style="margin-top:8px"><span class="pill ok">คืนเงินแล้ว ${esc(bangkokDateTh(r.bill.refundedAt))}</span> ${fmt(r.bill.refundDue)} บาท</div>`
+          : `<div class="m" style="margin-top:8px"><span class="pill bad">ต้องคืนเงิน ${fmt(r.bill.refundDue)} บาท</span></div>
              ${MYROLE !== "viewer" ? `<button class="btn" id="refundBtn" style="margin-top:8px">คืนเงินแล้ว</button>` : ""}`)
         : ""}
       ${r.bill.status === "paid" && r.bill.refundReason === "overpaid" && r.bill.refundDue
         ? (r.bill.refundedAt
-          ? `<div class="m" style="margin-top:6px"><span class="pill ok">คืนเงินแล้ว ${esc(bangkokDateTh(r.bill.refundedAt))}</span> ${fmt(r.bill.refundDue)} บาท</div>`
-          : `<div class="m" style="margin-top:6px"><span class="pill bad">ต้องคืนเงินที่โอนเกิน ${fmt(r.bill.refundDue)} บาท</span></div>
+          ? `<div class="m" style="margin-top:8px"><span class="pill ok">คืนเงินแล้ว ${esc(bangkokDateTh(r.bill.refundedAt))}</span> ${fmt(r.bill.refundDue)} บาท</div>`
+          : `<div class="m" style="margin-top:8px"><span class="pill bad">ต้องคืนเงินที่โอนเกิน ${fmt(r.bill.refundDue)} บาท</span></div>
              ${MYROLE !== "viewer" ? `<button class="btn" id="overpaidBtn" style="margin-top:8px">คืนเงินแล้ว</button>` : ""}`)
         : ""}
-      ${r.bill.receiptNo ? `<div class="m" style="margin-top:6px">ใบเสร็จเลขที่ ${esc(r.bill.receiptNo)}</div>` : ""}
-      <div class="stack" style="margin-top:10px">
+      ${r.bill.receiptNo ? `<div class="m" style="margin-top:8px">ใบเสร็จเลขที่ ${esc(r.bill.receiptNo)}</div>` : ""}
+      <div class="stack" style="margin-top:12px">
         ${r.bill.receiptNo || r.bill.status === "paid" ? `<button class="btn" id="rcptBtn">ดูใบเสร็จ</button>` : ""}
         ${MYROLE !== "viewer" && r.bill.status !== "void" ? `<button class="btn" id="voidBtn">ยกเลิกบิล</button>` : ""}
       </div>
@@ -1258,18 +1272,18 @@ function ownerEntry(roomNo) {
         : (r.linked ?? r.tenant)
           ? `<div class="m">ผูก LINE แล้ว แต่ยังไม่มีชื่อ (ผู้ใช้ปิดการเข้าถึงโปรไฟล์)</div>`
           : `<div class="m">ยังไม่มีผู้เช่าผูกห้องนี้</div>`}
-      ${MYROLE !== "viewer" && (r.linked ?? r.tenant) ? `<button class="btn" id="endTenantBtn" style="margin-top:10px">ยกเลิกผู้เช่า (ย้ายออก)</button>
-        <div class="hint" style="margin-top:6px">ถอดทุกบัญชีของห้องนี้ออก และสร้าง QR ใหม่ให้ผู้เช่าคนถัดไป · บิลที่ค้างยังอยู่ให้เก็บเงิน</div>` : ""}
+      ${MYROLE !== "viewer" && (r.linked ?? r.tenant) ? `<button class="btn" id="endTenantBtn" style="margin-top:12px">ยกเลิกผู้เช่า (ย้ายออก)</button>
+        <div class="hint" style="margin-top:8px">ถอดทุกบัญชีของห้องนี้ออก และสร้าง QR ใหม่ให้ผู้เช่าคนถัดไป · บิลที่ค้างยังอยู่ให้เก็บเงิน</div>` : ""}
     </div>
     <div class="card">
       <div class="m">ให้ผู้เช่าผูกห้องนี้ด้วย QR</div>
-      <button class="btn" id="qrBtn" style="margin-top:10px">QR ผู้เช่า (ปริ้นแปะหน้าห้อง)</button>
+      <button class="btn" id="qrBtn" style="margin-top:12px">QR ผู้เช่า (ปริ้นแปะหน้าห้อง)</button>
       ${MYROLE !== "viewer" ? `<button class="btn" id="memberBtn" style="margin-top:8px">เพิ่มผู้เช่า (สมาชิกในห้อง)</button>` : ""}
     </div>
     ${MYROLE !== "viewer" ? `<div class="card">
       <div class="m">ค่าเช่า/ค่าน้ำ/ค่าไฟของห้องนี้</div>
-      <div class="hint" style="margin-top:6px">ค่าเช่า ${fmt(c.rent)} บาท · น้ำ ${fmt(c.waterRate)} · ไฟ ${fmt(c.elecRate)} ต่อหน่วย</div>
-      <button class="btn" id="priceBtn" style="margin-top:10px">แก้ไขราคาห้อง</button>
+      <div class="hint" style="margin-top:8px">ค่าเช่า ${fmt(c.rent)} บาท · น้ำ ${fmt(c.waterRate)} · ไฟ ${fmt(c.elecRate)} ต่อหน่วย</div>
+      <button class="btn" id="priceBtn" style="margin-top:12px">แก้ไขราคาห้อง</button>
     </div>` : ""}`;
 
   $("qrBtn").onclick = () => go(`qr/${encodeURIComponent(r.room)}`);
@@ -1357,7 +1371,7 @@ function ownerBill() {
     </div>
     <div class="card">
       <div class="row"><span class="m">รอบบิล / วันครบกำหนด</span><button class="btn sm" id="editRound">แก้ไข</button></div>
-      <div class="stack" id="roundInputs" style="display:none;margin-top:10px">
+      <div class="stack" id="roundInputs" style="display:none;margin-top:12px">
         <div class="field"><label for="period">รอบบิล (ปี ค.ศ.-เดือน)</label><div class="in"><input id="period" type="text" value="${esc(O.period)}" placeholder="2026-12"></div></div>
         <div class="field"><label for="due">ครบกำหนด (ปี ค.ศ.-เดือน-วัน)</label><div class="in"><input id="due" type="text" value="${esc(O.due)}" placeholder="2026-12-16"></div></div>
         <button class="btn" id="applyRound">ใช้ค่านี้</button>
@@ -1601,7 +1615,7 @@ async function showSlip(room, advance) {
   const sheet = document.createElement("div");
   sheet.className = "sheet";
   sheet.innerHTML = `<div class="card"><div class="row"><b>สลิป${advance ? "โอนล่วงหน้า" : ""}ห้อง ${esc(room)}</b><button class="btn sm" id="closeSlip">ปิด</button></div>
-    <div class="m" id="slipBody" style="margin-top:10px">กำลังโหลด…</div></div>`;
+    <div class="m" id="slipBody" style="margin-top:12px">กำลังโหลด…</div></div>`;
   document.body.appendChild(sheet);
   const close = () => sheet.remove();
   sheet.onclick = (e) => { if (e.target === sheet) close(); };
