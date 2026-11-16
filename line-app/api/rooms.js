@@ -5,7 +5,7 @@ const { requireUser, canView, isOwner } = require("./_auth");
 const { ROOMS, configFor } = require("./_rooms");
 const { mapLimit } = require("./_async");
 
-const READ_CONCURRENCY = 12;
+const READ_CONCURRENCY = 12; // 12 rooms → one wave (72 reads in flight); a 42-room dorm takes 4 waves
 const MAX_RENT = 100000;   // baht per month
 const MAX_RATE = 10000;    // baht per unit
 

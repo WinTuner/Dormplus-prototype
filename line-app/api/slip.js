@@ -80,14 +80,14 @@ module.exports = async (req, res) => {
     if (bytes.length > MAX_BYTES) return fail(res, 413, "TOO_LARGE", "รูปใหญ่เกิน 3MB");
     const ext = m[2] === "jpeg" ? "jpg" : m[2];
     slipPath = `slips/${room}-${advance ? "advance-" : ""}${Date.now()}.${ext}`;
+    // The provider call and the upload do not depend on each other; running them together saves the
+    // tenant about a second on every slip (the verify round trip).
+    shot = { pending: verifySlip({ bytes, mime: m[1], amount: bill?.total ?? prev?.total }) };
     await store.putFile(slipPath, bytes, m[1]);
-    shot = { bytes, mime: m[1] };
   }
 
   // A new photo is checked; a note-only update keeps whatever the last photo was checked as.
-  const verify = shot
-    ? await rememberRef(await verifySlip({ bytes: shot.bytes, mime: shot.mime, amount: bill?.total ?? prev?.total }), room)
-    : prev?.slipVerify || null;
+  const verify = shot ? await rememberRef(await shot.pending, room) : prev?.slipVerify || null;
 
   if (advance) return saveAdvance({ res, room, userId, note, slipPath, sent, verify });
 
@@ -216,6 +216,7 @@ async function saveGroup({ res, room, owner, userId, note, image, periods }) {
   // Without a new photo the group keeps one the bills already had (newest first).
   const oldSlips = [...new Set(found.map((b) => b.slipPath).filter(Boolean))];
   let slipPath = [...found].reverse().find((b) => b.slipPath)?.slipPath || null;
+  const total = found.reduce((sum, b) => sum + Number(b.total || 0), 0);
   let shot = null;
   if (image) {
     const m = /^data:(image\/(jpeg|png|webp));base64,(.+)$/.exec(image);
@@ -224,14 +225,14 @@ async function saveGroup({ res, room, owner, userId, note, image, periods }) {
     if (bytes.length > MAX_BYTES) return fail(res, 413, "TOO_LARGE", "รูปใหญ่เกิน 3MB");
     const ext = m[2] === "jpeg" ? "jpg" : m[2];
     slipPath = `slips/${room}-${Date.now()}.${ext}`;
+    // Upload and provider check in flight together; one round trip less for the tenant.
+    shot = { pending: verifySlip({ bytes, mime: m[1], amount: total }) };
     await store.putFile(slipPath, bytes, m[1]);
-    shot = { bytes, mime: m[1] };
   }
 
-  const total = found.reduce((sum, b) => sum + Number(b.total || 0), 0);
   // One transfer for several months: the slip must be for the sum, not for one month.
   const verify = shot
-    ? await rememberRef(await verifySlip({ bytes: shot.bytes, mime: shot.mime, amount: total }), room)
+    ? await rememberRef(await shot.pending, room)
     : found.map((b) => b.slipVerify).find(Boolean) || null;
   const slipAt = new Date().toISOString();
   const next = found.map((b) => ({
