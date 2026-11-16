@@ -299,17 +299,17 @@ curl -s "$BASE/v1/rooms?period=2026-11"
 
 ```json
 { "items": [
-    { "id": 1, "room_no": "201", "rent": 3220, "mode": "meter",
+    { "id": "r_201", "room_no": "201", "rent": 3220, "mode": "meter",
       "tenant": { "name": "ผู้เช่า 201", "line_linked": false },
       "reading": { "water_prev": 113, "water_now": 133, "elec_prev": 541, "elec_now": 571 },
-      "invoice": { "id": 10, "total": 3930, "status": "paid", "due_date": "2026-11-09" } } ],
+      "invoice": { "id": "inv_201_2026-11", "total": 3930, "status": "paid", "due_date": "2026-11-09" } } ],
   "period": "2026-11" }
 ```
 
 ### `PUT /v1/rooms/:id/reading`
 
 ```bash
-curl -s -X PUT "$BASE/v1/rooms/13/reading" \
+curl -s -X PUT "$BASE/v1/rooms/r_201/reading" \
   -H "Content-Type: application/json" \
   -d '{"period":"2026-11","water_now":140,"elec_now":600}'
 ```
@@ -342,7 +342,7 @@ curl -s "$BASE/v1/invoices?status=unpaid"
 
 ```json
 { "items": [
-    { "id": 11, "room_no": "202", "total": 3562, "status": "unpaid",
+    { "id": "inv_202_2026-11", "room_no": "202", "total": 3562, "status": "unpaid",
       "due_date": "2026-11-09", "days_overdue": 1 } ] }
 ```
 

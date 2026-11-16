@@ -27,6 +27,13 @@
 
 - ทั้งสองโปรเจกต์ผูก GitHub repo เดียวกัน และ **push เข้า `master` = deploy production อัตโนมัติ**
   <!-- VERIFY: การผูก Git integration, Branch Tracking = `master` และ Root Directory (`line-app/` / `backend/`) — ทั้งสามค่าอยู่ใน settings ของโปรเจกต์ ไม่มีฟิลด์ใดใน `vercel.json` ระบุไว้ (ข้อความนี้มาจาก README/docs/HANDOFF) -->
+- **1 deploy = 1 หอ** — ทั้งสองโปรเจกต์เป็น single-tenant ต่อ deployment: `line-app` ผูกหอด้วย `ROOMS`/`OWNER_USER_ID`,
+  `backend` ผูกหอด้วย `PROPERTY_ID` (ค่าเริ่มต้น `p_1`) ซึ่งถูกตั้งเป็น `app.property_id` ทุก connection และ RLS
+  กรองทุกตารางให้เห็นเฉพาะหอนั้น · เปิดหอที่สอง = สร้าง deployment/โปรเจกต์ชุดใหม่ ไม่ใช่เพิ่ม env ในชุดเดิม
+  (ดู [`CONFIGURATION.md`](./CONFIGURATION.md) §1.6)
+- **ฐานข้อมูล: มีเฉพาะฝั่ง `backend`** — Neon Postgres + RLS (`backend/app/db.py`, migrations `0004`/`0005`)
+  ส่วน `line-app` **ไม่มีฐานข้อมูล** เก็บ state ลง Vercel Blob (`kv/*.json`, `slips/*`) ทั้งสองจึงไม่แชร์ข้อมูลกัน
+  และไม่แชร์ connection string
 - `line-app/` ไม่มีขั้นตอน build — ทั้งระบบคือ static 1 หน้า (`liff/bill.html`) + serverless function ใน `api/*.js`
   `package.json` มีแค่ `test` (รัน smoke 3 ชุด) ไม่มี `build`
 - `backend/` ใช้ Vercel Python runtime: entrypoint คือ `backend/api/index.py` (`from app.main import app`)
@@ -65,6 +72,17 @@ deploy มาจาก **Vercel Git integration** ไม่ใช่จาก Ac
 `*` อย่างเดียวไม่พอ: glob ของ Vercel (`minimatch`) หยุดที่ `/` ดังนั้น `chore/foo` ไม่ match `*`
 จึงต้องมี `**` ด้วย — สองบรรทัดนี้คือสิ่งที่กันไม่ให้ push ระหว่างวันกินโควต้า (ประวัติใน commit `4226e87`)
 
+### 2.1 `master` ถูกป้องกัน — production เปลี่ยนทาง merge เท่านั้น
+
+ทุกอย่างที่ขึ้น production ต้องผ่าน PR ที่ merge เข้า `master` (ไม่มีใคร push ตรง) และ required check คือ job
+`backend` ของ workflow `ci` — PR ที่ `backend` แดง merge ไม่ได้ จึงไม่มีทางที่โค้ด backend จะขึ้น production
+โดยไม่ผ่าน `pytest -q` · การบังคับใช้ครอบ **admins ด้วย** (แม้แต่เจ้าของ repo ก็เลี่ยงไม่ได้)
+
+ผลต่อลำดับงาน: "apply migration ก่อน" ในข้อ 4 ต้องทำ **ก่อนกด merge** ไม่ใช่หลัง เพราะ merge = deploy ทันที
+และถ้าต้อง hotfix ให้เปิด PR เหมือนเดิม ไม่ใช่ `vercel --prod` ตรงจากเครื่อง (ข้อ 2)
+
+<!-- VERIFY: branch protection ของ repo `WinTuner/Dormplus-prototype` (required PR + required check `backend` + enforce admins) ตั้งอยู่บน GitHub org ไม่ใช่ไฟล์ในเรพ — ดูได้ที่ Settings → Branches เท่านั้น -->
+
 deploy ด้วยมือ (ใช้เมื่อไม่ได้มาจาก git):
 
 ```bash
@@ -90,7 +108,7 @@ vercel --prod
 
 | โปรเจกต์ | env ที่ต้องมีบน Vercel | หมายเหตุ |
 |---|---|---|
-| `line-app` | `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`, `LIFF_ID`, `OWNER_USER_ID`, `CRON_SECRET` (≥ 16 ตัว) (+ `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` ถ้าเปิดตรวจสลิป · `RICHMENU_OWNER_ID` / `RICHMENU_TENANT_ID` ถ้าใช้ rich menu · `PUBLIC_BASE_URL` ไม่บังคับ — ถ้าไม่ตั้ง โค้ดใช้ `https://${req.headers.host}`) | `BLOB_STORE_ID` มาจาก `vercel storage connect` ไม่ต้องตั้งเอง · `SEED_TOKEN` / `ALLOW_SEED_BYPASS` **ปิดบน production เสมอ** · ไม่มี `CRON_SECRET` = ไม่มีการทวงบิลอัตโนมัติเลย |
+| `line-app` | `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`, `LIFF_ID`, `OWNER_USER_ID`, `CRON_SECRET` (≥ 16 ตัว) (+ `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` ถ้าเปิดตรวจสลิป · `RICHMENU_OWNER_ID` / `RICHMENU_TENANT_ID` ถ้าใช้ rich menu · `PUBLIC_BASE_URL` ไม่บังคับ — ถ้าไม่ตั้ง โค้ดใช้ `https://${req.headers.host}`) | `BLOB_STORE_ID` มาจาก `vercel storage connect` ไม่ต้องตั้งเอง · `SEED_TOKEN` / `ALLOW_SEED_BYPASS` **ปิดบน production เสมอ** · ไม่มี `CRON_SECRET` = ไม่มีการทวงบิลอัตโนมัติเลย · `ROOMS` / `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` ควรตั้งให้ตรงหอ (ค่าในแอปทับ env ได้ — §2.1 ของ `CONFIGURATION.md`) |
 | `line-backend` | `DATABASE_URL` (pooled + `?sslmode=require`, **role ที่ไม่มี `BYPASSRLS`**), `SESSION_SECRET`, `LINE_CHANNEL_ID`, `LIFF_ID`, `COOKIE_SECURE=true`, `DEV_AUTH=false`, `PROPERTY_ID` · `CRON_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` เฉพาะเมื่อจะยิง cron/dunning ของฝั่งนี้ด้วยมือ | `DEV_AUTH=true` ถูกเพิกเฉยเมื่อ `VERCEL_ENV=production` · backend ไม่มี cron ที่ลงทะเบียนแล้ว จึงไม่ต้องมี `CRON_SECRET` เพื่อให้ระบบทำงานปกติ |
 
 - **`DATABASE_URL` ของ runtime ต้องเป็น role อย่าง `dormplus_app`** — DML บนทุกตาราง + sequences แต่ **ไม่มี
@@ -103,8 +121,23 @@ vercel --prod
   `POST https://api.slipok.com/api/line/apikey/<SLIPOK_BRANCH_ID>` ด้วย header `x-authorization: <SLIPOK_API_KEY>`
   ขาดตัวใดตัวหนึ่ง = `askSlipok()` คืน `null` → สลิปถูกบันทึกด้วย `slipVerify.ok = null`, reason
   `not_configured` (**"ตรวจไม่ได้" ไม่ใช่ "ปลอม"** และไม่มีอะไรพัง) · branch ต้องผูกบัญชีรับเงินของหอไว้
-  ไม่งั้นทุกสลิปได้ `1014` · ทั้งคู่ถูกตั้งบนโปรเจกต์ production แล้ว — **ค่าอยู่ใน Vercel env / SlipOK dashboard เท่านั้น**
-  ไม่มีในเรพ (ชื่อตัวแปรและพฤติกรรมอยู่ที่ [`CONFIGURATION.md`](./CONFIGURATION.md) §2.5)
+  ไม่งั้นทุกสลิปได้ `1014` · ค่าจริงอยู่ใน Vercel env / SlipOK dashboard เท่านั้น ไม่มีในเรพ
+  (ชื่อตัวแปรและพฤติกรรมอยู่ที่ [`CONFIGURATION.md`](./CONFIGURATION.md) §2.5)
+  <!-- VERIFY: `SLIPOK_API_KEY` / `SLIPOK_BRANCH_ID` ถูกตั้งครบทั้งคู่บนโปรเจกต์ `line-app` แล้วหรือยัง และ `SLIPOK_BRANCH_ID` = branch 81129 ที่ผูกบัญชีรับเงินของหอ — เห็นได้ที่ Vercel env + SlipOK merchant console เท่านั้น -->
+- **Blob ใช้ OIDC ไม่ใช่ token** — `@vercel/blob` รับ `BLOB_STORE_ID` + `VERCEL_OIDC_TOKEN` ที่ platform ฉีดให้
+  (`vercel storage connect` ใส่ `BLOB_STORE_ID` ไว้ให้แล้ว) · **`BLOB_READ_WRITE_TOKEN` ไม่ถูกอ่านโดยโค้ด**
+  เพราะทุก call ใช้ `access: "private"` — ถ้าเห็นตัวแปรนี้ค้างอยู่ ลบได้ ไม่มีผล
+  <!-- VERIFY: Blob store ที่ผูกกับโปรเจกต์ `line-app` (ชื่อ/region) — ดูที่ Project → Storage -->
+- **ขั้นตอนที่ทำได้จาก dashboard เท่านั้น** (ไม่มีคำสั่งในเรพ):
+  - Vercel → Project → Settings → **Environment Variables** (ผูกกับ Production/Preview) และ **Root Directory**
+  - LINE Developers → LIFF app → **Endpoint URL** ต้องชี้โดเมน production และเปิด **friend option** ตามที่หอต้องการ
+  - SlipOK merchant console → ผูก **บัญชีรับเงินของหอ** เข้ากับ branch `81129`
+  <!-- VERIFY: ค่า Endpoint URL ของ LIFF และสถานะ friend option ใน LINE Developers console — อยู่นอกเรพ -->
+- **⚠️ ค่า demo `DEFAULT_RENT=1` ต้องถูกลบก่อนใช้จริง** — ถ้าโปรเจกต์ `line-app` ยังมี `DEFAULT_RENT=1`
+  (ตั้งไว้ตอนเดโมให้บิลออกถูก ๆ) ห้องที่ยังไม่มี `room:<room>` จะออกบิลค่าเช่า 1 บาท **เงียบ ๆ ไม่มี error**
+  ลบค่าออก (หรือตั้งให้ตรงหอจริง) แล้ว **redeploy** · ค่าที่เจ้าของบันทึกจากหน้าตั้งค่าหอจะทับ env อยู่แล้ว
+  แต่ห้องที่ยังไม่เคยตั้งจะใช้ค่านี้
+  <!-- VERIFY: `DEFAULT_RENT=1` ยังค้างอยู่บนโปรเจกต์ `line-app` หรือไม่ — ค่า env เห็นได้ที่ Project → Settings → Environment Variables เท่านั้น (ไม่มีในเรพ) -->
 
 **แก้ env แล้วต้อง Redeploy เสมอ** — Vercel ผูก env กับ deployment: instance ที่ warm อยู่จะยังใช้ค่าเก่า
 จนกว่าจะมี deployment ใหม่ (ไม่ใช่เพราะทุกไฟล์อ่านตอน module load — `cron.js` อ่าน `CRON_SECRET` ต่อ request,
@@ -190,7 +223,22 @@ alembic revision -m "add xyz"     # แล้วเขียน op.execute(...) 
 alembic upgrade head
 ```
 
-ทุก revision ต้องมีฟังก์ชัน `downgrade()` (ทั้งห้าไฟล์ที่มีอยู่มีครบ) เพราะ rollback ทำทีละ revision (ข้อ 8)
+ทุก revision มีฟังก์ชัน `downgrade()` (ครบทั้งห้าไฟล์) แต่ **ให้ถือว่า migration เป็น forward-only ตอนวางแผน** —
+`downgrade()` มีไว้เป็นทางหนีตอน apply ผิดเท่านั้น ไม่ใช่ขั้นตอน rollback ปกติ เพราะ `0002`/`0003`
+ย้อนแล้ว **drop ตารางทิ้ง** (`link_codes`, `auth_failures`) ข้อมูลหายถาวร · ถ้าต้องถอย ให้ถอย **โค้ด**
+(redeploy deployment เก่า — ข้อ 8.1) แล้วปล่อย schema ใหม่ไว้ ซึ่งปลอดภัยกว่าเมื่อ migration เป็นแบบเพิ่มอย่างเดียว
+
+ก่อน merge ทุกครั้งที่ PR มีไฟล์ใน `backend/migrations/versions/`:
+
+```bash
+cd backend
+alembic current                                    # ต้องรู้ว่าปัจจุบันอยู่ revision ไหน
+DATABASE_URL="postgresql+psycopg://…unpooled…" alembic upgrade head   # กับฐาน production
+```
+
+ถ้าลืมขั้นนี้แล้ว merge: โค้ดใหม่ขึ้น production ทันทีและวิ่งชน schema เก่า (500 ทั้งหน้า, cron ล้ม) เพราะ
+**ไม่มีอะไรใน Vercel รัน migration ให้** (ข้อ 4.3) — ทางแก้คือ apply migration ย้อนหลังให้เร็วที่สุด
+ไม่ใช่ rollback โค้ดก่อน
 
 ### 4.3 อย่ารอให้ deploy รัน migration ให้
 
@@ -308,7 +356,7 @@ curl -i -H "Authorization: Bearer $CRON_SECRET" https://line-app-iota.vercel.app
 | `200 {"skipped":"another run is in progress"}` | มีรอบอื่นถือ lock อยู่ — รอรอบถัดไป |
 | `200 {"sent":[],"failed":0}` | ต่อได้ แต่ไม่มีบิลที่ถึงรอบวันนี้ |
 
-**env ถูกจับตอน build** → ตั้งหรือแก้ `CRON_SECRET` แล้ว **ต้อง redeploy** ไม่งั้น deployment ที่รันอยู่ยังไม่รู้จักค่าใหม่
+**`CRON_SECRET` อ่านจาก `process.env` ตอน request** (ไม่ได้ฝังลง bundle ตอน build) แต่ Vercel ผูก env ไว้กับ deployment — แก้ค่าใน dashboard แล้ว deployment ที่รันอยู่ยังใช้ค่าเดิม **ต้อง redeploy** ค่าใหม่จึงมีผล
 
 ### 6.1 `CRON_SECRET` สองโปรเจกต์ — คนละค่าได้ ตั้งแยกกัน
 
@@ -402,6 +450,10 @@ vercel rollback
 
 `alembic downgrade` ไม่ได้ย้อนกลับทั้งก้อน และ **ต้องย้อนโค้ดให้ตรงกับ schema ก่อน** ไม่งั้นแอปพังหนักกว่าเดิม
 (ยกเว้น `0004` — ดูหมายเหตุท้ายข้อนี้)
+
+> **แนวปฏิบัติ: ถือว่า migration เป็น forward-only** — rollback มาตรฐานคือ redeploy deployment เก่า (ข้อ 8.1)
+> แล้วปล่อย schema ที่เพิ่มไปแล้วไว้ เพราะ schema ใหม่ที่เพิ่มอย่างเดียวไม่ทำให้โค้ดเก่าพัง · ใช้ `alembic downgrade`
+> เฉพาะเมื่อ schema นั้นทำให้ระบบใช้ไม่ได้จริง ๆ และรู้ว่าข้อมูลส่วนไหนจะหาย (ข้อ 4.2)
 
 ```bash
 cd backend

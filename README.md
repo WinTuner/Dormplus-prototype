@@ -27,7 +27,7 @@ docs/         เอกสารทั้ง repo: API · สถาปัตย�
 ```bash
 cd line-app
 node smoke.js && node smoke-handlers.js && node smoke-reads.js   # offline tests, ไม่ต้อง npm install
-node smoke-usecases.js   # 156 use case ที่ automate ได้ (ชุดเดียวกับ docs/TEST-CASES.md)
+node smoke-usecases.js   # 168 use case ที่ automate ได้ (ชุดเดียวกับ docs/TEST-CASES.md)
 node smoke-cron.js       # แจ้งเตือนรายวัน /api/cron + cron-lock
 ```
 
@@ -65,7 +65,7 @@ pytest
 | ส่วน | สถานะ |
 |---|---|
 | `line-app/` — ส่งบิลใน LINE · LIFF แนบสลิป · เจ้าของยืนยัน/จดมิเตอร์ | ✅ ใช้งานได้ (ข้อจำกัดที่เหลือ: [`line-app/README.md`](line-app/README.md) หัวข้อ "ข้อจำกัดที่ยังเหลือ") |
-| `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · สลิป · confirm/reject + ใบเสร็จ · LINE Login ผ่าน LIFF | 🟡 deploy แล้ว (Vercel + Neon) · 142 tests (14 ไฟล์; ไม่มี Postgres = 23 ผ่าน / 119 ข้าม · CI รันครบพร้อม Postgres) · ยังไม่มีหน้า UI ฝั่งเจ้าของ |
+| `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · สลิป · confirm/reject + ใบเสร็จ · LINE Login ผ่าน LIFF | 🟡 deploy แล้ว (Vercel + Neon) · 144 tests (14 ไฟล์; ไม่มี Postgres = 23 ผ่าน / 121 ข้าม · CI รันครบพร้อม Postgres) · ยังไม่มีหน้า UI ฝั่งเจ้าของ |
 | สรุปรายรับรายงวด (`GET /v1/reports/summary?period=`, เจ้าของ) | ✅ billed/paid/pending/unpaid + `rooms_total`/`rooms_paid`/`rooms_overdue` · `billed` = paid + pending + unpaid (ไม่นับบิล void) · ไม่ใส่ `period` = เดือนปัจจุบัน — เป็น endpoint สุดท้ายที่ค้างในสัญญา |
 | RLS policy (กรอง `property_id` ที่ระดับ DB) | ✅ migration `0004` — `force row level security` ทุกตารางที่ผูกหอ (ยกเว้น `auth_failures`) · production ต้องต่อด้วย role ที่ไม่ `BYPASSRLS` (เช่น `dormplus_app`) ไม่งั้น policy ไม่มีผล |
 | ส่งข้อความ LINE ฝั่ง backend | ✅ `app/line_push.py` + คิว `app/tasks.py` (ทวงค่าเช่า + ส่งบิลเมื่อออกบิล) · webhook รับ event มีแล้ว (`POST /v1/webhooks/line/:property_id`, ตรวจ signature) แต่ OA ยังชี้ที่ `line-app/` |
@@ -157,12 +157,12 @@ cd line-app
 node smoke.js           # signature ของ webhook + รูปร่าง Flex card
 node smoke-handlers.js  # dev gate, QR binding, rate limit, confirm, ออกบิล
 node smoke-reads.js     # concurrency ของ read, ลำดับ, history, สิทธิ์
-node smoke-usecases.js  # 156 use case (receipt · void/refund · prepay · group slip · tenancy)
+node smoke-usecases.js  # 168 use case (receipt · void/refund · prepay · group slip · tenancy · income/overdue)
 node smoke-cron.js      # /api/cron: ชนิดการเตือน, dedup ต่อ rev, cron-lock, push ล้ม
 npm test                # รันสามตัวแรกตามลำดับ (usecases/cron ไม่อยู่ใน npm test แต่ CI รัน)
 ```
 
-`node smoke-usecases.js` คือชุดเดียวกับ [`docs/TEST-CASES.md`](docs/TEST-CASES.md) (268 เคสใน 19 use case: 231 automate ✅ / 25 manual 🖐 / 12 ยังไม่สร้าง ⏳ — เคสที่ automate ได้ใน `line-app` มี 156 เคส ที่เหลือเป็น manual/LINE e2e หรือ pytest ฝั่ง backend) และ CI รันทั้งห้าไฟล์
+`node smoke-usecases.js` คือชุดเดียวกับ [`docs/TEST-CASES.md`](docs/TEST-CASES.md) (269 เคสใน 19 use case: 244 automate ✅ / 25 manual 🖐 / 0 ยังไม่สร้าง ⏳ — เคสที่ automate ได้ใน `line-app` มี 168 เคส ที่เหลือเป็น manual/LINE e2e หรือ pytest ฝั่ง backend) และ CI รันทั้งห้าไฟล์
 
 **`backend/`** — ต้องมี Postgres ก่อน (test ที่ต้องใช้ DB จะถูกข้ามถ้าไม่ได้ตั้ง `TEST_DATABASE_URL`):
 
@@ -254,11 +254,33 @@ exit code 1 ถ้ามีข้อไหนตก — ใช้เป็น ga
 | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | env ของทั้งสองฝั่ง + ค่า default |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | deploy ทั้งสองโปรเจกต์ Vercel · Neon · cron · rollback |
 | [`docs/TESTING.md`](docs/TESTING.md) | ชุดทดสอบ offline, pytest, manual matrix, CI |
-| [`docs/TEST-CASES.md`](docs/TEST-CASES.md) | 268 test case ใน 19 use case (231 automate / 25 manual / 12 ยังไม่สร้าง) |
+| [`docs/TEST-CASES.md`](docs/TEST-CASES.md) | 269 test case ใน 19 use case (244 automate / 25 manual / 0 ยังไม่สร้าง) |
 | [`docs/HANDOFF.md`](docs/HANDOFF.md) | งานที่เหลือ + เกณฑ์ "เสร็จ" |
 | [`backend/README.md`](backend/README.md) | endpoint · session · migration · test ของ backend |
 
 > เอกสารเชิงลึกชุด `ARCHITECTURE` / `CONFIGURATION` / `GETTING-STARTED` / `DEVELOPMENT` / `TESTING` / `DEPLOYMENT` มีสองชุด: [`line-app/docs/`](line-app/docs/) ครอบเฉพาะครึ่ง LINE app และ [`docs/`](docs/) ครอบภาพรวมทั้ง repo รวม backend
+
+## หลังตรวจสลิป — ตีกลับ · คืนเงิน · รายรับ · ค้างชำระ
+
+นอกจากกดยืนยัน/ยกเลิกบิล เจ้าของมีงานเหล่านี้ใน `line-app` (รายละเอียดเต็มใน [`line-app/docs/API.md`](line-app/docs/API.md) ข้อ 5):
+
+| งาน | เรียกยังไง | ผล |
+|---|---|---|
+| ตีกลับสลิป (บิลไม่ถูกยกเลิก) | `POST /api/bill` `{ action: "reject", room, period, reason }` | เฉพาะบิล `pending` · บิลกลับเป็น `unpaid` · สลิปเดิมยังอยู่บนบิล (`slipRejected`) เป็นหลักฐาน และยังนับในเพดาน 5 ครั้ง · push บอกผู้เช่าให้แนบใหม่ |
+| บันทึกว่าคืนเงินแล้ว | `POST /api/bill` `{ action: "refunded", room, period, rev, kind?, note? }` | `kind: "void"` (บิลที่ยกเลิกหลังชำระ) หรือ `kind: "overpaid"` (โอนเกิน) · เขียน `refundedAt`/`refundedBy` · บันทึกซ้ำ → `409` · ระบบไม่เคลื่อนเงินเอง |
+| เงินที่ยังต้องคืน (ข้ามห้อง) | `GET /api/bill?voided=1&refunds=1[&room=]` | รายการ `refundDue` ที่ยังไม่คืน (`kind: "void"` + `"overpaid"`) พร้อม `count`/`total` · คืนแล้วหลุดจากรายการ · เฉพาะเจ้าของ/ผู้ช่วย |
+| ยอดค้างชำระ | `GET /api/bill?overdue=1[&room=]` | บิล `unpaid` ที่เลย `due` · นับวันฝั่งเซิร์ฟเวอร์ (เวลาไทย) · คืน `count`/`total`/`maxDaysOverdue`/`items` |
+| รายรับของเดือน | `GET /api/bill?income=YYYY-MM` | นับตาม **`paidAt`** ไม่ใช่งวดของบิล (บิล ต.ค. ที่จ่าย 2 พ.ย. = รายรับ พ.ย.) · เฉพาะบิล `paid` · อ่านย้อนหลัง 12 เดือนของแต่ละห้อง |
+
+## กติกาสลิป + การส่งข้อความที่ไม่ซ้ำ
+
+- **สลิปใหม่ต้องมีรูป** — แนบสลิปเปล่า ๆ ไม่ได้ (`400`) · แต่ **โน้ต** ของสลิปที่ส่งไปแล้วแก้ได้โดยไม่ต้องแนบรูปใหม่ (รูปและผลตรวจเดิมยังอยู่) · สลิปหลายงวดต้องมีรูปเสมอ
+- **สลิปเก่า/จ่ายก่อนบิลออก = "ตรวจไม่ได้" ไม่ใช่ของปลอม** — `paidAt` เก่ากว่า 30 วัน หรือจ่ายก่อน `issuedAt` ของบิล → ปรับเป็น `ok: null` พร้อมเหตุผล (`stale` / จ่ายก่อนบิลออก) · ไม่บล็อกการแนบหรือการยืนยัน เจ้าของยังตัดสินเอง
+- **push ที่ต้องมีครั้งเดียว** — ใบเสร็จ · การ์ดยืนยันสลิปล่วงหน้า · ทวงอัตโนมัติ ส่งด้วย `X-Line-Retry-Key` (derived จากเนื้อข้อความ) · LINE ตอบ `409` แปลว่าข้อความนั้นถึงผู้ใช้แล้ว ถือว่าสำเร็จ ไม่ retry
+
+## เพิ่มเพื่อน OA หลังผูกห้อง
+
+LINE ไม่อนุญาตให้แอปเพิ่มเพื่อนให้ตัวเอง — หลังผู้เช่าผูกห้อง/ผูกสิทธิ์เสร็จ หน้า LIFF จะเรียก `liff.getFriendship()` ถ้ายังไม่ได้เพิ่มเพื่อนจะขึ้นการ์ด "เพิ่มเพื่อน DormPlus" ซึ่งเปิด `liff.requestFriendship()` ให้ผู้ใช้กดเอง (มีปุ่ม "ตรวจอีกครั้ง" เรียก `getFriendship()` ซ้ำ) · ถ้าอ่านสถานะไม่ได้ (`null`) จะไม่ขึ้นการ์ด
 
 ## สิทธิ์การใช้งาน
 

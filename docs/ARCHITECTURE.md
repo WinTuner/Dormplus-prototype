@@ -110,6 +110,11 @@ graph TD
 - ข้อความที่ส่งออกมีสี่แบบ (`_line.js`): `billBubble` (การ์ดบิลให้ผู้เช่า), `confirmBubble`
   (การ์ดยืนยันให้เจ้าของ — ถ้าบิลเป็นสลิปใบเดียวหลายรอบ จะเป็นการ์ดเดียวที่ postback ระบุ `periods=`
   ทุกรอบ), `receiptBubble` (ใบเสร็จให้ผู้เช่าหลังยืนยัน) และข้อความ text ของการทวง/แจ้งเตือน
+- การ์ด "เพิ่มเพื่อน" — หน้า LIFF เรียก `liff.getFriendship()` ตอน boot (`line-app/liff/bill.html`)
+  แล้วแสดงการ์ดชวนเพิ่มเพื่อนเฉพาะเมื่อ `friendFlag === false` ปุ่มในการ์ดเรียก
+  `liff.requestFriendship()` · **LINE ไม่อนุญาตให้ app เพิ่มตัวเองเป็นเพื่อน** ผู้ใช้ต้องกดยืนยันใน
+  หน้าต่างย่อยที่ LINE เปิดให้เอง · ถ้า `getFriendship()` ตอบไม่ได้ (ไม่ใช่ LIFF browser หรือช่องทาง
+  ยังไม่ออกแบบให้ถาม) ค่าเป็น `null` และไม่แสดงการ์ด เพื่อไม่กวนผู้ใช้ด้วยคำเตือนที่อาจไม่จริง
 
 **ฝั่ง `backend/`** ส่งข้อความได้ (`backend/app/line_push.py`, เรียกจาก task ในคิวเท่านั้น —
 `backend/app/tasks.py`) และ **รับ event ได้** ที่ `POST /v1/webhooks/line/:property_id` (ตรวจ
@@ -139,6 +144,7 @@ webhook ของ OA ยังชี้ที่ `line-app`
 | บิลล่าสุดของห้อง | `bill:<room>` | `kv/bill-<room>.json` |
 | บิลต่อรอบ | `bill:<period>:<room>` + index `bills:<room>` (เก็บ ≤ 60 รอบ) | `kv/bill-<period>-<room>.json` |
 | บิลที่ถูกยกเลิก | `bill-void:<period>:<room>:<rev>` + index `bill-voids:<room>` (≤ 200 รายการ) | `kv/bill-void-<period>-<room>-<rev>.json` |
+| บิลที่โอนเกินและยังไม่ได้คืน | `overpaid:<room>` (`["<period>:<rev>", …]` ≤ 200 รายการ) | `kv/overpaid-<room>.json` |
 | สลิปโอนล่วงหน้า (ยังไม่มีบิล) | `prepay:<room>` | `kv/prepay-<room>.json` |
 | เลขอ้างอิงสลิปที่ใช้ไปแล้ว | `slip-ref:<transRef>` | `kv/slip-ref-<transRef>.json` |
 | สลิปโอนล่วงหน้าของผู้เช่าเดิม | `prepay-old:<room>` (ใบล่าสุด) · `prepay-old:<room>:<slipAt>` (รายใบ) | `kv/prepay-old-<room>.json` |
@@ -157,11 +163,18 @@ webhook ของ OA ยังชี้ที่ `line-app`
 `slipGroup { periods, total }`, `prepaid`, `refundDue` และฟิลด์ของการยกเลิก (`voidedAt`, `voidedBy`,
 `voidReason`, `statusBefore`)
 
+ฟิลด์เงินที่เพิ่มมาพร้อมสลิป: `slipAmount` (ยอดตามสลิป), `overpaid` (โอนเกิน) และ `shortBy` (โอนขาด)
+— ทั้งสามมาจาก `_verify.checkAmount()` และไม่ถูกเขียนเลยถ้าไม่ได้เทียบยอด (ผู้ให้บริการไม่ให้ `amount`)
+· `slipRejected { at, by, reason }` เกิดจาก `POST /api/bill` action `reject` (บิลกลับเป็น `unpaid`
+โดยสลิปเดิมยังอยู่บนบิลและยังนับในเพดาน 5 ครั้ง) · ฝั่งเงินคืนมี `refundReason: "overpaid"`,
+`refundedAt`/`refundedBy`/`refundNote` และ `priorRefund` (ยอดเกินที่คืนไปแล้วก่อนบิลนั้นถูกยกเลิก)
+
 ฟิลด์ `slipVerify` อยู่ทั้งบนบิล (`bill.slipVerify`) และบน `prepay:<room>` (`prepay.slipVerify`) —
 เป็นผลจาก `_verify.verifySlip()` รูปแบบ `{ provider:"slipok", ok: true|false|null, reason?, amount?,
 transRef?, paidAt?, bank? }` · `ok: null` แปลว่า "บอกไม่ได้" (ไม่ได้ตั้ง key, ผู้ให้บริการล่ม, อ่านสลิปไม่ได้)
-ไม่ใช่ "ปลอม" และหน้า LIFF วาดเป็น pill สีเหลือง ไม่ใช่แดง · บิลที่รับสลิปต่อจาก `prepay` **ไม่**
-คัดลอก `slipVerify` มาด้วย · ผลตรวจของสลิปที่รอเป็น `prepay` ถูกเก็บไว้และ **แสดงในหน้าห้องแล้ว** (`GET /api/rooms` ส่ง `advance.verify` มาให้ LIFF วาด pill) — เจ้าของเห็นผลตรวจก่อนออกบิล
+ไม่ใช่ "ปลอม" และหน้า LIFF วาดเป็น pill สีเหลือง ไม่ใช่แดง · บิลที่รับสลิปต่อจาก `prepay` เก็บผลตรวจเดิมไว้
+แต่ **ตรวจยอดใหม่กับยอดของบิลที่เพิ่งออก** (`prepaidCopy()` → `checkAmount()`) เพราะตอนสลิปมาถึงยังไม่มีบิลให้เทียบ
+· ผลตรวจของสลิปที่รอเป็น `prepay` ถูกเก็บไว้และ **แสดงในหน้าห้องแล้ว** (`GET /api/rooms` ส่ง `advance.verify` มาให้ LIFF วาด pill) — เจ้าของเห็นผลตรวจก่อนออกบิล
 
 **เลขใบเสร็จไม่ใช้ counter** — `receiptNoOf()` ใน `_bills.js` คำนวณจากตัวบิลเอง:
 `R<yyyymm>-<room>` และต่อท้าย `-<rev>` ตั้งแต่รอบที่ออกใหม่ครั้งที่สอง เพราะ Blob ไม่มี transaction
@@ -172,6 +185,13 @@ transRef?, paidAt?, bank? }` · `ok: null` แปลว่า "บอกไม�
 มีสองที่ที่ออกแบบรับข้อจำกัดนี้ไว้แล้วโดยตรง: `cron-lock` (บรรเทา overlap ของ cron) และการล้าง
 `prepay:<room>` ที่จะล้างเฉพาะเมื่อ `slipAt` ยังตรงกับใบที่เพิ่งใช้ไป (ดู §5.1) — ดูข้อจำกัดใน
 [`line-app/docs/ARCHITECTURE.md`](../line-app/docs/ARCHITECTURE.md)
+
+ชั้นที่สามคือ **idempotency ของ push**: ทุก `push()` ที่อาจเกิดจากสอง request พร้อมกันแนบ
+`X-Line-Retry-Key` ที่คำนวณจากเนื้อข้อความ (`retryKeyOf()` ใน `_line.js` hash เป็น UUID) — `receipt:`
+(ใบเสร็จ), `confirm:` (`confirmKey()` ใน `_bills.js` — การ์ดยืนยันของเจ้าของ), `remind:` และ
+`remind-summary:` — และถ้า LINE ตอบ 409 ถือว่า "ส่งไปแล้ว" (`{ duplicate: true }`) ไม่ใช่ error
+ผู้เช่าจึงได้ใบเสร็จใบเดียวแม้เจ้าของสองคนกดยืนยันพร้อมกัน · ข้อนี้กัน *ข้อความ* ซ้ำเท่านั้น
+ไม่ได้กันการเขียนทับข้อมูล — Blob ยังไม่มี compare-and-set
 
 <!-- VERIFY: Blob store ถูกผูกกับโปรเจกต์ Vercel ผ่าน OIDC (ไม่มีการใส่ token ในโค้ด) และชื่อ store/env มาจากการตั้งค่าบน Vercel ไม่ใช่จากไฟล์ในเรพ — โค้ดเรียก @vercel/blob โดยไม่ระบุ token -->
 
@@ -236,7 +256,8 @@ RLS ทำงานจริงตั้งแต่ migration `0004`:
 `line-app/api/_remind.js` เป็นที่ที่กฎการทวงอยู่ (ไม่ผูกกับ HTTP จึงเทสต์ด้วยวันที่ใดก็ได้):
 
 - ต่อห้อง (ทำพร้อมกัน 4 ห้องด้วย `mapLimit`): อ่าน `bill:<room>` + `bills:<room>` แล้วอ่านบิลเก่า
-  ที่ยัง `unpaid` เพิ่มไม่เกิน 12 รอบ
+  เพิ่มไม่เกิน 12 รอบ ผ่าน `_ledger.recentBills()` — หน้าต่างเดียวกันกับที่ `GET /api/bill?overdue=1`
+  ใช้ แล้วกรองเหลือเฉพาะที่ยัง `unpaid` และมี `due`
 - เทียบ `due` กับ `today` เป็น *หน้าต่าง* ไม่ใช่วันเป๊ะ — พลาด cron ไปหนึ่งวัน ข้อความยังออกในวันถัดไป:
 
   | เงื่อนไข | kind |
@@ -254,6 +275,10 @@ RLS ทำงานจริงตั้งแต่ migration `0004`:
   ไม่ถูกทวงหาคนปัจจุบัน) · หนึ่ง push ต่อห้อง สูงสุด 5 การ์ดต่อ push
 - **at-least-once:** เขียน mark หลัง push สำเร็จเท่านั้น · push ล้ม = ไม่ mark แล้วลองใหม่พรุ่งนี้ ·
   เขียน mark ล้ม = พรุ่งนี้อาจได้ข้อความซ้ำหนึ่งครั้ง (เลือกทางนี้เพราะการไม่ทวงเลยแย่กว่า)
+- **กัน run ที่สองของวันเดียวกันด้วย retry key:** push แต่ละชุดพา `X-Line-Retry-Key` ที่ระบุ
+  `remind:<room>:<today>:<period>:<kind>:<rev>:<total>:<due>,…` (และ `remind-summary:<today>:<text>`)
+  run ที่สองจึงคำนวณ key เดิม → LINE ตอบ 409 → นับเป็น `duplicate` ไม่ใช่ `sent` และไม่ทำให้ยอดสรุปของเจ้าของพอง
+  · key มี `total`/`due` อยู่ด้วย บิลที่ออกใหม่ด้วย `rev` เดิมแต่ยอดหรือวันเปลี่ยนจึงเป็นข้อความใหม่ ไม่ถูกทิ้ง
 - ปิดท้าย: ถ้ามีห้องที่ `after_*` ส่งสรุปหนึ่งข้อความให้ `OWNER_USER_ID`
 
 ### 5.2 `backend/` — คิว Procrastinate (ยังอยู่ แต่ไม่มี schedule แล้ว)
@@ -304,7 +329,10 @@ backend ใช้ **Procrastinate** เป็นคิวที่เก็บ�
    - ถ้ามี `room-user:<room>` ก็ `push()` การ์ด `billBubble()`
 3. การ์ดบิลในการ์ด LINE มีปุ่มเปิด LIFF ของบิลนั้น (`_line.billBubble(bill, baseUrl)`)
 4. ผู้เช่าแนบสลิป → `POST /api/slip` (`line-app/api/slip.js`): ตรวจสิทธิ์รายห้อง → บิล `paid`/`void`
-   ถือว่า "ยังไม่มีบิลให้จ่าย" → **เฉพาะผู้เช่า** จำกัด 5 ครั้ง/บิล ห่าง ≥ 30 วินาที (เจ้าของไม่ติดเพดานนี้)
+   ถือว่า "ยังไม่มีบิลให้จ่าย" → **สลิปใหม่ของผู้เช่าต้องมีรูป** (400 `ต้องแนบรูปสลิป`) — ข้อยกเว้นเดียว
+   คือแก้แค่หมายเหตุของสลิปที่ส่งไปแล้ว (บิล `pending` ที่มีรูปอยู่ หรือ `prepay` ที่มีรูป) และสลิปหลายรอบ
+   ไม่มีข้อยกเว้น เพราะจะแยกบิลออกจากกลุ่มที่ผลตรวจยังอธิบายยอดรวมอยู่ · เจ้าของบันทึกได้โดยไม่ต้องมีรูป
+   (เงินสด / โอนที่เห็นในแอปธนาคาร) → **เฉพาะผู้เช่า** จำกัด 5 ครั้ง/บิล ห่าง ≥ 30 วินาที (เจ้าของไม่ติดเพดานนี้)
    → อัปโหลดรูป (≤ 3MB, JPEG/PNG/WEBP) ไป `slips/<room>-<ts>.<ext>` → ตรวจสลิป (ข้อย่อยถัดไป) →
    `saveBills({...bill, status:"pending", slipPath, slipAt, slipCount, slipVerify})` →
    `push()` การ์ด `confirmBubble()` หาเจ้าของ · คำตอบมี `verify` กลับไปให้หน้าเว็บวาด pill
@@ -321,6 +349,16 @@ backend ใช้ **Procrastinate** เป็นคิวที่เก็บ�
      `transRef` นั้นเคยถูกใช้แล้วจะตอบ `ok: false` พร้อมบอกห้องที่ใช้ไป — เป็นชั้นที่สองถัดจากที่ SlipOK
      จำสลิป (ซึ่งจำได้เฉพาะเท่าที่ branch เก็บไว้) · เขียน ref ก่อนบิลจึงปิดช่องจ่ายสองบิลด้วยสลิปใบเดียว
      ได้ แต่ถ้าเขียนบิลล้มหลังเขียน ref สลิปนั้นจะถูกมองว่าซ้ำ (แลกมาด้วยการกันการจ่ายซ้ำ)
+   - **เทียบยอด (`checkAmount`):** ผลตรวจ + ยอดบิล → `{ verify, slipAmount, overpaid, shortBy }` แล้วเขียน
+     `slipAmount`/`overpaid`/`shortBy` ลงบิล (และ `slipGroup` ของสลิปหลายรอบ) ผ่าน `withAmounts()` ·
+     ยอดไม่เท่า = `ok: false` พร้อมเหตุผลภาษาไทย "เกินบิล X บาท" / "ขาด X บาท" **ไม่บล็อก** เจ้าของยังตัดสินเอง
+     · โอนเกิน **คืนเป็นเงิน ไม่ทบเป็นเครดิตบิลรอบถัดไป** (ดูข้อ 5) · ถ้าผู้ให้บริการไม่ให้ `amount`
+     ทั้งสามฟิลด์ไม่ถูกเขียนเลย เพราะไม่ได้เทียบอะไร
+   - **สลิปเก่า / โอนก่อนบิล (`markStale` / `markEarly` ใน `_verify.js`):** เรียกหลัง `rememberRef` เสมอ
+     (transRef ยังถูกจำไว้กันใช้ซ้ำ) · `markStale` = โอนนานกว่า 30 วัน, `markEarly` = `paidAt` ก่อน
+     `bill.issuedAt` ทั้งคู่ **ลด `ok: true` เป็น `ok: null`** พร้อมเหตุผลภาษาไทย (`stale`, `staleDays`,
+     `early`) เพื่อให้เจ้าของอ่านวันที่ก่อนกดยืนยัน — **ไม่เคยบล็อก** การแนบสลิป และไม่แตะ `slip-ref` ·
+     สลิปโอนล่วงหน้า (`prepay`) ข้าม `markEarly` เพราะเกิดก่อนบิลโดยธรรมชาติ
    - **สลิปมาก่อนบิล:** ถ้าไม่มีบิลเลย หรือบิลล่าสุด `paid`/`void` สลิปจะถูกเก็บเป็น `prepay:<room>`
      (รูปอยู่ที่ `slips/<room>-advance-<ts>.<ext>`) พร้อม `slipVerify` แล้ว push ข้อความบอกเจ้าของ · `POST /api/run`
      รอบถัดไปจะผูกให้เอง (และล้าง `prepay` เฉพาะเมื่อ `slipAt` ยังตรงกับใบที่ใช้ไป)
@@ -331,16 +369,25 @@ backend ใช้ **Procrastinate** เป็นคิวที่เก็บ�
 5. เจ้าของกด "ยืนยันการชำระ" → postback `action=confirm&room=…&period=…` (หรือ `periods=…` สำหรับกลุ่ม)
    → `POST /api/webhook` → `webhook.js` ตรวจ `x-line-signature` → `isOwner(userId)` →
    - ใบเดียว: บิลต้องเป็น `pending` → `paidCopy()` เขียน `status:"paid"`, `paidAt`, `confirmedBy`,
-     `receiptNo = receiptNoOf(bill)`
+     `receiptNo = receiptNoOf(bill)` · ถ้ามียอดโอนเกิน บิลได้ `refundDue` (ยอดเกิน) + `refundReason:"overpaid"`
+     และถูก tag ลง `overpaid:<room>` ผ่าน `tagOverpaid()` — **คืนเป็นเงิน ไม่ทบเป็นเครดิตบิลรอบถัดไป**
+     (สลิปหลายรอบเป็นโอนครั้งเดียว ยอดเกินจึงตกที่รอบใหม่สุดรอบเดียว: `overpaidOf()` ใน `_bills.js`)
    - กลุ่ม: ปิดเฉพาะรอบที่ยัง `pending` **และ** `slipGroup.periods` ตรงกับ key ของการ์ด ·
      รอบที่ไปต่อแล้วถูกข้ามและบอกในคำตอบ · คำตอบระบุ "ยอดที่ปิด" จริง (ผลรวมอาจต่างจากบนการ์ด
      ถ้ามีรอบถูกยกเลิกไปแล้ว)
-   → `push()` ใบเสร็จ (`receiptBubble`) ให้ผู้เช่า (แบ่งชุดละ ≤ 5) และ `reply()` ยืนยันให้เจ้าของ
+   → `push()` ใบเสร็จ (`receiptBubble`) ให้ผู้เช่า (แบ่งชุดละ ≤ 5 · `X-Line-Retry-Key` =
+   `receipt:<room>:<tenant>:<period>:<rev>:<total>:<receiptNo>:<slipAt>,…` ลายเซ็นของใบเสร็จใบนั้น
+   จึงมีใบเดียวแม้เจ้าของสองคนกดพร้อมกัน) และ `reply()` ยืนยันให้เจ้าของ (ต่อท้ายด้วย
+   "ยอดเกิน X บาท — ต้องคืนผู้เช่า" ถ้ามี)
 6. ดูรูปสลิป: `GET /api/slip-image?room=` → ตรวจสิทธิ์ → `getFile()` แบบ private → stream กลับ ·
    `&advance=1` อ่าน `prepay:<room>` · `&archived=1` อ่าน `prepay-old:<room>` (เฉพาะ staff)
 7. ดูใบเสร็จ: การ์ดใบเสร็จพาไป LIFF ด้วย `?room=…&receipt=<period>#receipt/<period>` (LIFF อาจทิ้ง
    fragment ตอน login หน้าเว็บจึงสร้าง route ใหม่จาก query) แล้ววาดใบเสร็จจากข้อมูลบิลที่โหลดมาอยู่แล้ว
    (`GET /api/bill`) · บิล `paid` ที่ยังไม่มี `receiptNo` จะถูกคำนวณให้ตอนอ่าน
+
+บิลที่ยังจ่ายได้ (`unpaid`/`pending`) มาพร้อม `pay = { payload, qr }` จาก `_promptpay.payloadFor()`
+(EMVCo PromptPay payload ของหอ อ่านจาก `dorm.promptpay`) และ `_qr.qrSvg()` — สร้าง SVG เองเพราะหน้า LIFF
+ไม่มีไลบรารี QR · ยังไม่ตั้ง PromptPay ของหอ = `pay: null`
 
 <!-- VERIFY: production ตั้ง SLIPOK_API_KEY/SLIPOK_BRANCH_ID บน Vercel จริง และ branch ผูกบัญชีรับเงินของหอไว้แล้ว — ไม่มีค่าใดในเรพที่ยืนยันได้ (env อยู่ใน Vercel dashboard) และถ้า branch ผูกบัญชีอื่น สลิปที่โอนเข้าบัญชีอื่นจะไม่ถูกจับด้วย 1014 -->
 
@@ -356,13 +403,28 @@ bil object ถูกเขียนทับทั้งก้อนทุกค
    บิลต้องไม่ใช่ `void` อยู่แล้ว (409 `INVALID_STATE`)
 2. เขียนบิลเป็น `status:"void"` พร้อม `voidedAt`, `voidedBy`, `voidReason`, `statusBefore` และเก็บ
    `receiptNo`/`slipPath` เดิมไว้ (ใบเสร็จที่ออกไปแล้วคือหลักฐาน) · ถ้าบิลเดิม `paid` จะใส่
-   `refundDue = total` — ระบบไม่เคลื่อนเงินเอง ตัวเลขนี้คือยอดที่เจ้าของต้องคืน
+   `refundDue` — ระบบไม่เคลื่อนเงินเอง ตัวเลขนี้คือยอดที่เจ้าของต้องคืน · บิลที่เคยมี **ยอดโอนเกิน** ค้างอยู่
+   จะได้ `refundDue = total + ยอดเกินที่ยังไม่ได้คืน` และยอดเกินที่คืนไปก่อนแล้วถูกเก็บเป็น `priorRefund`
+   (ไม่คัดลอก `refundedAt` เดิมมาทับ ไม่ให้ยอดค้างหายจากรายการ)
 3. **archive ทันทีที่ตอนยกเลิก** ไปที่ `bill-void:<period>:<room>:<rev>` และเพิ่ม `<period>:<rev>`
    ใน `bill-voids:<room>` (idempotent, `run.js` archive ซ้ำได้) — บิลที่ยกเลิกแล้วไม่ออกใหม่ก็ยังอ่านได้
    ผ่าน `GET /api/bill?room=&voided=1` (เจ้าของ/ผู้ช่วยเท่านั้น, ใหม่→เก่า, กรอง `period=` ได้)
+   · `voided=1&refunds=1` เปลี่ยนความหมายเป็น "เงินที่ยังต้องคืน" (ดู §6.7)
 4. แจ้งผู้เช่าที่ผูกอยู่ (ถ้าบิลนั้นยังผ่าน `visibleToTenant`)
 5. ออกใหม่ด้วย `POST /api/run` รอบเดิม → `rev + 1` → `receiptNo` ใหม่ (`R202611-203-2`) ส่วนใบเก่า
    ยังอยู่ใน archive · บิล `void` ไม่ถูกนับเป็นการทวง และสลิปใหม่จะไปรอเป็น `prepay:<room>`
+
+`POST /api/bill` มีอีกสอง action ที่ไม่ใช่การยกเลิก (`action` อื่นตอบ 400):
+
+- **`reject`** — เจ้าของตีกลับสลิป `{ action:"reject", room, period, reason }`: บิลต้องเป็น `pending`
+  เท่านั้น (ไม่งั้น 409 `INVALID_STATE`) → เขียน `status:"unpaid"` + `slipRejected { at, by, reason }`
+  โดย **ไม่ลบ** `slipPath`/`slipVerify`/`slipCount` (สลิปเดิมคือหลักฐาน และยังนับในเพดาน 5 ครั้ง)
+  → push บอกผู้เช่าให้แนบใหม่ · บิลที่ถูกตีกลับจึงพร้อมรับสลิปใบใหม่ทันที
+- **`refunded`** — เจ้าของยืนยันว่าคืนเงินแล้ว `{ action:"refunded", kind?, room, period, rev, note? }`
+  โดย `kind` เป็น `"void"` (ค่าเริ่มต้น) หรือ `"overpaid"` · `void` อัปเดต archive
+  `bill-void:<period>:<room>:<rev>` และบิลปัจจุบันถ้ายังเป็น rev เดียวกัน · `overpaid` ประทับบนบิล `paid`
+  ของ rev นั้น · ผิด rev / ไม่มียอดค้าง / คืนไปแล้ว = 409 · ระบบไม่เคลื่อนเงินเอง — action นี้ปิด to-do
+  ที่ `refundDue` เปิดไว้เท่านั้น
 
 ### 6.3 ทวงอัตโนมัติรายวัน (`line-app/`)
 
@@ -429,13 +491,31 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 
 1. หน้าจอห้องใน LIFF มีปุ่ม "แก้ไขราคาห้อง" → ถามสามค่า → `POST /api/rooms`
    body `{ room, rent, waterRate, elecRate }` (`line-app/liff/bill.html` → `editRoom()`)
-2. `rooms.js` `setPrice()`: `requireUser` → `isOwner` (ผู้ช่วยดูได้แต่แก้ไม่ได้ = 403) → `room` ต้องอยู่
+2. `rooms.js` `saveSettings()`: `requireUser` → `isOwner` (ผู้ช่วยดูได้แต่แก้ไม่ได้ = 403) → `room` ต้องอยู่
    ใน `ROOMS` (404) → `price()` บังคับจำนวนเต็ม ≥ 0 (`rent` ≤ 100000, rate ≤ 10000 = 400) → ต้องส่ง
    อย่างน้อยหนึ่งฟิลด์ (400) · `undefined` = "ไม่แตะค่านี้" ไม่ใช่ "ตั้งเป็น 0"
 3. อ่าน `configFor(room)` แล้ว merge เฉพาะฟิลด์ที่ส่งมา เขียนทั้งก้อนที่ `room:<room>` — ค่าที่ไม่ได้ส่ง
    คงเดิม
 4. **ไม่ย้อนหลัง:** บิลเก็บ `rent`/`water`/`elec` ที่คำนวณเสร็จแล้วตอนออกบิล ราคาใหม่จึงมีผลกับบิลที่
    ออกหลังจากนั้นเท่านั้น · การแก้บิลที่พิมพ์/ส่งไปแล้วยังต้อง void + ออกใหม่ (§6.2)
+
+### 6.7 อ่านเงินตามเวลา: overdue · income · refunds (`line-app/`)
+
+`GET /api/bill` (`line-app/api/bill.js`) นอกจากบิลของห้องแล้วยังมีโหมดอ่านที่คำนวณฝั่ง server ทั้งหมด
+(ไม่เชื่อวันที่ของอุปกรณ์ผู้ใช้) โดยใช้ `_ledger.js` เป็นที่เดียวของกติกาเวลา:
+
+| query | ใครเรียกได้ | คืนอะไร |
+|---|---|---|
+| `?overdue=1` | ผู้เช่า (ห้องตัวเอง) · เจ้าของ/ผู้ช่วย (ทุกห้อง หรือ `room=` ระบุ) | `{ today, count, total, maxDaysOverdue, items \| rooms }` — นับเฉพาะ `status:"unpaid"` ที่ `due < today` (บิลครบกำหนดวันนี้ยังไม่สาย, `pending`/`void` ไม่นับ, บิลไม่มี `due` นับไม่ได้) · `daysOverdue` คำนวณจากวันตามเวลาไทย |
+| `?income=YYYY-MM` | เจ้าของ/ผู้ช่วยเท่านั้น (403) | เงินที่ **รับเข้า** ในเดือนนั้นตาม `paidAt` ไม่ใช่ `period` ของบิล (บิล พ.ย. ที่จ่าย 2 ธ.ค. เป็นรายได้ ธ.ค. และบิล ธ.ค. ที่ออกก่อนแล้วจ่าย พ.ย. เป็นรายได้ พ.ย.) · นับเฉพาะ `paid` · `{ month, total, count, items }` |
+| `?voided=1` | เจ้าของ/ผู้ช่วยเท่านั้น | archive ของบิลที่ถูกยกเลิก (`readVoids`) ใหม่→เก่า กรอง `period=` ได้ |
+| `?voided=1&refunds=1` | เจ้าของ/ผู้ช่วยเท่านั้น | **เงินที่ยังต้องคืน** ทั้งหอ (`room=` เพื่อกรอง) สองชนิดพร้อม `kind`: `void` (บิล `paid` ที่ถูกยกเลิก) และ `overpaid` (บิล `paid` ที่สลิปมากกว่ายอด — `refundDue` คือส่วนเกิน) · `{ count, total, items }` เฉพาะที่ยัง `!refundedAt` |
+
+ข้อจำกัดที่ตั้งใจ: `?income` อ่านแบบมีขอบเขต — ต่อห้องเริ่มจาก 12 เดือนก่อนเดือนที่ถามขึ้นไป (`billsInPeriods`,
+`INCOME_LOOKBACK_MONTHS = 12`) บิลเดียวที่ไม่ถูกนับคือใบที่จ่ายช้ากว่า `period` เกิน 12 เดือน ·
+`?overdue` และ `_remind` ใช้หน้าต่างเดียวกัน (`recentBills` = บิลล่าสุด + 12 รอบล่าสุดจาก index) บิลที่ค้าง
+เกินปีจึงต้องให้เจ้าของจัดการ ไม่ใช่เพิ่มแถวในรายการ · ตัว tag `overpaid:<room>` เป็นเพียง index:
+บิลคือ source of truth — tag ที่บิลถูกออกใหม่ (rev อื่น) คืนเงินแล้ว หรือถูกยกเลิกจะถูกข้าม
 
 ## 7. Trust boundaries
 
@@ -474,6 +554,8 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
   (การกดซ้ำไม่ได้สร้างใบเสร็จซ้ำ เพราะบิลที่ `paid` แล้วจะตอบ "ยืนยันไปแล้ว") · การตรวจสลิปด้วย SlipOK
   ไม่ได้เปลี่ยนข้อนี้ — มันเป็นหลักฐานให้เจ้าของ ไม่ใช่ผู้อนุมัติ และ `ok: true` ไม่ได้ทำให้บิลเป็น `paid`
   · ฝั่ง `backend` กัน event ซ้ำด้วย `webhookEventId` แล้ว (`line_events`) แต่ `line-app` ไม่มีตารางแบบนั้น
+  — ตัวที่ทำหน้าที่แทนคือ idempotency ของ **push** (`X-Line-Retry-Key` + LINE 409 = ส่งไปแล้ว):
+  สองการ์ดที่ยืนยันบิลเดียวกันพร้อมกันจึงให้ใบเสร็จใบเดียว ไม่ใช่สองใบ (ดู §4.1)
 - **ห้ามรับ `property_id` จาก client** — เป็นกติกากลางที่เขียนไว้ใน `backend/app/auth.py` และ
   `docs/HANDOFF.md` ทุก query ใช้ค่าจาก session
 
@@ -486,8 +568,14 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 | `archiveVoid` | `line-app/api/_bills.js` | เก็บสำเนาบิลที่ถูกยกเลิกเป็น `bill-void:<period>:<room>:<rev>` + index (idempotent) |
 | `tenancyOf` / `visibleToTenant` | `line-app/api/_bills.js` | กฎเดียวที่ตอบว่า "บิลนี้เป็นของผู้เช่าคนปัจจุบันหรือเปล่า" |
 | `receiptNoOf` | `line-app/api/_bills.js` | เลขใบเสร็จที่คำนวณจากบิล (`R<yyyymm>-<room>[-<rev>]`) ไม่ใช้ counter |
+| `withAmounts` / `confirmKey` / `tagOverpaid` / `overpaidOf` | `line-app/api/_bills.js` | ฟิลด์ยอดเงินบนบิล (`slipAmount`/`overpaid`/`shortBy`), key ของการ์ดยืนยัน, index `overpaid:<room>` และกฎ "ยอดเกินตกที่รอบใหม่สุดของกลุ่มเท่านั้น" |
+| `bangkokToday` / `bangkokMonth` / `daysBetween` / `recentBills` / `billsInPeriods` / `overdueOf` | `line-app/api/_ledger.js` | กติกาเงินตามเวลา: วันนี้/เดือนนี้ตามเวลาไทย, ผลต่างวัน, หน้าต่างบิลที่อ่าน (ใช้ร่วมกันโดย `_remind` กับ `GET /api/bill?overdue=1`) และการนับบิลเลยกำหนด |
+| `attachPrepay` / `usable` / `clearPrepay` | `line-app/api/_prepay.js` | ผูกสลิปโอนล่วงหน้าเข้ากับบิล (`run.js` และ `slip.js` เรียกตัวเดียวกัน จึงได้เนื้อหาเหมือนกันและ push ถูก dedupe) · ล้าง `prepay` เฉพาะใบที่ใช้จริง (`slipAt` ตรง) |
 | `configFor(room)` | `line-app/api/_rooms.js` | ราคาที่ใช้จริง = `DEFAULTS` จาก env ทับด้วย `room:<room>` — จุดเดียวที่ตัดสินว่าราคาห้องคือเท่าไร |
 | `verifySlip({bytes, mime, amount})` | `line-app/api/_verify.js` | ตรวจสลิปกับ SlipOK แล้วคืน `{ ok: true\|false\|null, reason?, transRef?, amount? }` · ไม่ throw และไม่เคยปฏิเสธการแนบสลิป |
+| `markStale` / `markEarly` / `checkAmount` / `amountFields` | `line-app/api/_verify.js` | ลด `ok:true` เป็น `ok:null` เมื่อสลิปเก่ากว่า 30 วันหรือโอนก่อนบิลออก (มีเหตุผลภาษาไทย, ไม่บล็อก) · เทียบยอดสลิปกับบิลแล้วคืน `slipAmount`/`overpaid`/`shortBy` |
+| `retryKeyOf(text)` + `push(…, {retryKey})` | `line-app/api/_line.js` | แปลง key ที่อ่านได้เป็น UUID ของ `X-Line-Retry-Key` · LINE ตอบ 409 = ส่งไปแล้ว คืน `{ duplicate: true }` ไม่ throw |
+| `payloadFor` / `qrSvg` | `line-app/api/_promptpay.js` · `line-app/api/_qr.js` | สร้าง PromptPay payload (EMVCo) ของบิลและ SVG QR ที่หน้า LIFF ใช้ได้โดยไม่มีไลบรารี |
 | `requireUser(req,res)` | `line-app/api/_auth.js` | คืน LINE userId หรือตอบ 401/403 เองแล้วคืน `null` |
 | `roleOf` / `isOwner` / `canView` / `isRoot` | `line-app/api/_auth.js` | three-tier สิทธิ์: root owner / owner / viewer |
 | `sameSecret` | `line-app/api/_auth.js` | เทียบ secret แบบ timing-safe ใช้ทั้ง `x-seed-token` และ cron |
@@ -511,7 +599,8 @@ pakdee-prototype/
 ├─ line-app/               # stack ที่ใช้งานจริง: Node serverless + Blob
 │  ├─ api/                 # 1 ไฟล์ = 1 serverless function (ชื่อไฟล์คือ route) — 12 ไฟล์ = เต็มเพดาน
 │  │  ├─ _*.js             # helper ที่ require() กันตรง ๆ (ไม่ใช่ endpoint)
-│  │  │                    #   _store _bills _remind _auth _line _rooms _async _limit _qr _verify
+│  │  │                    #   _store _bills _ledger _prepay _promptpay _verify _remind _auth _line
+│  │  │                    #   _rooms _async _limit _qr
 │  │  └─ *.js              # endpoint: bill config cron dev me owner qr rooms run slip slip-image webhook
 │  ├─ liff/bill.html       # UI เดียวของ stack นี้ (ไม่มี build, inline JS/CSS)
 │  ├─ scripts/             # สคริปต์ rich menu (setup-richmenu.js, set-richmenu-image.js)
@@ -541,8 +630,10 @@ pakdee-prototype/
   ของ Hobby · ทางเดียวที่จะเพิ่ม endpoint คือรวมเข้าไฟล์เดิม ซึ่งเป็นเหตุผลที่ `api/qr.js` รวม GET/POST
   ของ QR, `api/bill.js` รวมอ่านบิล + ยกเลิก (`POST`), `api/slip-image.js` รวมสามโหมดอ่านรูป
   (`bill` / `advance` / `archived`), `api/owner.js` รวม GET/POST/DELETE ของสิทธิ์เจ้าของ และ
-  `api/rooms.js` รวมอ่านทุกห้อง (GET) + ตั้งราคาห้องเดียว (POST) · helper ใหม่อย่าง `_verify.js`
-  จึงถูกเพิ่มเป็นไฟล์ `_` ไม่ใช่ endpoint
+  `api/rooms.js` รวมอ่านทุกห้อง (GET) + ตั้งราคาห้องเดียว (POST) และ `api/bill.js` รวมอ่านบิล (`GET`,
+  ทุกโหมด query) + `void`/`reject`/`refunded` (`POST`) ในไฟล์เดียว · helper ใหม่ (`_verify`, `_ledger`,
+  `_prepay`, `_promptpay`) จึงถูกเพิ่มเป็นไฟล์ `_` ไม่ใช่ endpoint — และโค้ดที่สอง endpoint ต้องใช้เหมือนกัน
+  (หน้าต่างบิล/วันที่ไทย, การผูกสลิปโอนล่วงหน้า) ถูกย้ายลง `_ledger`/`_prepay` แทนการเขียนซ้ำ
 - **business rules อยู่ใกล้ที่เก็บข้อมูล** — `line-app/` คำนวณเงินใน `api/run.js` จาก `configFor()`
   (ราคาที่เจ้าของแก้ต่อห้องอยู่ใน `room:<room>` เขียนโดย `POST /api/rooms`; env เป็นเพียงค่าเริ่มต้น);
   `backend/` คำนวณใน `POST /v1/billing/run` จากแถว `properties.water_rate`/`elec_rate`/`due_days`
@@ -558,7 +649,8 @@ pakdee-prototype/
    (`backend/`) ถูกสร้างด้วย seed/migration แยกกัน · การย้ายข้อมูลข้าม stack ยังไม่มีเครื่องมือในเรพ
 2. **`line-app/` ไม่มี transaction และไม่มี compare-and-set** — เขียนทับทั้งไฟล์ ไม่มี lock ระดับ key
    (`cron-lock` และการล้าง `prepay` แบบเทียบ `slipAt` เป็นเพียงการบรรเทา) · เลขใบเสร็จจึงถูกคำนวณ
-   ไม่นับ และการทวงเป็น at-least-once (ข้อความซ้ำได้ถ้าเขียน mark ไม่สำเร็จ)
+   ไม่นับ และการทวงเป็น at-least-once · ข้อความซ้ำถูกลดลงด้วย `X-Line-Retry-Key` (LINE ตอบ 409 = ส่งไปแล้ว)
+   แต่ยังซ้ำได้ถ้าเขียน mark ไม่สำเร็จแล้วรันอีกวัน (key มีวันที่) — ข้อมูลที่เขียนทับกันยังเป็น race อยู่
 3. **`backend/` ไม่มีทางเข้าเจ้าของบน production** — ไม่มี owner login, `DEV_AUTH` ถูกปิดบน production
    (ดูข้อ 7)
 4. **RLS แยกหอได้ แต่หนึ่ง deployment = หนึ่งหอ** — `app.property_id` มาจาก env `PROPERTY_ID` ตอน
@@ -578,8 +670,11 @@ pakdee-prototype/
    `ok: null` และระบบทำงานเหมือนก่อนมีฟีเจอร์นี้ · `ok: null` ("ตรวจไม่ได้") กับ `ok: false` ("ไม่ผ่าน")
    ถูกแยกจากกันโดยตั้งใจ เพราะผู้ให้บริการล่มไม่ควรถูกอ่านว่า "สลิปปลอม" · สลิปที่ถูกปฏิเสธด้วย
    `slip-ref:<transRef>` ยังถูกบันทึกไว้บนบิล (สถานะ `pending`) เพื่อให้เจ้าของตัดสินเอง ·
-   ฝั่ง `backend` `payments.verify_ok` ยังเป็น `null` จนเจ้าของยืนยัน (`slip.verify` ยังเป็นงานค้าง)
-   และ `verify_ok` ไม่ได้ผูกกับ SlipOK
+   **ยอดไม่ตรงไม่มีทางบล็อกและไม่มีการทบเครดิต:** `checkAmount()` เขียน `slipAmount`/`overpaid`/`shortBy`
+   ลงบิล, `markStale` (>30 วัน) กับ `markEarly` (โอนก่อน `issuedAt`) ลด `ok:true` เป็น `ok:null` พร้อมเหตุผล
+   ไทยให้เจ้าของอ่านวันที่ — โอนเกินกลายเป็น `refundDue` + tag `overpaid:<room>` แล้วรอเจ้าของกด `refunded`
+   คืนเงิน (ไม่หักบิลรอบถัดไป) · ฝั่ง `backend` `payments.verify_ok` ยังเป็น `null` จนเจ้าของยืนยัน
+   (`slip.verify` ยังเป็นงานค้าง) และ `verify_ok` ไม่ได้ผูกกับ SlipOK
 8. **จำนวนห้องไม่ตรงกัน** — `line-app/` มาจาก env `ROOMS` (ค่าเริ่มต้น 12 ห้อง `201`–`212`)
    ส่วน `backend/` seed 42 ห้อง (`backend/app/seed.py`)
 9. **การทวงมีเจ้าของเดียวคือ `line-app/`** — `backend/vercel.json` ไม่มี `crons` แล้ว และ
@@ -596,6 +691,11 @@ pakdee-prototype/
 13. **ราคาเริ่มต้นของห้องมาจาก env** — `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` เป็นเพียงค่า fallback
     ของห้องที่ยังไม่มี `room:<room>` · ค่าที่ deployment ใช้จริงต้องดูจาก environment ของโปรเจกต์ Vercel
     ไม่ใช่จากไฟล์ในเรพ และค่าที่เจ้าของแก้จะทับ env เฉพาะห้องนั้น
+14. **เงินคืนเป็น to-do ที่ต้องมีคนกดปิด** — `refundDue` ไม่กันการออกบิลใหม่และระบบไม่รู้ว่าคืนเงินจริงหรือยัง
+    จนเจ้าของยิง `POST /api/bill { action:"refunded" }` · รายการที่อ่านได้ (เงินค้างคืน, void archive,
+    ใบเสร็จย้อนหลัง) ล้วนอิง index ที่มีเพดาน — `bill-voids:<room>`/`overpaid:<room>` 200 รายการ,
+    `bills:<room>` 60 รอบ, `?income` มองย้อน 12 เดือน, `?overdue`/`_remind` เห็นบิลค้างไม่เกิน 12 รอบต่อห้อง —
+    เกินกว่านั้นต้องอ่าน key ตรงหรือ archive เอง (การตัดรายการเก่าเกิดเงียบ ๆ ไม่มี error)
 
 ## เอกสารที่เกี่ยวข้อง
 
