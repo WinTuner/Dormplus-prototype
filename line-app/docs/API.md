@@ -81,7 +81,8 @@ Base URL: ไม่มีในเรพ — ใช้โดเมนของ d
 
 | ไฟล์ | header ที่ตั้ง |
 |---|---|
-| `config`, `me`, `bill`, `rooms`, `owner` | `Cache-Control: no-store` |
+| `config` | `Cache-Control: public, max-age=300, s-maxage=300` (ค่าเดียวสำหรับทุกคน — หน้าเว็บขอครั้งแรกก่อน `liff.init`) |
+| `me`, `bill`, `rooms`, `owner` | `Cache-Control: no-store` |
 | `slip-image` | `Content-Type: image/*` + `Cache-Control: private, no-store` |
 | `slip`, `run`, `webhook` | **ไม่ตั้ง `Cache-Control` เลย** (ส่วน `config`, `dev`, `me`, `owner`, `qr`, `rooms`, `bill` ตั้ง `no-store` เอง) |
 

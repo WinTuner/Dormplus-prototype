@@ -25,25 +25,16 @@ class ReportSummaryOut(BaseModel):
 
 
 SUMS_SQL = text("""
-    select i.status, sum(i.total)
+    select
+      (select count(*) from rooms where property_id = :property_id) as rooms_total,
+      coalesce(sum(i.total) filter (where i.status = 'paid'), 0) as paid,
+      coalesce(sum(i.total) filter (where i.status = 'pending'), 0) as pending,
+      coalesce(sum(i.total) filter (where i.status = 'unpaid'), 0) as unpaid,
+      count(distinct i.room_id) filter (where i.status = 'paid') as rooms_paid,
+      count(*) filter (where i.status = 'unpaid' and i.due_date < :day) as rooms_overdue
     from invoices i join rooms r on r.id = i.room_id
     where r.property_id = :property_id and i.period = :period
-    group by i.status
 """)
-
-ROOMS_PAID_SQL = text("""
-    select count(distinct i.room_id)
-    from invoices i join rooms r on r.id = i.room_id
-    where r.property_id = :property_id and i.period = :period and i.status = 'paid'
-""")
-
-ROOMS_OVERDUE_SQL = text("""
-    select count(*)
-    from invoices i join rooms r on r.id = i.room_id
-    where r.property_id = :property_id and i.period = :period
-      and i.status = 'unpaid' and i.due_date < :day
-""")
-
 
 @router.get("/reports/summary", response_model=ReportSummaryOut)
 def summary(
@@ -59,18 +50,14 @@ def summary(
     """
     period = period or period_of(day)
     params = {"property_id": session.property_id, "period": period, "day": day}
+    # One round trip to Neon: the four numbers are one scan, not four.
     with engine.connect() as conn:
-        sums = dict(conn.execute(SUMS_SQL, params).all())
-        rooms_total = conn.execute(
-            text("select count(*) from rooms where property_id = :property_id"),
-            {"property_id": session.property_id},
-        ).scalar_one()
-        rooms_paid = conn.execute(ROOMS_PAID_SQL, params).scalar_one()
-        rooms_overdue = conn.execute(ROOMS_OVERDUE_SQL, params).scalar_one()
+        row = conn.execute(SUMS_SQL, params).one()
 
-    paid, pending, unpaid = (int(sums.get(s) or 0) for s in ("paid", "pending", "unpaid"))
+    paid, pending, unpaid = int(row.paid), int(row.pending), int(row.unpaid)
     return ReportSummaryOut(
         billed=paid + pending + unpaid,
         paid=paid, pending=pending, unpaid=unpaid,
-        rooms_total=rooms_total, rooms_paid=rooms_paid, rooms_overdue=rooms_overdue,
+        rooms_total=int(row.rooms_total), rooms_paid=int(row.rooms_paid),
+        rooms_overdue=int(row.rooms_overdue),
     )
