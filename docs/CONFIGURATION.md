@@ -11,7 +11,7 @@
 
 > **สำคัญ:** ทั้งสองครึ่งเป็นคนละโปรเจกต์ Vercel จึงมีชุด env แยกกัน ค่าที่ชื่อซ้ำกัน (เช่น `LIFF_ID`, `CRON_SECRET`) ต้องใส่ทั้งสองโปรเจกต์ ไม่ใช่ใส่ที่เดียวแล้วใช้ร่วม — และ `CRON_SECRET` ทั้งสองที่ **ไม่ใช่ค่าเดียวกันก็ได้**
 
-ที่มา: `backend/app/config.py`, `backend/app/db.py`, `backend/.env.example`, `line-app/api/*.js`, `backend/vercel.json`, `line-app/vercel.json`, `backend/README.md`, `line-app/README.md`, `Dockerfile`
+ที่มา: `backend/app/config.py`, `backend/app/db.py`, `backend/.env.example`, `line-app/api/*.js` (รวม `api/_verify.js`), `backend/vercel.json`, `line-app/vercel.json`, `backend/migrations/versions/0005_line_events.py`, `backend/README.md`, `line-app/README.md`, `Dockerfile`
 
 ---
 
@@ -31,7 +31,7 @@
 | `LINE_CHANNEL_SECRET` | **จำเป็นถ้าจะรับ webhook** | ไม่ใส่ก็ได้ | `""` | `POST /v1/webhooks/line/:property_id` ตอบ `503 LINE_NOT_CONFIGURED`; ค่าต้องเป็น channel secret ของ OA เดียวกับ access token |
 | `CRON_SECRET` | ไม่บังคับ (cron ของ backend ปิดอยู่) | ไม่ใส่ก็ได้ | `""` | endpoint `/v1/cron/daily` ยังอยู่แต่ตอบ 401 ทุกครั้ง จนกว่าจะตั้งค่านี้ — ใช้เมื่อยิงมือหรือเปิด cron กลับ (ดู §1.4) |
 | `DUNNING_TOKEN` | ทางเลือกแทน `CRON_SECRET` | — | — | ชื่อเก่าที่ยังรับผ่าน `AliasChoices`; ถ้าตั้งทั้งคู่ `CRON_SECRET` ชนะ · **alias นี้มีเฉพาะฝั่ง backend** `line-app` ไม่รับชื่อนี้ |
-| `PROPERTY_ID` | **จำเป็นต้องตรงข้อมูล** | `p_1` | `p_1` | ไม่ error แต่ทุก connection ถูกตั้ง `app.property_id` เป็นค่านี้ → RLS จะไม่เห็นแถวของหออื่นเลย และ cron จะเลือกบิลเฉพาะหอนี้ (ดู §1.6) |
+| `PROPERTY_ID` | **ควรตั้งให้ตรงหอ** | `p_1` | `p_1` | ไม่ error แต่ทุก connection ถูกตั้ง `app.property_id` เป็นค่านี้ → RLS จะไม่เห็นแถวของหออื่นเลย และ cron จะเลือกบิลเฉพาะหอนี้ (ดู §1.6) · deployment ที่ไม่ได้ตั้ง env นี้จะเดินเป็น `p_1` เงียบ ๆ |
 | `VERCEL_ENV` | platform ฉีดให้ | ไม่ต้องตั้ง | `""` | ใช้ตัดสิน `is_production` (ปิด `/docs`, ปิด `DEV_AUTH`) |
 | `TEST_DATABASE_URL` | — | เฉพาะตอนรัน `pytest` | ไม่มี | ไม่ตั้ง → test ที่ต้องใช้ DB ถูกข้าม; **ฐานนี้ถูกล้างทุกครั้งที่รัน test** |
 | `PORT` | platform ฉีดให้ | ไม่ต้องตั้ง | `8000` | Dockerfile ใช้ `${PORT:-8000}` |
@@ -40,7 +40,7 @@
 
 - **runtime บน Vercel:** ใช้ endpoint **pooled** (host ที่มี `-pooler`) + `?sslmode=require` ตาม `backend/README.md`
 - **alembic / เครื่องมือ single-process:** ใช้ endpoint **unpooled** เพราะ migration รัน DDL หลายคำสั่งใน transaction เดียว (`backend/README.md`)
-- **role ของ runtime ต้องเป็น `dormplus_app`** — role นี้มีสิทธิ์ DML บนทุกตาราง + sequences แต่ **ไม่มี `BYPASSRLS`** ซึ่งจำเป็นเพราะ RLS policy ของ migration `0004` จะถูกข้ามทั้งหมดถ้า role มีค่านี้ (`neondb_owner` บน Neon มี) ตรวจด้วย `select rolbypassrls from pg_roles where rolname = current_user`
+- **role ของ runtime ต้องเป็น `dormplus_app`** — role นี้มีสิทธิ์ DML บนทุกตาราง + sequences แต่ **ไม่มี `BYPASSRLS`** ซึ่งจำเป็นเพราะ RLS policy ของ migration `0004`/`0005` จะถูกข้ามทั้งหมดถ้า role มีค่านี้ (`neondb_owner` บน Neon มี) ตรวจด้วย `select rolbypassrls from pg_roles where rolname = current_user`
 - **alembic ใช้ role ที่มีสิทธิ์ DDL (owner) แยกจาก runtime** — migration สร้าง/แก้ตารางและ policy จึงใช้ `neondb_owner` ได้ ส่วน `DATABASE_URL` ที่ production ใช้เสิร์ฟ request ต้องเป็น `dormplus_app` เท่านั้น
 - ถ้าเปลี่ยน role ต้องตรวจว่า `select count(*) from rooms` เห็นข้อมูล **หลัง** ตั้ง `app.property_id` แล้ว (ถ้าเห็น 0 แถว ให้สงสัย `BYPASSRLS` หรือ setting ที่ยังไม่ถูกตั้ง)
 - scheme ต้องเป็น `postgresql+psycopg://` (ไม่ใช่ `postgresql://`) — `backend/.env.example` ระบุให้เปลี่ยน scheme หลังคัดลอกจาก dashboard
@@ -53,7 +53,10 @@
 <!-- VERIFY: `DATABASE_URL` บน Vercel ของโปรเจกต์ `line-backend` ชี้ Neon ตัวเดียวกับที่ `backend/.env` ใช้หรือคนละตัว — เทียบจาก dashboard เท่านั้น -->
 <!-- VERIFY: role ที่ผูกกับ `DATABASE_URL` บน production คือ `dormplus_app` จริง (ไม่ใช่ `neondb_owner`) — ตรวจได้จาก dashboard/psql เท่านั้น -->
 
-> **ตรวจแล้ว 2026-11-16 (read-only):** ฐานข้อมูลที่ `backend/.env` ใช้อยู่ head = `0004` และมี role `dormplus_app` ที่ `rolbypassrls = false` — **แต่ connection ของ `.env` ในเครื่องนี้ล็อกอินเป็น `neondb_owner` ซึ่ง `rolbypassrls = true`** แปลว่า RLS ถูกข้ามเมื่อรัน backend จากเครื่องนี้ ถ้าจะทดสอบเรื่องข้ามหอในเครื่อง ต้องเปลี่ยน `.env` ไปใช้ `dormplus_app` (หรือเชื่อ `tests/test_rls.py` ที่ `set local role` เอง) — production ยังต้องยืนยันจาก Vercel env ว่าใช้ `dormplus_app`
+> **ตรวจแล้ว 2026-11-16 (read-only):** ตอนนั้นฐานข้อมูลที่ `backend/.env` ใช้อยู่ head = `0004` และมี role `dormplus_app` ที่ `rolbypassrls = false` — **แต่ connection ของ `.env` ในเครื่องนี้ล็อกอินเป็น `neondb_owner` ซึ่ง `rolbypassrls = true`** แปลว่า RLS ถูกข้ามเมื่อรัน backend จากเครื่องนี้ ถ้าจะทดสอบเรื่องข้ามหอในเครื่อง ต้องเปลี่ยน `.env` ไปใช้ `dormplus_app` (หรือเชื่อ `tests/test_rls.py` ที่ `set local role` เอง) — production ยังต้องยืนยันจาก Vercel env ว่าใช้ `dormplus_app`
+
+> **Head ของ migration ในเรพตอนนี้คือ `0005`** (`backend/migrations/versions/0005_line_events.py`) ต่อจาก `0004` — สร้างตาราง `line_events` (PK `event_id`) พร้อม RLS policy แบบเดียวกับ `0004` เพื่อกัน LINE ส่ง event ซ้ำ แล้วบันทึก `audit_log` ซ้ำ ฐาน/deployment ที่ยังไม่ `upgrade head` จะทำให้ `POST /v1/webhooks/line/:property_id` ล้มตอน insert `line_events` (500)
+<!-- VERIFY: ฐาน Neon ที่ production ใช้อยู่ `alembic_version` = `0005` แล้วหรือยัง — เช็กได้จาก `select version_num from alembic_version` เท่านั้น ไม่มีในเรพ -->
 
 ### 1.2 `SESSION_SECRET`
 
@@ -101,24 +104,29 @@
 | `LINE_CHANNEL_ID` | `app/routes/auth.py` | LINE Login channel ที่ออก idToken; ว่าง → 503 |
 | `LIFF_ID` | `app/main.py` | `GET /v1/liff-config` คืนให้หน้า LIFF (public โดยตั้งใจ) |
 | `LINE_CHANNEL_ACCESS_TOKEN` | `app/line_push.py` | Messaging API push; ว่าง → คืน `skipped:` ไม่ throw |
-| `LINE_CHANNEL_SECRET` | `app/routes/webhooks.py` | ตรวจ `X-Line-Signature` (HMAC ของ raw body); ว่าง → 503 |
+| `LINE_CHANNEL_SECRET` | `app/routes/webhooks.py` | ตรวจ `X-Line-Signature` (HMAC-SHA256 ของ raw body แบบ base64); ว่าง → `503 LINE_NOT_CONFIGURED` · `property_id` ใน path ต้องเท่ากับ `PROPERTY_ID` ไม่งั้น `404 NOT_FOUND` · signature ผิด → `401 UNAUTHORIZED` |
+
+webhook ฝั่งนี้บันทึกทุก event ลงตาราง `line_events` (migration `0005`) ด้วย `webhookEventId` เป็น PK — LINE ส่งซ้ำจะไม่เพิ่ม `audit_log` แถวที่สอง และยังตอบ 200 เพื่อให้ LINE หยุด retry · **endpoint นี้ยังไม่ได้ผูกกับ OA จริง** (LINE Console ยังชี้ไปที่ `line-app`)
 
 > `LINE_CHANNEL_ACCESS_TOKEN` ถูกอ่านโดย `Settings` แต่ **ไม่ปรากฏใน `backend/.env.example`** — ถ้าคัดลอก example ไปใช้ ต้องเพิ่มเองไม่งั้นการทวงหนี้จะ log `skipped` เงียบ ๆ (ตอนนี้การทวงจริงอยู่ที่ `line-app` จึงกระทบเฉพาะตอนเปิด cron ฝั่งนี้)
 
 ### 1.6 `PROPERTY_ID` — ตัวคุม RLS และการเลือกบิล
 
-"1 deploy = 1 หอ" — `app/db.py` เรียก `attach_property()` ทุกครั้งที่สร้าง engine แล้วรัน `select set_config('app.property_id', <PROPERTY_ID>, false)` **บนทุก connection ที่ connect** (รวมถึง test) ทำให้ policy ของ migration `0004` กรองทุกตารางให้เห็นเฉพาะหอเดียว
+"1 deploy = 1 หอ" — `app/db.py` เรียก `attach_property()` ทุกครั้งที่สร้าง engine แล้วรัน `select set_config('app.property_id', <PROPERTY_ID>, false)` **บนทุก connection ที่ connect** (รวมถึง test) ทำให้ policy ของ migration `0004` (และ `line_events` ใน `0005`) กรองทุกตารางให้เห็นเฉพาะหอเดียว
 
 - ค่า setting ว่าง/NULL = **ไม่เห็นแถวใดเลย** ไม่ใช่เห็นทุกแถว — ถ้าตั้งผิดจะดูเหมือน "ข้อมูลหาย" ไม่ใช่ error
 - การกรอง `property_id` ในโค้ดยังอยู่ครบ — RLS เป็นชั้นกันพลาด ไม่ได้แทนที่
 - session ทุกอันถือ `property_id` และ route ห้ามรับค่านี้จาก client (`backend/app/auth.py`)
 - ค่าเดียวกันนี้ยังใช้ตอน cron/dunning เลือกบิล (`due_for_reminder`) ถ้าตั้งผิดจะไม่พบบิลที่ถึงกำหนด
+- ค่า default คือ `p_1` — deployment ที่ไม่ได้ตั้ง env นี้จะเสิร์ฟหอ `p_1` เงียบ ๆ ไม่ error
+
+<!-- VERIFY: โปรเจกต์ Vercel `line-backend` ไม่ได้ตั้ง `PROPERTY_ID` (จึงใช้ `p_1`) — เป็นค่าที่เห็นได้จาก Project → Settings → Environment Variables เท่านั้น -->
 
 ---
 
 ## 2. line-app (serverless JS)
 
-โค้ดอ่าน `process.env` **18 ตัว** ใน `line-app/api/*.js` (นับจาก `api/config.js`, `api/cron.js`, `api/dev.js`, `api/me.js`, `api/owner.js`, `api/qr.js`, `api/rooms.js`, `api/run.js`, `api/slip.js`, `api/webhook.js`, `api/_auth.js`, `api/_line.js`, `api/_remind.js`, `api/_rooms.js`) บวกตัวแปรที่ `@vercel/blob` อ่านเอง
+โค้ดอ่าน `process.env` **20 ตัว** ใน `line-app/api/*.js` (นับจาก `api/config.js`, `api/cron.js`, `api/dev.js`, `api/me.js`, `api/owner.js`, `api/qr.js`, `api/rooms.js`, `api/run.js`, `api/slip.js`, `api/webhook.js`, `api/_auth.js`, `api/_line.js`, `api/_remind.js`, `api/_rooms.js`, `api/_verify.js`) บวกตัวแปรที่ `@vercel/blob` อ่านเอง (`api/_store.js`)
 
 | Variable | Prod | Local | Default | ผลเมื่อไม่มี / ผิด |
 |---|---|---|---|---|
@@ -137,6 +145,8 @@
 | `DEFAULT_RENT` | ไม่บังคับ | ไม่บังคับ | `3500` | ค่าเช่าเริ่มต้น/ห้อง |
 | `WATER_RATE` | ไม่บังคับ | ไม่บังคับ | `25` | ค่าน้ำ/หน่วย |
 | `ELEC_RATE` | ไม่บังคับ | ไม่บังคับ | `7` | ค่าไฟ/หน่วย |
+| `SLIPOK_API_KEY` | ไม่บังคับ | ไม่บังคับ | — | ใช้คู่กับ `SLIPOK_BRANCH_ID`; ตั้งไม่ครบทั้งคู่ = ตรวจสลิปไม่ทำงาน (`ok: null`, `reason: "not_configured"`) แต่สลิปยังถูกบันทึก (§2.5) |
+| `SLIPOK_BRANCH_ID` | ไม่บังคับ | ไม่บังคับ | — | branch ของหอนี้ใน SlipOK — ต้องผูกบัญชีรับเงินของหอไว้ ไม่งั้นสลิปทุกใบได้ `1014` (บัญชีผู้รับไม่ใช่บัญชีของหอ) |
 | `BILL_PERIOD` | ไม่บังคับ | ไม่บังคับ | `""` (seed ใช้ `2026-11`) | `/api/run` ถ้า body ไม่ส่ง `period` และ env ว่าง → `400 VALIDATION`; `/api/rooms` คืน `period: null` |
 | `BILL_DUE` | ไม่บังคับ | ไม่บังคับ | `""` (seed ใช้ `2026-11-16`) | บิลเก็บ `due: ""`/`null` → การ์ดแสดงค่าว่าง และ **cron จะข้ามบิลนั้น** (`candidateBills` ต้องมี `due`) |
 | `VERCEL_ENV` | platform ฉีดให้ | `vercel dev` ตั้งเป็น `development` | `""` | ใช้ปิด bypass บน production (`IS_PRODUCTION`) |
@@ -159,6 +169,7 @@
 - `ROOMS` เป็น comma-separated; เปลี่ยนแล้วข้อมูล Blob ของห้องเดิม (`room:<room>`, `bill:<room>`, `meter:<room>`) ไม่ถูกลบ
 - ค่าเช่า/เรตถูก wrap ด้วย `Number()` — ใส่ค่าที่แปลงไม่ได้ (เช่น `25 บาท`) จะได้ `NaN` แล้วยอดบิลกลายเป็น `NaN` โดยไม่ error
 - ค่าเฉพาะห้องเขียนทับได้ด้วย key `room:<room>` ใน Blob (`{...DEFAULTS, ...roomConfig}`)
+- **การเปลี่ยนค่าเช่าใน production เป็นการตั้งค่า deployment ไม่ใช่การแก้โค้ด** — ตั้ง `DEFAULT_RENT` (default `3500`) ใน Vercel → Project → Settings → Environment Variables แล้ว Redeploy เพราะ `_rooms.js` อ่านตอน module load (instance ที่ warm อยู่ใช้ค่าเดิม) · ผลกับบิลที่ออกไปแล้ว: ไม่ย้อนหลัง บิลเก่าเก็บยอดไว้ใน Blob แล้ว
 
 ### 2.2 `SEED_TOKEN` / `ALLOW_SEED_BYPASS`
 
@@ -185,9 +196,23 @@
 - ไม่ใช่ `DUNNING_TOKEN` — ชื่อเก่านั้นเป็น alias ของ backend เท่านั้น
 - วันที่คิดตามเวลาไทย (`Asia/Bangkok`) ไม่ใช่ UTC ของเซิร์ฟเวอร์
 - กันรันซ้อนด้วย Blob key `cron-lock` (15 นาที): ถ้ารอบก่อนยังไม่จบ รอบใหม่ตอบ `200 {"skipped":"another run is in progress"}` — Vercel retry จึงไม่ทำให้ส่งซ้ำ
-- ตั้งแล้ว **ต้อง Redeploy** — env ของ Vercel มีผลกับ deployment ใหม่ · `cron.js` อ่าน `CRON_SECRET` ทุก request แต่ `_line.js` / `_auth.js` / `_rooms.js` อ่านตอน module load (ดูข้อ 12)
+- ตั้งแล้ว **ต้อง Redeploy** — env ของ Vercel มีผลกับ deployment ใหม่ · `cron.js` อ่าน `CRON_SECRET` ทุก request แต่ `_line.js` / `_auth.js` / `_rooms.js` อ่านตอน module load (ดู §6 ข้อ 3)
 
 <!-- VERIFY: มีการตั้ง `CRON_SECRET` (≥ 16 ตัว) บนโปรเจกต์ `line-app` แล้วหรือยัง และค่าเดียวกับที่ Vercel ใช้แนบ header — เห็นได้ที่ Project → Settings → Environment Variables -->
+
+### 2.5 `SLIPOK_API_KEY` / `SLIPOK_BRANCH_ID` — ตรวจสลิปกับธนาคาร
+
+`api/_verify.js` ส่งรูปสลิปไปที่ SlipOK (`POST https://api.slipok.com/api/line/apikey/<SLIPOK_BRANCH_ID>`, header `x-authorization: <SLIPOK_API_KEY>`, timeout 10 วินาที) — หนึ่ง branch ต่อหนึ่งหอ
+
+- **ตั้งทั้งคู่หรือไม่ตั้งเลย** — `askSlipok()` คืน `null` ทันทีถ้าขาดตัวใดตัวหนึ่ง แล้ว `verifySlip()` คืน `{ok: null, reason: "not_configured"}` · สลิปยังถูกบันทึกและส่งการ์ดให้เจ้าของตามปกติ แค่ไม่มีผลตรวจ
+- **branch ต้องผูกบัญชีรับเงินของหอไว้ก่อน** — ถ้าไม่ผูก (หรือผูกบัญชีอื่น) สลิปทุกใบจะได้ code `1014` = "บัญชีผู้รับไม่ใช่บัญชีของหอ" → `ok: false` ทั้งที่ผู้เช่าโอนจริง — ตรวจ branch ใน SlipOK dashboard ก่อนเปิดใช้
+- โค้ดส่ง `log: true` เสมอ — ถ้าไม่มี flag นี้ SlipOK แค่อ่านสลิป ไม่ตรวจบัญชีผู้รับและไม่จำสลิปไว้กันสลิปซ้ำ
+- ผลตรวจเป็น **หลักฐานให้เจ้าของ ไม่ใช่การปิดบิล** — บิลยังเป็น `pending` จนเจ้าของกดยืนยัน · `ok: null` = ตรวจไม่ได้ (ผู้ให้บริการล่ม/สลิปใหม่เกินไป/อ่าน QR ไม่ได้) ไม่ใช่ "สลิปปลอม" · code `1012` = สลิปซ้ำ, `1013` = ยอดไม่ตรงบิล, `1014` = บัญชีผู้รับผิด
+- ระบบยังกันสลิปซ้ำด้วย key ของตัวเอง (`slip-ref:<transRef>` ใน Blob) เพราะ SlipOK จำได้เฉพาะภายใน branch
+- "ตรวจไม่ได้" (500/502/timeout/ไม่ตั้งค่า) ไม่ทำให้สลิปหาย — `slip.js` บันทึกและ push ต่อเสมอ
+
+<!-- VERIFY: `SLIPOK_API_KEY` / `SLIPOK_BRANCH_ID` ถูกตั้งบนโปรเจกต์ `line-app` แล้วหรือยัง และ branch ผูกบัญชีรับเงินของหอจริง — เห็นได้ที่ Vercel env + SlipOK dashboard เท่านั้น -->
+<!-- VERIFY: แผน SlipOK ที่ใช้อยู่และ quota ต่อเดือน — อยู่นอกเรพ -->
 
 ---
 
@@ -249,12 +274,14 @@ PROPERTY_ID=p_1
 - `OWNER_USER_ID`
 - `CRON_SECRET` (≥ 16 ตัว — ถ้าไม่ตั้ง การทวงอัตโนมัติรายวันไม่ทำงานเลย)
 
+ไม่บังคับ: `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` (ตั้งคู่กัน และ branch ต้องผูกบัญชีรับเงินของหอ), `RICHMENU_OWNER_ID` / `RICHMENU_TENANT_ID`, `ROOMS` / `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` (มี default ในโค้ด), `PUBLIC_BASE_URL` (ไม่ตั้ง = ใช้ host ของ request)
+
 ไม่ตั้งใน production: `SEED_TOKEN`, `ALLOW_SEED_BYPASS`, `DEV_AUTH=true`
 
 ### Local
 
 - backend: `cp .env.example .env` แล้วตั้ง `COOKIE_SECURE=false`; `DEV_AUTH=true` ได้; `SESSION_SECRET` อะไรก็ได้ที่ไม่ใช่ placeholder (test ใช้ `test-secret`); `LINE_*`/`CRON_SECRET` ไม่ใส่ก็รันได้แต่ฟีเจอร์นั้นจะปิด
-- line-app: ไม่มี HTTP server ในเรพ — smoke test ตั้ง env เองในโปรเซส (`smoke.js`, `smoke-handlers.js`, `smoke-reads.js`) ถ้าจะยิง API จริงต้องตั้ง env ใน shell เองหรือใช้ `vercel dev`
+- line-app: ไม่มี HTTP server ในเรพ — smoke test ตั้ง env เองในโปรเซส (`smoke.js`, `smoke-handlers.js`, `smoke-reads.js`, `smoke-usecases.js`, `smoke-cron.js`) ถ้าจะยิง API จริงต้องตั้ง env ใน shell เองหรือใช้ `vercel dev`
 
 ---
 
@@ -276,6 +303,8 @@ PROPERTY_ID=p_1
 | `DEFAULT_RENT` | `3500` | `line-app/api/_rooms.js` |
 | `WATER_RATE` | `25` | `line-app/api/_rooms.js` |
 | `ELEC_RATE` | `7` | `line-app/api/_rooms.js` |
+| `SLIPOK_API_KEY` / `SLIPOK_BRANCH_ID` (line-app) | ไม่ตั้ง (undefined = ไม่ตรวจสลิป) | `line-app/api/_verify.js` |
+| migration head (backend) | `0005` (`line_events`) | `backend/migrations/versions/0005_line_events.py` |
 | `PUBLIC_BASE_URL` | `https://<host ของ request>` | `line-app/api/run.js`, `dev.js`, `webhook.js`, `cron.js` |
 | `LIFF_ID` (line-app) | `null` (ตอบใน `/api/config`) | `line-app/api/config.js` |
 | `LOGIN_CHANNEL_ID` | prefix ของ `LIFF_ID` ก่อน `-` | `line-app/api/_auth.js` |
@@ -328,5 +357,6 @@ Vercel อ่าน env ตาม scope ที่เลือกตอนสร�
 2. ตั้ง `LIFF_ID` + `OWNER_USER_ID`
 3. ตั้ง `CRON_SECRET` (≥ 16 ตัว) เพื่อให้ `/api/cron` ทำงาน — Vercel จะแนบ header ให้เอง
 4. ตั้ง `ROOMS` / `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` ให้ตรงหอ (ไม่ตั้ง = 201–212, 3500, 25, 7)
-5. ตั้ง `PUBLIC_BASE_URL` เป็นโดเมน production
-6. Redeploy แล้วยิง webhook Verify จาก LINE Developers Console · ตรวจ cron ที่ Vercel → Project → Cron Jobs
+5. (ถ้าเปิดตรวจสลิป) สร้าง branch ใน SlipOK → ผูกบัญชีรับเงินของหอ → ตั้ง `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` **คู่กัน** ไม่งั้นระบบทำงานเหมือนไม่ได้ตั้ง (สลิปไม่ถูกตรวจ)
+6. ตั้ง `PUBLIC_BASE_URL` เป็นโดเมน production
+7. Redeploy แล้วยิง webhook Verify จาก LINE Developers Console · ตรวจ cron ที่ Vercel → Project → Cron Jobs

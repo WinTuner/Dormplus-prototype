@@ -5,7 +5,8 @@
 เอกสารนี้เป็น **runbook เดียวสำหรับทั้งสองโปรเจกต์ Vercel** ของ repo นี้ (`line-app` และ `line-backend`)
 เขียนจากไฟล์จริง: `line-app/vercel.json`, `backend/vercel.json`, `backend/api/index.py`, `backend/app/db.py`,
 `backend/app/queue.py`, `backend/app/routes/cron.py`, `line-app/api/cron.js`, `line-app/api/_remind.js`,
-`backend/migrations/versions/`, `scripts/prod-smoke.mjs`, `Dockerfile`, `line-app/scripts/setup-richmenu.js`,
+`backend/migrations/versions/`, `line-app/api/_verify.js`, `scripts/prod-smoke.mjs`, `Dockerfile`,
+`line-app/scripts/setup-richmenu.js`,
 `.github/workflows/ci.yml` และ `.vercel/project.json` ของทั้งสองโฟลเดอร์
 
 รายละเอียดเชิงลึกของครึ่ง LINE app (Blob store, rich menu, LINE Console, ตาราง error string) อยู่ใน
@@ -89,7 +90,7 @@ vercel --prod
 
 | โปรเจกต์ | env ที่ต้องมีบน Vercel | หมายเหตุ |
 |---|---|---|
-| `line-app` | `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`, `LIFF_ID`, `OWNER_USER_ID`, `CRON_SECRET` (≥ 16 ตัว) (+ `RICHMENU_OWNER_ID` / `RICHMENU_TENANT_ID` ถ้าใช้ rich menu · `PUBLIC_BASE_URL` ไม่บังคับ — ถ้าไม่ตั้ง โค้ดใช้ `https://${req.headers.host}`) | `BLOB_STORE_ID` มาจาก `vercel storage connect` ไม่ต้องตั้งเอง · `SEED_TOKEN` / `ALLOW_SEED_BYPASS` **ปิดบน production เสมอ** · ไม่มี `CRON_SECRET` = ไม่มีการทวงบิลอัตโนมัติเลย |
+| `line-app` | `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`, `LIFF_ID`, `OWNER_USER_ID`, `CRON_SECRET` (≥ 16 ตัว) (+ `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` ถ้าเปิดตรวจสลิป · `RICHMENU_OWNER_ID` / `RICHMENU_TENANT_ID` ถ้าใช้ rich menu · `PUBLIC_BASE_URL` ไม่บังคับ — ถ้าไม่ตั้ง โค้ดใช้ `https://${req.headers.host}`) | `BLOB_STORE_ID` มาจาก `vercel storage connect` ไม่ต้องตั้งเอง · `SEED_TOKEN` / `ALLOW_SEED_BYPASS` **ปิดบน production เสมอ** · ไม่มี `CRON_SECRET` = ไม่มีการทวงบิลอัตโนมัติเลย |
 | `line-backend` | `DATABASE_URL` (pooled + `?sslmode=require`, **role ที่ไม่มี `BYPASSRLS`**), `SESSION_SECRET`, `LINE_CHANNEL_ID`, `LIFF_ID`, `COOKIE_SECURE=true`, `DEV_AUTH=false`, `PROPERTY_ID` · `CRON_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` เฉพาะเมื่อจะยิง cron/dunning ของฝั่งนี้ด้วยมือ | `DEV_AUTH=true` ถูกเพิกเฉยเมื่อ `VERCEL_ENV=production` · backend ไม่มี cron ที่ลงทะเบียนแล้ว จึงไม่ต้องมี `CRON_SECRET` เพื่อให้ระบบทำงานปกติ |
 
 - **`DATABASE_URL` ของ runtime ต้องเป็น role อย่าง `dormplus_app`** — DML บนทุกตาราง + sequences แต่ **ไม่มี
@@ -98,6 +99,12 @@ vercel --prod
   <!-- VERIFY: role ที่ผูกกับ `DATABASE_URL` บน production คือ `dormplus_app` จริง (ไม่ใช่ `neondb_owner`) — ดูได้จาก dashboard/psql เท่านั้น -->
 - **`CRON_SECRET` ของสองโปรเจกต์เป็นคนละค่าได้** และต้องตั้งแยกกัน — มีแต่ของ `line-app` ที่ถูกใช้โดย cron
   ที่ลงทะเบียนไว้ (ข้อ 6)
+- **`SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` ต้องตั้งคู่กัน** — `line-app/api/_verify.js` เรียก
+  `POST https://api.slipok.com/api/line/apikey/<SLIPOK_BRANCH_ID>` ด้วย header `x-authorization: <SLIPOK_API_KEY>`
+  ขาดตัวใดตัวหนึ่ง = `askSlipok()` คืน `null` → สลิปถูกบันทึกด้วย `slipVerify.ok = null`, reason
+  `not_configured` (**"ตรวจไม่ได้" ไม่ใช่ "ปลอม"** และไม่มีอะไรพัง) · branch ต้องผูกบัญชีรับเงินของหอไว้
+  ไม่งั้นทุกสลิปได้ `1014` · ทั้งคู่ถูกตั้งบนโปรเจกต์ production แล้ว — **ค่าอยู่ใน Vercel env / SlipOK dashboard เท่านั้น**
+  ไม่มีในเรพ (ชื่อตัวแปรและพฤติกรรมอยู่ที่ [`CONFIGURATION.md`](./CONFIGURATION.md) §2.5)
 
 **แก้ env แล้วต้อง Redeploy เสมอ** — Vercel ผูก env กับ deployment: instance ที่ warm อยู่จะยังใช้ค่าเก่า
 จนกว่าจะมี deployment ใหม่ (ไม่ใช่เพราะทุกไฟล์อ่านตอน module load — `cron.js` อ่าน `CRON_SECRET` ต่อ request,
@@ -114,9 +121,12 @@ vercel --prod
 ## 4. backend: ลำดับงานเมื่อแก้ schema (สำคัญที่สุด)
 
 `backend/migrations/versions/` คือ **schema of record** — `db/schema.sql` เป็น snapshot อ่านอย่างเดียว
-(อัปเดตถึง `0005` แล้ว แต่ตัวที่รันจริงคือ alembic)
+(**มีถึง `0004`** — มี policy RLS ครบ แต่ยังไม่มีตาราง `line_events` ของ `0005` อย่าใช้ตัดสินว่า DB จริงอยู่ revision ไหน
+ให้ดู `alembic current`)
 
-มี 5 revision: `0001` initial · `0002` `link_codes` · `0003` `auth_failures` · `0004` **RLS (`force row level security`)** · `0005` `line_events` (กัน LINE ส่ง event ซ้ำ)
+มี 5 revision: `0001` initial · `0002` `link_codes` · `0003` `auth_failures` · `0004` **RLS (`force row level security`)** ·
+`0005` `line_events` (`event_id` เป็น PK · `property_id` · `received_at` · **`force row level security`** ·
+grant ให้ `dormplus_app` แบบมีเงื่อนไข) — กัน LINE ส่ง event ซ้ำแล้วเขียน `audit_log` สองแถว
 
 เพราะ merge เข้า `master` = deploy ทันที **migration ต้องขึ้นก่อน merge ไม่ใช่หลัง** ไม่งั้นช่วงสั้น ๆ
 โค้ดใหม่จะวิ่งชน schema เก่า (500 ทั้งหน้า และ cron ก็ล้มด้วย)
@@ -132,6 +142,15 @@ vercel --prod
 
 > ⚠️ **`0004` เป็นข้อยกเว้นของลำดับนี้** — ต้อง deploy โค้ดที่ตั้ง `app.property_id` **ก่อน** apply migration
 > อ่านข้อ 4.4 ก่อนรัน `alembic upgrade head` ครั้งแรกหลังมี `0004`
+>
+> ✅ **`0005` ไม่ใช่ข้อยกเว้น** — เป็น migration แบบเพิ่มอย่างเดียว (สร้างตาราง `line_events` + policy + grant)
+> จึงใช้ลำดับปกติ: `alembic upgrade head` ก่อน merge (ข้อ 3) ได้เลย · ยกเว้นของ `0004` ยังมีผลแยกกันอยู่
+> อย่าอ่านสองข้อนี้ปนกัน
+
+grant ใน `0005` มีเงื่อนไข (`if exists (select 1 from pg_roles where rolname = 'dormplus_app')`) เพราะ
+CI/ฐานข้อมูลใหม่ยังไม่มี role นั้นและต้อง migrate ผ่าน — บน production role มีอยู่แล้วจึงได้ grant ครบ
+ถ้าสร้าง `dormplus_app` **หลัง** apply `0005` ต้อง grant เอง (`grant select, insert, update, delete on line_events to dormplus_app;`)
+ไม่งั้น webhook เขียนตารางนี้ไม่ได้
 
 ### 4.1 รัน migration กับ Neon ด้วย endpoint unpooled
 
@@ -171,7 +190,7 @@ alembic revision -m "add xyz"     # แล้วเขียน op.execute(...) 
 alembic upgrade head
 ```
 
-ทุก revision ต้องมีฟังก์ชัน `downgrade()` (ทั้งสี่ไฟล์ที่มีอยู่มีครบ) เพราะ rollback ทำทีละ revision (ข้อ 8)
+ทุก revision ต้องมีฟังก์ชัน `downgrade()` (ทั้งห้าไฟล์ที่มีอยู่มีครบ) เพราะ rollback ทำทีละ revision (ข้อ 8)
 
 ### 4.3 อย่ารอให้ deploy รัน migration ให้
 
@@ -392,6 +411,8 @@ DATABASE_URL="postgresql+psycopg://…unpooled…" alembic current          # �
 
 - ระบุ revision ปลายทางเสมอ (`alembic downgrade 0003`) — `-1` ก็ใช้ได้แต่ต้องรู้ว่าปัจจุบันอยู่ไหน
 - `downgrade()` ของ `0002`/`0003` จะ drop ตาราง `link_codes` / `auth_failures` — **ข้อมูลในนั้นหายถาวร**
+- `downgrade()` ของ `0005` drop ตาราง `line_events` — **ข้อมูล event id หายถาวร** · ผลคือ LINE ที่ retry
+  ข้อความเดิมจะถูกนับเป็น event ใหม่ (เขียน `audit_log` ซ้ำ) ไม่มีอะไร crash · ถ้าจะถอยแค่โค้ดไม่ต้องถอย revision นี้
 - `downgrade()` ของ `0004` แค่ drop policy และ `no force row level security` — **ข้อมูลไม่หาย** แต่ **RLS ยังเปิดอยู่**
   (ไม่มีการ `disable row level security`) ดังนั้น role ที่ไม่ใช่ owner และไม่มี policy (`dormplus_app`) จะอ่านได้ **0 แถว**
   → ถ้าจะถอย `0004` ต้องถอยโค้ด/role ไปใช้ owner ด้วย หรือ `alter table … disable row level security` เอง ไม่งั้นแอปจะเห็นข้อมูลว่าง
@@ -426,7 +447,7 @@ DATABASE_URL="postgresql+psycopg://…unpooled…" alembic current          # �
 | backend | `GET /healthz` (ตรวจ DB ด้วย — ตอบ 503 `DB_UNAVAILABLE` ถ้าต่อไม่ได้) · Vercel → Deployments → Functions → log ของ `api/index` |
 | cron (line-app) | ผลของ `/api/cron` (`sent` / `failed` / `skipped`) · Vercel → โปรเจกต์ `line-app` → **Cron Jobs** · log `event failed ...`, `line message/push 4xx` |
 | cron (backend, ไม่ได้ตั้งเวลา) | ผลของ `/v1/cron/daily` (`queued` / `drained`) · log ของ `line.push_text` (`skipped` = ไม่มี token) — ใช้เมื่อยิงมือ |
-| line-app | log `event failed ...`, `line message/push 4xx`, `owner push failed` · LINE Developers → Webhook event log |
+| line-app | log `event failed ...`, `line message/push 4xx`, `owner push failed`, `slip verify failed ...` · LINE Developers → Webhook event log |
 | ทั้งคู่ | `node scripts/prod-smoke.mjs` (exit 1 = มีข้อตก) |
 
 `/healthz` ผ่านไม่ได้ยืนยันว่าแอปอ่านข้อมูลได้ — ถ้า RLS ตั้งผิดจะได้ 200 จาก `/healthz` แต่หน้าเว็บว่าง
@@ -449,6 +470,10 @@ DATABASE_URL="postgresql+psycopg://…unpooled…" alembic current          # �
 | `PROPERTY_ID` ไม่ตรงกับ `properties.id` ในฐานข้อมูล | policy เทียบกับค่านี้ตรง ๆ (default `p_1`) — ค่าผิด = อ่าน 0 แถวเหมือนกัน | ตั้ง `PROPERTY_ID` ให้ตรง แล้ว redeploy · `select id from properties;` |
 | เห็นข้อมูลข้ามหอ / policy ดูไม่มีผล | `DATABASE_URL` ของ runtime ใช้ role ที่มี `BYPASSRLS` (`neondb_owner`) จึงข้าม policy ทั้งหมด | เปลี่ยน runtime ไปใช้ `dormplus_app` · ตรวจ `select rolbypassrls from pg_roles where rolname = current_user` |
 | `psql`/สคริปต์ตอบ 0 แถวทั้งที่ข้อมูลอยู่ | ต่อด้วย role ที่ไม่ตั้ง `app.property_id` (fail closed ตามดีไซน์) | `select set_config('app.property_id','p_1',false);` ก่อนคิวรี |
+| สลิปขึ้น **"ตรวจไม่ได้"** (`slipVerify.ok = null`, reason `not_configured`) | ไม่ได้ตั้ง `SLIPOK_API_KEY` / `SLIPOK_BRANCH_ID` ครบทั้งคู่ → `_verify.js` ไม่เรียกผู้ให้บริการเลย (ไม่ได้ล้มเหลว แค่ไม่ได้ตรวจ) | ตั้งทั้งคู่บนโปรเจกต์ `line-app` แล้ว redeploy (ข้อ 3) · สลิปยังถูกบันทึกครบ ไม่ต้องให้ผู้เช่าส่งใหม่ |
+| สลิปขึ้น "ตรวจไม่ได้" ทั้งที่ตั้งครบ | ผู้ให้บริการไม่ตอบ/อ่านรูปไม่ได้/สลิปใหม่เกินไป — โค้ดคืน `ok: null` พร้อม reason ไทย เช่น `ธนาคารขัดข้องชั่วคราว — ลองอีกครั้งใน 15 นาที`, `สลิปใหม่เกินไป` ตั้งใจไม่เรียกว่า "ปลอม" | ตรวจ log `slip verify failed ...` แล้วตรวจซ้ำภายหลัง · อย่าลบบิล/หาว่าผู้เช่าโกงจากผลนี้ (`ok: false` เท่านั้นที่หมายถึงสลิปมีปัญหา: `1012` ซ้ำ, `1013` ยอดไม่ตรง, `1014` บัญชีผู้รับ) |
+| **สลิปทุกใบได้ `1014` "บัญชีผู้รับไม่ใช่บัญชีของหอ"** | branch ใน `SLIPOK_BRANCH_ID` ยังไม่ผูกบัญชีรับเงินของหอ (หรือสลิปโอนเข้าบัญชีคนละใบจริง ๆ) | ผูกบัญชีรับเงินของหอใน branch นั้นที่ SlipOK dashboard — **ไม่ต้อง redeploy** (env ไม่เปลี่ยน) · ตรวจว่า `SLIPOK_BRANCH_ID` ชี้ branch ของหอนี้ ไม่ใช่ของหออื่น |
+| LINE webhook ของ backend ตอบ `503 LINE_NOT_CONFIGURED` | ไม่ได้ตั้ง `LINE_CHANNEL_SECRET` บนโปรเจกต์ `line-backend` (ชื่อ code นี้ใช้ทั้ง `/v1/auth/line` และ webhook) | ตั้งค่าแล้ว redeploy · OA ที่ใช้งานจริงยังชี้ webhook ที่ `line-app` จึงไม่กระทบการทวงบิล |
 | line-app cron ตอบ `503 NOT_CONFIGURED` | ไม่ได้ตั้ง `CRON_SECRET` หรือสั้นกว่า 16 ตัว | ตั้งค่า ≥ 16 ตัวบนโปรเจกต์ `line-app` แล้ว redeploy (ข้อ 6) |
 | ตั้ง `CRON_SECRET` แล้ว cron ยัง 401 | ค่าที่ตั้งไม่ตรงกับที่ deployment เห็น (ตั้งแล้วยังไม่ redeploy) หรือตั้งที่โปรเจกต์ผิด (คนละโปรเจกต์) — `cron.js` อ่าน env ต่อ request แต่ Vercel ผูก env กับ deployment | redeploy หลังตั้ง env บนโปรเจกต์ที่ถูก (ข้อ 3, 6.1) |
 | cron ทวงซ้อนสองรอบ / ส่งข้อความซ้ำ | เปิด `crons` ทั้ง `line-app` และ backend | ให้ `line-app/vercel.json` เป็นที่เดียว · backend ต้องไม่มี `crons` (ข้อ 6) |

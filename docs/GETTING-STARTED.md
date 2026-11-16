@@ -52,7 +52,7 @@ SESSION_SECRET=<ค่าสุ่มยาว ๆ ของคุณ>
 - `DEV_AUTH=true` เปิดทางให้เลือก session ด้วย header `X-Dev-Property` / `X-Dev-Role` แทน LINE Login (`app/auth.py`) — **ห้ามเปิดบน server จริง** และระบบไม่สนใจค่านี้เมื่อ `VERCEL_ENV=production`
 - `SESSION_SECRET` ต้องไม่ใช่ค่า default (`dev-only-change-me`) เพราะ `app/session.py` จะ `raise RuntimeError` ทันทีที่ต้องเซ็น/ตรวจ cookie
 - `CRON_SECRET` และ `PROPERTY_ID` ปล่อยว่าง/`p_1` ไว้ได้ในเครื่อง — สองตัวนี้มีไว้สำหรับ `/v1/cron/daily` (งานทวงหนี้รายวันของครึ่ง backend) และการเลือกหอที่ deploy หนึ่งหอต่อหนึ่ง deployment ถ้า `CRON_SECRET` ว่าง endpoint นั้นจะตอบ `401 UNAUTHORIZED` เสมอ
-- `LINE_CHANNEL_SECRET` มีไว้ตรวจ `X-Line-Signature` ของ `POST /v1/webhooks/line/:property_id` — ว่างแล้ว endpoint นั้นตอบ `503 NOT_CONFIGURED` (webhook ของ OA ยังชี้ที่ `line-app` จึงไม่กระทบของที่ใช้งานจริง)
+- `LINE_CHANNEL_SECRET` มีไว้ตรวจ `X-Line-Signature` ของ `POST /v1/webhooks/line/:property_id` — ว่างแล้ว endpoint นั้นตอบ `503 LINE_NOT_CONFIGURED` (webhook ของ OA ยังชี้ที่ `line-app` จึงไม่กระทบของที่ใช้งานจริง)
 
 ```powershell
 docker compose up -d                 # Postgres 17 พอร์ต 5432 + ฐาน domplus และ domplus_test
@@ -71,6 +71,7 @@ curl.exe -s -H "X-Dev-Property: p_1" "http://127.0.0.1:8000/v1/rooms?period=2026
 ```
 
 - `/docs` เปิดเฉพาะตอนไม่ใช่ production (`app/main.py`) — ใช้ดู route ทั้งหมดได้เลยในเครื่อง
+- migration Head ปัจจุบันคือ **`0005`** (ตาราง `line_events` กัน webhook ของ LINE ที่ส่งซ้ำถูกบันทึกสองครั้ง) — `alembic upgrade head` พาไปถึงตัวล่าสุดให้เอง ไม่ต้องระบุเลข revision · ทั้งห้าไฟล์อยู่ที่ `backend/migrations/versions/` (`0001`…`0005`) และ `0004` คือตัวที่เปิด RLS
 - seed ใส่ข้อมูลรอบ `2026-10` (มิเตอร์ครบทุกห้อง) และ `2026-11` (มิเตอร์ 12 ห้องแรก) · **บิลค้าง 9 ใบ** ที่ seed ไว้อยู่รอบ `2026-08/09/10` ไม่ใช่ `2026-11` · รันซ้ำได้ไม่สร้างข้อมูลซ้ำ
 - ถ้าไม่ส่ง `period` API จะใช้เดือนปัจจุบันตามเวลาไทย ซึ่งอาจไม่มีข้อมูลถ้าไม่ได้รันตอน พ.ย. 2026
 
@@ -89,20 +90,20 @@ node smoke-cron.js         # งานเตือนบิลค้างรา
 node smoke-usecases.js     # 156 use case ตั้งแต่ต้นจนจบ (UC-01 … UC-18)
 ```
 
+ชุด use case คือ subset อัตโนมัติของ [`TEST-CASES.md`](./TEST-CASES.md) ซึ่งแตกครบ **265 case ใน 19 UC** (222 ✅ automated · 23 🖐 ต้องกดมือกับ LINE จริง · 20 ⏳ ยังไม่มี test) — 156 ตัวที่รันในไฟล์นี้คือส่วนที่ทดสอบได้โดยไม่ต้องมี LINE จริง ส่วนที่เหลืออยู่ในตารางพร้อมเหตุผลว่าทำไมยังอัตโนมัติไม่ได้
+
 ผลที่ต้องเห็น (ยืนยันบน Node v26.13.0) — บรรทัด QR ต้องมี `node_modules` (`qrcode-svg`) ถ้าไม่มีจะขึ้น `smoke: qrcode-svg not installed, QR check skipped` แทน (ชุดอื่นไม่ต้องใช้ dependency เลย):
 
 ```text
 smoke OK — QR renders and scales
 smoke OK — signature + flex card + confirm card + auth guards
-handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token
+handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing
 reads OK — bounded concurrency, ordering, legacy history, binding and auth
 cron OK — auth, 6 reminder windows, dedup, catch-up, skips, tenancy, retry, owner summary, one push per room
 156/156 use case tests passed
 ```
 
 `npm test` (`package.json` → `scripts.test`) รันแค่ **สามชุดแรก** (`smoke.js && smoke-handlers.js && smoke-reads.js`) — `smoke-cron.js` และ `smoke-usecases.js` ต้องสั่งเองหรือพึ่ง CI ส่วน `smoke-usecases.js` ใช้เวลานานที่สุด (หลายนาที) และพิมพ์สรุปเป็น `<passed>/<total> use case tests passed` โดย exit code 0 เมื่อผ่านครบ
-
-> `line-app/docs/GETTING-STARTED.md` เขียนไว้ว่า `package.json` "ไม่มี scripts" — ตอนนี้มี `scripts.test` แล้ว เอกสารนั้นล้าสมัยในจุดนี้
 
 **ข้อจำกัดที่ต้องรู้:** `line-app/` ไม่มี dev server และไม่มี `.env` loader — หน้า `liff/bill.html` เรียก `/api/*` แบบ path สัมพัทธ์ จึงต้องถูกเสิร์ฟจาก origin เดียวกับ API บน Vercel เท่านั้น
 ในเครื่องจึงทดสอบได้แค่ตรรกะที่ไม่แตะ I/O (signature, รูปการ์ด, handler ที่ stub แล้ว) — ที่เหลือต้องไป Track B
@@ -112,10 +113,12 @@ cron OK — auth, 6 reminder windows, dedup, catch-up, skips, tenancy, retry, ow
 ```powershell
 cd backend
 .\.venv\Scripts\python.exe -m pytest -q
-# 23 passed, 108 skipped  (collect ได้ 131 test)
+# 23 passed, 119 skipped  (collect ได้ 142 test จาก 14 ไฟล์)
 ```
 
-test ที่ต้องใช้ฐานข้อมูลจะถูก **skip** เมื่อไม่ได้ตั้ง `TEST_DATABASE_URL` (ดู `tests/conftest.py`) ถ้าอยากรันครบ 131 ตัว:
+test ที่ต้องใช้ฐานข้อมูลจะถูก **skip** เมื่อไม่ได้ตั้ง `TEST_DATABASE_URL` (ดู `tests/conftest.py`) ถ้าอยากรันครบ 142 ตัว:
+
+> `backend/.env.example` มี `TEST_DATABASE_URL` อยู่แล้ว แต่ `tests/conftest.py` อ่านจาก **environment variable เท่านั้น** (`os.environ`) — ใส่ใน `.env` แล้วยัง skip เหมือนเดิม ต้อง `export`/`$env:` ก่อนเรียก pytest
 
 ```powershell
 $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/domplus_test"
@@ -145,11 +148,14 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 
 1. `cd line-app && npm install` — dependency มี 2 ตัว: `@vercel/blob` และ `qrcode-svg` (smoke suite ทำงานได้แม้ไม่ติดตั้ง — QR check จะถูกข้าม)
 2. `vercel link` แล้ว `vercel --prod` — <!-- VERIFY: ต้องมี Vercel CLI และสิทธิ์เข้าถึงโปรเจกต์ line-app ของทีม ซึ่งขึ้นกับบัญชีของคุณ ไม่ได้อยู่ใน repo -->
-3. ใส่ env บน Vercel (ทั้ง Production และ Preview แล้ว Redeploy — โค้ดอ่าน env ตอน module load) รายการเต็มที่ [`CONFIGURATION.md`](./CONFIGURATION.md)
+3. ใส่ env บน Vercel (ทั้ง Production และ Preview แล้ว Redeploy — Vercel ผูก env กับ deployment; บางไฟล์อ่านตอน module load, `cron.js` อ่าน `CRON_SECRET` ต่อ request) รายการเต็มที่ [`CONFIGURATION.md`](./CONFIGURATION.md)
 4. ตรวจคำขอแรกที่ไม่ต้องใช้ credential: `curl.exe -s https://<โดเมนของคุณ>/api/config` ต้องได้ `200`
 5. ตั้ง webhook URL เป็น `https://<โดเมนของคุณ>/api/webhook` แล้วกด Verify ใน LINE Developers
 6. (ถ้าต้องการ rich menu) `LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js` จาก `line-app/` — รูป default คือ `docs/richmenu-owner.png` และ `docs/richmenu-tenant.png` (มีอยู่จริง) แล้วเก็บ id ที่พิมพ์ออกมาเป็น `RICHMENU_OWNER_ID` / `RICHMENU_TENANT_ID`
 7. ตั้ง `CRON_SECRET` (สุ่ม ≥ 16 ตัวอักษร เช่น `openssl rand -hex 24`) บน Production แล้ว Redeploy — `vercel.json` ตั้ง `crons: [{ "path": "/api/cron", "schedule": "0 2 * * *" }]` ไว้แล้ว (02:00 UTC = 09:00 เวลาไทย) Vercel จะแนบ `Authorization: Bearer <CRON_SECRET>` ให้เองและเรียกเฉพาะ Production · ไม่ตั้ง/สั้นกว่า 16 = `503 NOT_CONFIGURED` (ไม่มีการเตือน แต่ระบบอื่นทำงานปกติ) · สั่งรันมือ: `curl -H "Authorization: Bearer <CRON_SECRET>" https://<โดเมนของคุณ>/api/cron`
+8. (ไม่บังคับ) **ตรวจสลิปอัตโนมัติ** — ตั้ง `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` (`api/_verify.js` เรียก `https://api.slipok.com/api/line/apikey/<branch>`) ทั้งคู่ต้องมีพร้อมกัน · **branch ต้องผูกบัญชีรับเงินของหอไว้ก่อน** ไม่งั้นสลิปที่โอนเข้าบัญชีอื่นจะตอบ `1014` ("บัญชีผู้รับไม่ใช่บัญชีของหอ") ทุกใบ · ไม่ตั้งทั้งคู่ = ไม่มีอะไรพัง แค่ `verify.ok = null` (`reason: "not_configured"`) และเจ้าของยังตรวจสลิปเองเหมือนเดิม — การตรวจเป็นหลักฐานให้เจ้าของเท่านั้น **ไม่ปิดบิลให้เอง** บิลยังเป็น `pending` จนเจ้าของกดยืนยัน
+
+**ตั้งค่าเช่า/ค่าน้ำ–ไฟต่อห้อง (งานของเจ้าของ ไม่ใช่ขั้น deploy):** เจ้าของแก้ได้จากหน้า LIFF ของห้อง (ปุ่มแก้ราคา → `editRoom()` ใน `liff/bill.html`) หรือยิง `POST /api/rooms` ด้วย `{ "room": "211", "rent": 3500, "waterRate": 25, "elecRate": 7 }` (ส่งอย่างน้อยหนึ่งค่า, จำนวนเต็ม ≥ 0) — **ราคาใหม่มีผลกับบิลที่ออกหลังจากนั้นเท่านั้น** บิลที่ออกไปแล้วเก็บยอดเดิมที่เซ็นไว้ การแก้บิลที่พิมพ์ไปแล้วคือยกเลิก (`POST /api/bill`) แล้วออกใหม่ (`POST /api/run`)
 
 <!-- VERIFY: การที่ Vercel แนบ header ให้เองและการรันเฉพาะ Production deployment ยืนยันจาก repo ไม่ได้ (โค้ดอ่าน CRON_SECRET ใน api/cron.js เท่านั้น) — ดู line-app/docs/DEPLOYMENT.md ข้อ 5A -->
 
@@ -164,10 +170,12 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 | อาการ | สาเหตุ | ทางแก้ |
 |---|---|---|
 | `docker compose up -d` → `failed to connect to the docker API ... dockerDesktopLinuxEngine` | Docker Desktop ยังไม่เปิด (เจอจริงตอนเขียนเอกสารนี้) | เปิด Docker Desktop แล้วรอจนขึ้น Running |
-| `pytest` ได้ `23 passed, 108 skipped` | ไม่ได้ตั้ง `TEST_DATABASE_URL` — เป็นพฤติกรรมปกติ (เก็บได้ 131 test แต่ **108 ตัวต้องมี Postgres**; อีก 23 ตัวรันได้เปล่า ๆ) | ตั้ง `TEST_DATABASE_URL` ชี้ `domplus_test` ตามข้อ 3.3 |
+| `pytest` ได้ `23 passed, 119 skipped` | ไม่ได้ตั้ง `TEST_DATABASE_URL` — เป็นพฤติกรรมปกติ (collect ได้ 142 test แต่ **119 ตัวต้องมี Postgres**; อีก 23 ตัวรันได้เปล่า ๆ) | ตั้ง `TEST_DATABASE_URL` ชี้ `domplus_test` ตามข้อ 3.3 |
 | `GET /api/cron` ได้ `503 NOT_CONFIGURED` | ไม่ได้ตั้ง `CRON_SECRET` บนโปรเจกต์ หรือค่าสั้นกว่า 16 ตัวอักษร | ตั้งค่าใหม่แล้ว Redeploy (Vercel แนบ header ให้เอง) — รันมือด้วย `curl -H "Authorization: Bearer <CRON_SECRET>" ...` |
 | ข้อมูลข้ามหอโผล่ หรือ query ตรง ๆ ได้ `0` แถว | role ที่ต่อมี `BYPASSRLS` (เช่น `neondb_owner` ของ Neon) หรือ `app.property_id` ไม่ถูกตั้งบน connection | ใช้ role ที่ไม่มี `BYPASSRLS` (`dormplus_app`) — `app/db.py` เป็นคนตั้ง `app.property_id` ให้ทุก connection |
 | `alembic upgrade head` → `connection refused` หรือต่อผิดฐาน | รันจากโฟลเดอร์อื่น (`.env` ไม่ถูกโหลด) หรือ `DATABASE_URL` ผิด | `cd backend` ก่อน แล้วเช็ก `DATABASE_URL` ใน `.env` |
+| `alembic upgrade head` พาไปไม่ถึง `0005` | มี revision ค้างหรือ DB ถูกสร้างจาก schema เก่า | ดู `alembic current` / `alembic heads` — head ต้องเป็น `0005` (ตาราง `line_events`) |
+| สลิปที่โอนถูกต้องได้ `1014` / `verify.ok = false` "บัญชีผู้รับไม่ใช่บัญชีของหอ" | `SLIPOK_BRANCH_ID` ยังไม่ผูกบัญชีรับเงินของหอ | ผูกบัญชีใน branch ของ SlipOK ไม่งั้นทุกสลิปจะตก `1014` — หรือถอด `SLIPOK_*` ออกเพื่อกลับไปตรวจมือ (`verify.ok = null`) |
 | `/v1/rooms` ตอบ `401 UNAUTHORIZED` | `DEV_AUTH=false` (ค่า default) จึงไม่มี session | ตั้ง `DEV_AUTH=true` **ในเครื่อง** แล้วรีสตาร์ต uvicorn |
 | เรียก `/v1/rooms` ได้ `[]` หรือไม่มีบิล | ยังไม่รัน `python -m app.seed` หรือส่ง `period` ไม่ตรงกับที่ seed ไว้ | รัน seed แล้วใช้ `?period=2026-10` (บิลค้างที่ seed อยู่รอบ 2026-08/09/10) |
 | `RuntimeError: SESSION_SECRET ... default` | ยังใช้ค่า `dev-only-change-me` จาก `.env.example` | เปลี่ยนเป็นค่าสุ่มยาว ๆ |
@@ -184,6 +192,7 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 | [`API.md`](./API.md) | ต้องยิง endpoint ของ backend เอง (auth, error code, ตัวอย่าง request) |
 | [`HANDOFF.md`](./HANDOFF.md) | จะรับงานต่อ — มีกับดักที่เจอมาแล้วและงานที่ยังเหลือ |
 | [`TESTING.md`](./TESTING.md) | อยากรู้ว่า smoke ทั้งห้าชุดและ pytest แต่ละชุดครอบอะไร |
+| [`TEST-CASES.md`](./TEST-CASES.md) | อยากเห็นว่า use case แต่ละข้อถูกตรวจด้วย test ตัวไหน หรือยังต้องกดมือ (265 case / 19 UC) |
 | [`backend/README.md`](../backend/README.md) | endpoint ทั้งหมด, dev headers, deploy Vercel + Neon, Procrastinate/cron |
 | [`line-app/docs/GETTING-STARTED.md`](../line-app/docs/GETTING-STARTED.md) | ต้องพา LINE app ขึ้น Vercel จริงตั้งแต่ต้น |
 | [`line-app/docs/TESTING.md`](../line-app/docs/TESTING.md) | อยากรู้ว่า smoke แต่ละตัวครอบอะไร และอะไรต้องทดสอบมือ |

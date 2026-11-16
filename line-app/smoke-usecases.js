@@ -2002,8 +2002,9 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
     for (const u of ["Uowner", "Uhelper"]) {
       const r = await call(rooms, { method: "GET", user: u });
       const by = Object.fromEntries(r.body.rooms.map((x) => [x.room, x]));
-      assert.deepStrictEqual(Object.keys(by["201"].advance).sort(), ["hasSlip", "slipAt"]);
+      assert.deepStrictEqual(Object.keys(by["201"].advance).sort(), ["hasSlip", "slipAt", "verify"]);
       assert.strictEqual(by["201"].advance.hasSlip, true);
+      assert.strictEqual(by["201"].advance.verify?.reason, "not_configured", "no SlipOK keys in this suite");
       assert.strictEqual(by["202"].advance, null);
       assert.ok(!JSON.stringify(r.body).includes("Utenant"));
     }
