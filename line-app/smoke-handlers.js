@@ -1224,7 +1224,12 @@ const { saveBill } = require("./api/_bills");
     [verifyOf().ok, verifyOf().amount, verifyOf().transRef, verifyOf().provider],
     [true, 3500, "REF-OK", "slipok"],
   );
-  assert.strictEqual(data.get("bill:210").status, "pending", "verification never pays the bill on its own");
+  // A new photo that is verified end to end (ok === true) closes the monthly bill with no owner tap.
+  assert.deepStrictEqual(
+    [r.body.status, r.body.autoConfirmed, data.get("bill:210").status, data.get("bill:210").autoConfirmed, data.get("bill:210").confirmedBy, data.get("bill:210").confirmedVia],
+    ["paid", true, "paid", true, null, "slipok"],
+    "a fully verified slip pays the bill on its own",
+  );
   assert.ok(data.get("slip-ref:REF-OK"), "the transaction reference is remembered for the next slip");
 
   // The same slip, second bill: our own key catches it even if SlipOK says it is fine.
@@ -1285,7 +1290,11 @@ const { saveBill } = require("./api/_bills");
     [true, true],
     "every period of the group carries the result",
   );
-  assert.strictEqual(data.get("bill:2026-11:210").status, "pending", "a verified group still waits for the owner");
+  assert.deepStrictEqual(
+    [r.body.status, r.body.autoConfirmed, data.get("bill:2026-10:210").status, data.get("bill:2026-11:210").status],
+    ["paid", true, "paid", "paid"],
+    "a verified group slip pays every period on its own",
+  );
 
   // An advance slip (no bill yet) keeps its verification, and the owner's room list shows it.
   resetV();

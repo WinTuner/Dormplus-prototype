@@ -19,6 +19,7 @@ const { push, confirmBubble } = require("./_line");
 const { requireUser, isOwner } = require("./_auth");
 const { verifySlip, markStale, markEarly, checkAmount, amountFields } = require("./_verify");
 const { usable, attachPrepay } = require("./_prepay");
+const { closeBills, sendReceipts, notifyAutoPaid, autoConfirmOn } = require("./_pay");
 
 const MAX_BYTES = 3 * 1024 * 1024;
 const MAX_NOTE_LENGTH = 500;
@@ -56,7 +57,7 @@ module.exports = async (req, res) => {
     const ok = Array.isArray(periods) && periods.length >= 1 && periods.length <= MAX_PERIODS &&
       periods.every((p) => typeof p === "string" && PERIOD.test(p)) && new Set(periods).size === periods.length;
     if (!ok) return fail(res, 400, "VALIDATION", `periods ต้องเป็นรายการ YYYY-MM ไม่ซ้ำกัน 1-${MAX_PERIODS} รอบ`);
-    return saveGroup({ res, room, owner, userId, note, image, periods: [...periods].sort() });
+    return saveGroup({ res, req, room, owner, userId, note, image, periods: [...periods].sort() });
   }
 
   // The tenancy record is read together with the bill, not after it.
@@ -129,6 +130,21 @@ module.exports = async (req, res) => {
   };
   if (amounts) next = withAmounts(next, amounts);
   delete next.slipGroup; // a slip of its own: this bill no longer belongs to a multi-period slip
+
+  // Auto-confirm, see autoConfirms(). The bill is written once, already paid, so there is no
+  // moment where it is `pending` with no owner card.
+  if (autoConfirms({ fresh: !!shot, verify })) {
+    const paid = await closeBills(room, [next], { latest, auto: true });
+    await Promise.all([
+      dropIfUnused(room, oldSlip, slipPath, [bill]),
+      notifyAutoPaid(paid),
+      sendReceipts(room, paid, null, baseUrlOf(req)),
+    ]);
+    return res.status(200).json({
+      ok: true, status: "paid", autoConfirmed: true, receiptNo: paid[0].receiptNo, total: next.total, hasSlip: !!slipPath, verify,
+    });
+  }
+
   await saveBills([next], { latest }); // both the newest copy and the per-period copy, so history agrees
 
   // The photo this one replaces is no longer reachable from this bill: do not keep it around,
@@ -143,6 +159,24 @@ module.exports = async (req, res) => {
 
   return res.status(200).json({ ok: true, status: next.status, total: next.total, hasSlip: !!slipPath, verify });
 };
+
+// When a slip closes the bill by itself, without the owner's tap. All of these must hold:
+// - it is a slip for a monthly bill (the single-bill path and the multi-month group path call this;
+//   the advance and prepay paths never do),
+// - the photo was verified in THIS request (`fresh`): a note-only update reuses an old result and
+//   must not close a bill the owner has not seen,
+// - the final verify result is exactly `ok === true`: the dorm's account, the exact amount, not
+//   reused, not older than 30 days, not transferred before the bill was issued. null (could not
+//   check), false, over, short, stale, early and reused all stay `pending` for the owner,
+// - the owner has not switched it off with SLIP_AUTO_CONFIRM=0|off|false (unset = on).
+//
+// Advance slips (saveAdvance) are left out on purpose: when they were sent no bill amount existed,
+// so there was nothing to check the transfer against, and the owner decided they stay manual. For
+// the same reason a prepay that /api/run or the second look attaches to a bill still goes to the
+// owner's confirm card, even when its check says ok.
+const autoConfirms = ({ fresh, verify }) => fresh === true && verify?.ok === true && autoConfirmOn();
+
+const baseUrlOf = (req) => process.env.PUBLIC_BASE_URL || `https://${req.headers.host}`;
 
 // One transaction can only pay for one thing: the first bill to claim a `transRef` keeps it.
 // SlipOK detects a reused slip too, but only within what its branch remembers — this key is ours.
@@ -251,7 +285,7 @@ async function dropIfUnused(room, oldSlip, keep, holders) {
 
 // One slip for several periods. Every bill must exist, be open (unpaid or pending) and, for a
 // tenant, belong to their tenancy; the limits are counted on the newest of them.
-async function saveGroup({ res, room, owner, userId, note, image, periods }) {
+async function saveGroup({ res, req, room, owner, userId, note, image, periods }) {
   const [found, tenancy, latest] = await Promise.all([
     Promise.all(periods.map((p) => store.get(`bill:${p}:${room}`))),
     owner ? null : tenancyOf(room),
@@ -308,6 +342,21 @@ async function saveGroup({ res, room, owner, userId, note, image, periods }) {
     slipGroup: { periods, total, ...amountFields(checked) },
     slipVerify: verify,
   }, checked));
+  // A verified slip for the exact sum closes every period at once (see autoConfirms): one write,
+  // one notice for the owner, one receipt per period for the tenant.
+  if (autoConfirms({ fresh: !!shot, verify })) {
+    const paid = await closeBills(room, next, { latest, auto: true });
+    await Promise.all([
+      ...oldSlips.map((old) => dropIfUnused(room, old, slipPath, found.filter((b) => b.slipPath === old))),
+      notifyAutoPaid(paid),
+      sendReceipts(room, paid, null, baseUrlOf(req)),
+    ]);
+    return res.status(200).json({
+      ok: true, status: "paid", autoConfirmed: true, periods, total, receiptNos: paid.map((b) => b.receiptNo),
+      hasSlip: !!slipPath, verify,
+    });
+  }
+
   await saveBills(next, { latest }); // one room: the index and `bill:<room>` are written once for all periods
 
   const ownerId = process.env.OWNER_USER_ID;

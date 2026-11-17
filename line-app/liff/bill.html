@@ -596,7 +596,8 @@ function tenantSlip() {
     try {
       const image = await shrink(file);
       const out = await api("/api/slip", { method: "POST", body: JSON.stringify({ room: T.room, image, ...(chosen && { periods: chosen }) }) });
-      toast(out.status === "advance" ? "ส่งสลิปแล้ว — จะผูกกับบิลรอบถัดไปเมื่อเจ้าของออกบิล"
+      // A slip that passed every check closes the bill by itself: say so; the reload below shows the receipt.
+      toast(out.autoConfirmed ? "ชำระแล้ว — ตรวจสลิปอัตโนมัติ" : out.status === "advance" ? "ส่งสลิปแล้ว — จะผูกกับบิลรอบถัดไปเมื่อเจ้าของออกบิล"
         : out.periods?.length > 1 ? `แจ้งชำระ ${out.periods.length} งวดแล้ว — รอเจ้าของหอยืนยัน` : "แจ้งชำระแล้ว — รอเจ้าของหอยืนยัน");
       history.replaceState(null, "", location.pathname + location.search);
       await loadTenant();

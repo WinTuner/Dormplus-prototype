@@ -171,6 +171,7 @@ async function tc(id, title, fn) {
   gate = null;
   delete process.env.SLIPOK_API_KEY;
   delete process.env.SLIPOK_BRANCH_ID;
+  delete process.env.SLIP_AUTO_CONFIRM;
   failRichMenu = false;
   ledger.bangkokToday = realToday;
   process.env.OWNER_USER_ID = "Uowner";
@@ -1693,6 +1694,272 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
     assert.deepStrictEqual([att.status, att.prepaid, att.slipVerify.ok, att.slipVerify.early], ["pending", true, true, undefined]);
   });
 
+  // ================================================================ UC-12 (ต่อ) ปิดบิลอัตโนมัติเมื่อสลิปผ่านการตรวจครบ
+  // A slip that SlipOK verified end to end (ok === true) for a monthly bill closes it without the
+  // owner's tap. Everything else keeps today's flow: pending + the owner's confirm card.
+  const { retryKeyOf } = require("./api/_line");
+  const nowIso = () => new Date().toISOString();
+  const receiptsTo = (user) =>
+    pushed.filter((p) => p.to === user).flatMap((p) => p.messages).filter((m) => (m.altText || "").startsWith("ใบเสร็จรับเงิน"));
+  const ownerNotices = () => pushed.filter((p) => p.to === "Uowner");
+  const openBill = (room, extra = {}) => {
+    bindDirect(`Ut${room}`, room);
+    putBill(mkBill(room, "2026-11", "unpaid", { issuedAt: ago(DAY), ...extra }));
+  };
+
+  await tc("TC-12-9", "สลิปที่ตรวจผ่านครบ (ok:true ยอดตรง) ของบิลรายเดือน → ปิดบิลเอง: paid + receiptNo + autoConfirmed · ผู้เช่าได้ใบเสร็จ · เจ้าของได้ข้อความสั้น (ดูสลิป ไม่มีปุ่มยืนยัน) · push ล้มไม่ทำให้คำขอล้ม", async () => {
+    withSlipok();
+    openBill("201");
+    slipok = okSlip(4450, "REF-AUTO", nowIso());
+    const r = await sendSlip("Ut201");
+    assert.strictEqual(r.status, 200);
+    assert.deepStrictEqual(
+      [r.body.ok, r.body.status, r.body.autoConfirmed, r.body.receiptNo, r.body.total, r.body.hasSlip, r.body.verify.ok],
+      [true, "paid", true, "R202611-201", 4450, true, true]
+    );
+    const paid = data.get("bill:2026-11:201");
+    assert.deepStrictEqual(
+      [paid.status, paid.autoConfirmed, paid.confirmedVia, paid.confirmedBy, paid.receiptNo, !!paid.paidAt, !!paid.slipPath, paid.slipVerify.ok],
+      ["paid", true, "slipok", null, "R202611-201", true, true, true]
+    );
+    assert.deepStrictEqual(data.get("bill:201"), paid, "the newest copy and the per-period copy agree");
+    assert.strictEqual(paid.refundDue, undefined, "an exact slip leaves nothing to refund");
+
+    // the tenant gets the same receipt an owner confirm sends, under the same retry key
+    const got = receiptsTo("Ut201");
+    assert.strictEqual(got.length, 1);
+    assert.ok(got[0].altText.includes("ใบเสร็จรับเงิน ห้อง 201") && JSON.stringify(got[0]).includes("R202611-201"));
+    assert.ok(retryKeys.has(retryKeyOf(`receipt:201:Ut201:2026-11:1:4450:R202611-201:${paid.slipAt}`)), "receipt retry key format is unchanged");
+
+    // the owner gets a short notice: no confirm/reject button, a "ดูสลิป" button, one message only
+    assert.strictEqual(ownerCards().length, 0, "no confirm card");
+    const notes = ownerNotices();
+    assert.strictEqual(notes.length, 1);
+    const note = notes[0].messages[0];
+    assert.strictEqual(note.altText, "ห้อง 201 ชำระแล้ว 4,450 บาท (ตรวจสลิปอัตโนมัติ)");
+    const text = JSON.stringify(note);
+    assert.ok(text.includes("ชำระแล้ว 4,450 บาท (ตรวจสลิปอัตโนมัติ)") && text.includes("ดูสลิป") && text.includes("https://liff.line.me/2000000000-testliff"));
+    assert.ok(!text.includes("postback") && !text.includes("ยืนยันการชำระ"));
+    assert.ok(retryKeys.has(retryKeyOf(`auto-paid:201:2026-11:${paid.slipAt}`)), "the notice carries a retry key of room, periods and slip time");
+
+    // an old confirm tap (or a double one) finds the bill paid and sends nothing again
+    pushed.length = 0;
+    await tap("Uowner", "action=confirm&room=201&period=2026-11");
+    assert.ok(JSON.stringify(replies.pop().messages).includes("ยืนยันไปแล้ว"));
+    assert.strictEqual(pushed.length, 0);
+
+    // the tenant reads it as paid with the receipt, and never sees who confirmed
+    const t = await call(bill, { method: "GET", user: "Ut201" });
+    assert.deepStrictEqual([t.body.status, t.body.receiptNo, "confirmedBy" in t.body], ["paid", "R202611-201", false]);
+    const o = await call(bill, { method: "GET", user: "Uowner", query: { room: "201" } });
+    assert.deepStrictEqual([o.body.status, o.body.confirmedBy, o.body.autoConfirmed], ["paid", null, true]);
+
+    // a push that fails (owner notice, receipt) never fails the tenant's request
+    openBill("202");
+    failPushTo.add("Uowner");
+    failPushTo.add("Ut202");
+    slipok = okSlip(4450, "REF-AUTO-2", nowIso());
+    const r2 = await sendSlip("Ut202");
+    assert.deepStrictEqual([r2.status, r2.body.status, r2.body.autoConfirmed], [200, "paid", true]);
+    assert.strictEqual(data.get("bill:2026-11:202").status, "paid");
+  });
+
+  await tc("TC-12-10", "ตรวจไม่ผ่านครบ → ยัง pending พร้อมการ์ดยืนยันของเจ้าของเหมือนเดิม: ตรวจไม่ได้ (ปิดระบบ/ผู้ให้บริการล่ม ok:null) · ยอดผิด/เกิน/ขาด · สลิปซ้ำ · สลิปเก่า · โอนก่อนบิลออก", async () => {
+    // each case: [room, what SlipOK says (null = leave keys unset), bill extras, expected ok]
+    const cases = [
+      ["201", "off", {}, null],
+      ["202", "down", {}, null],
+      ["203", okSlip(4000, "REF-SHORT", nowIso()), {}, false],
+      ["204", okSlip(5000, "REF-OVER", nowIso()), {}, false],
+      ["205", okSlip(4450, "REF-STALE", ago(45 * DAY)), {}, null],
+      ["206", okSlip(4450, "REF-EARLY2", ago(2 * 3600000)), { issuedAt: ago(3600000) }, null],
+    ];
+    for (const [room, says, extra, ok] of cases) {
+      openBill(room, extra);
+      delete process.env.SLIPOK_API_KEY;
+      delete process.env.SLIPOK_BRANCH_ID;
+      if (says !== "off") withSlipok();
+      slipok = says === "off" || says === "down" ? null : says;
+      pushed.length = 0;
+      const r = await sendSlip(`Ut${room}`);
+      assert.deepStrictEqual([r.status, r.body.status, r.body.autoConfirmed, r.body.verify.ok], [200, "pending", undefined, ok], `room ${room}`);
+      const b = data.get(`bill:2026-11:${room}`);
+      assert.deepStrictEqual([b.status, b.autoConfirmed, b.confirmedVia, b.receiptNo, b.paidAt], ["pending", undefined, undefined, undefined, undefined], `room ${room}`);
+      assert.strictEqual(ownerCards().length, 1, `room ${room}: the owner still gets the confirm card`);
+      assert.strictEqual(receiptsTo(`Ut${room}`).length, 0, `room ${room}: no receipt before the owner confirms`);
+    }
+
+    // a reused slip: the first room closes by itself, the same transfer on another room does not
+    withSlipok();
+    openBill("207");
+    openBill("208");
+    slipok = okSlip(4450, "REF-TWICE", nowIso());
+    assert.strictEqual((await sendSlip("Ut207")).body.status, "paid");
+    pushed.length = 0;
+    const again = await sendSlip("Ut208");
+    assert.deepStrictEqual([again.body.status, again.body.verify.ok, again.body.autoConfirmed], ["pending", false, undefined]);
+    assert.strictEqual(ownerCards().length, 1);
+    assert.strictEqual(data.get("bill:2026-11:208").status, "pending");
+  });
+
+  await tc("TC-12-11", "สลิปหลายงวดยอดรวมตรง (ok:true) → ปิดทุกงวดเอง: เลขใบเสร็จต่องวด · เจ้าของได้ข้อความเดียวระบุทุกงวด · ผู้เช่าได้ใบเสร็จครบ · ยอดไม่ตรง/ตรวจไม่ได้ → ยัง pending + การ์ดเดียว", async () => {
+    withSlipok();
+    bindDirect("Utenant", "201");
+    putBill(mkBill("201", "2026-10", "unpaid", { issuedAt: ago(40 * DAY) }));
+    putBill(mkBill("201", "2026-11", "unpaid", { issuedAt: ago(DAY) }));
+    slipok = okSlip(8900, "REF-GRP-AUTO", nowIso());
+    const r = await sendSlip("Utenant", { periods: ["2026-11", "2026-10"] });
+    assert.deepStrictEqual(
+      [r.status, r.body.status, r.body.autoConfirmed, r.body.periods, r.body.total, r.body.receiptNos, r.body.verify.ok],
+      [200, "paid", true, ["2026-10", "2026-11"], 8900, ["R202610-201", "R202611-201"], true]
+    );
+    for (const p of ["2026-10", "2026-11"]) {
+      const b = data.get(`bill:${p}:201`);
+      assert.deepStrictEqual([b.status, b.autoConfirmed, b.confirmedVia, b.confirmedBy, !!b.paidAt], ["paid", true, "slipok", null, true], p);
+    }
+    assert.deepStrictEqual(data.get("bill:201"), data.get("bill:2026-11:201"));
+    assert.strictEqual(data.get("bill:2026-10:201").slipPath, data.get("bill:2026-11:201").slipPath, "one photo");
+
+    assert.strictEqual(ownerCards().length, 0);
+    assert.strictEqual(ownerNotices().length, 1, "one notice for the whole slip");
+    const note = ownerNotices()[0].messages[0];
+    assert.strictEqual(note.altText, "ห้อง 201 ชำระแล้ว 8,900 บาท (ตรวจสลิปอัตโนมัติ)");
+    assert.ok(JSON.stringify(note).includes("รอบ 2026-10, 2026-11") && JSON.stringify(note).includes("ดูสลิป") && !JSON.stringify(note).includes("postback"));
+    const toTenant = pushed.filter((p) => p.to === "Utenant");
+    assert.strictEqual(toTenant.length, 1, "one push");
+    assert.strictEqual(toTenant[0].messages.length, 2, "a receipt card per period");
+    assert.ok(JSON.stringify(toTenant[0].messages).includes("R202610-201") && JSON.stringify(toTenant[0].messages).includes("R202611-201"));
+
+    // not the exact sum, or not checked: the group waits for the owner as before
+    for (const [room, says] of [["202", okSlip(4450, "REF-GRP-SHORT", nowIso())], ["203", null]]) {
+      bindDirect(`Ut${room}`, room);
+      putBill(mkBill(room, "2026-10", "unpaid", { issuedAt: ago(40 * DAY) }));
+      putBill(mkBill(room, "2026-11", "unpaid", { issuedAt: ago(DAY) }));
+      slipok = says;
+      pushed.length = 0;
+      const g = await sendSlip(`Ut${room}`, { periods: ["2026-10", "2026-11"] });
+      assert.deepStrictEqual([g.body.status, g.body.autoConfirmed], ["pending", undefined], room);
+      assert.deepStrictEqual([data.get(`bill:2026-10:${room}`).status, data.get(`bill:2026-11:${room}`).status], ["pending", "pending"], room);
+      assert.strictEqual(ownerCards().length, 1, room);
+      assert.strictEqual(receiptsTo(`Ut${room}`).length, 0, room);
+    }
+  });
+
+  await tc("TC-12-12", "สลิปล่วงหน้า (ยังไม่มีบิล) และ prepay ที่ผูกกับบิลตอนออกบิล ไม่ปิดอัตโนมัติ แม้ตรวจผ่าน → pending + การ์ดยืนยัน (เจ้าของตัดสินใจให้เป็นมือ)", async () => {
+    withSlipok();
+    bindDirect("Utenant", "211");
+    slipok = okSlip(4450, "REF-ADV-AUTO", ago(2 * DAY));
+    let r = await sendSlip("Utenant");
+    assert.deepStrictEqual([r.status, r.body.status, r.body.autoConfirmed, r.body.verify.ok], [200, "advance", undefined, true]);
+    assert.strictEqual(prepayOf("211").slipVerify.ok, true);
+    assert.strictEqual(receiptsTo("Utenant").length, 0);
+    assert.ok(ownerNotices().every((p) => !JSON.stringify(p).includes("ตรวจสลิปอัตโนมัติ")), "no auto-paid notice for an advance slip");
+
+    // the bill is issued later and takes the slip: still pending, the owner gets the confirm card
+    pushed.length = 0;
+    await issue([{ room: "211", water: 10, elec: 100 }]); // total 4450 = the slip
+    const att = data.get("bill:2026-11:211");
+    assert.deepStrictEqual([att.status, att.prepaid, att.slipVerify.ok, att.autoConfirmed, att.receiptNo], ["pending", true, true, undefined, undefined]);
+    assert.strictEqual(ownerCards().length, 1, "the owner confirms an attached prepay by hand");
+    assert.strictEqual(receiptsTo("Utenant").length, 0, "no receipt before the owner confirms");
+
+    // the owner's tap still closes it, as before
+    await tap("Uowner", "action=confirm&room=211&period=2026-11");
+    const paid = data.get("bill:2026-11:211");
+    assert.deepStrictEqual([paid.status, paid.confirmedBy, paid.autoConfirmed], ["paid", "Uowner", undefined]);
+    assert.strictEqual(receiptsTo("Utenant").length, 1);
+  });
+
+  await tc("TC-12-13", "SLIP_AUTO_CONFIRM=0 / off / false ปิดการปิดบิลเอง → ทำงานเหมือนเดิม (pending + การ์ดยืนยัน ทั้งบิลเดียวและหลายงวด) · ไม่ตั้ง/ค่าอื่น = เปิด", async () => {
+    withSlipok();
+    const offValues = [["201", "0"], ["202", "off"], ["203", "false"], ["204", "OFF"]];
+    for (const [room, value] of offValues) {
+      process.env.SLIP_AUTO_CONFIRM = value;
+      openBill(room);
+      slipok = okSlip(4450, `REF-OFF-${room}`, nowIso());
+      pushed.length = 0;
+      const r = await sendSlip(`Ut${room}`);
+      assert.deepStrictEqual([r.body.status, r.body.autoConfirmed, r.body.verify.ok], ["pending", undefined, true], `${value}`);
+      assert.strictEqual(data.get(`bill:2026-11:${room}`).status, "pending", `${value}`);
+      assert.strictEqual(ownerCards().length, 1, `${value}`);
+      assert.strictEqual(receiptsTo(`Ut${room}`).length, 0, `${value}`);
+    }
+    // a group slip as well
+    process.env.SLIP_AUTO_CONFIRM = "off";
+    bindDirect("Utenant", "205");
+    putBill(mkBill("205", "2026-10", "unpaid", { issuedAt: ago(40 * DAY) }));
+    putBill(mkBill("205", "2026-11", "unpaid", { issuedAt: ago(DAY) }));
+    slipok = okSlip(8900, "REF-OFF-G", nowIso());
+    pushed.length = 0;
+    const g = await sendSlip("Utenant", { periods: ["2026-10", "2026-11"] });
+    assert.deepStrictEqual([g.body.status, g.body.autoConfirmed], ["pending", undefined]);
+    assert.strictEqual(ownerCards().length, 1);
+
+    // any other value (or none) leaves it on
+    for (const [room, value] of [["206", "1"], ["207", "on"], ["208", undefined]]) {
+      if (value === undefined) delete process.env.SLIP_AUTO_CONFIRM; else process.env.SLIP_AUTO_CONFIRM = value;
+      openBill(room);
+      slipok = okSlip(4450, `REF-ON-${room}`, nowIso());
+      assert.strictEqual((await sendSlip(`Ut${room}`)).body.status, "paid", `${value}`);
+    }
+    delete process.env.SLIP_AUTO_CONFIRM;
+  });
+
+  await tc("TC-12-14", "ไม่มีรูปใหม่ในคำขอนี้ → ไม่ปิดเอง: แก้หมายเหตุของสลิปที่ส่งไปแล้ว (แม้ผลตรวจเดิมเป็น ok:true) · เจ้าของบันทึกโดยไม่มีรูป · เจ้าของบันทึกหลายงวดไม่มีรูป", async () => {
+    withSlipok();
+    // a pending bill whose stored slip was verified (e.g. sent while auto-confirm was off)
+    bindDirect("Utenant", "201");
+    putBill(mkBill("201", "2026-11", "pending", {
+      issuedAt: ago(DAY), slipPath: "slips/201-old.png", slipAt: ago(60000), slipCount: 1, slipNote: "เดิม",
+      slipVerify: { provider: "slipok", ok: true, amount: 4450, transRef: "REF-STORED" },
+    }));
+    files.set("slips/201-old.png", Buffer.from("png"));
+    let r = await call(slip, { user: "Utenant", body: { note: "ขอแก้หมายเหตุ" } });
+    assert.deepStrictEqual([r.status, r.body.status, r.body.autoConfirmed, r.body.verify.ok], [200, "pending", undefined, true]);
+    const b = data.get("bill:2026-11:201");
+    assert.deepStrictEqual([b.status, b.slipNote, b.autoConfirmed, b.receiptNo], ["pending", "ขอแก้หมายเหตุ", undefined, undefined]);
+    assert.strictEqual(slipokCalls.length, 0, "no new photo, nothing sent to SlipOK");
+    assert.strictEqual(ownerCards().length, 1, "the owner still decides");
+    assert.strictEqual(receiptsTo("Utenant").length, 0);
+
+    // the owner records a payment without a photo (cash, a transfer seen in the bank app)
+    bindDirect("Utenant2", "202");
+    putBill(mkBill("202", "2026-11", "unpaid", { issuedAt: ago(DAY) }));
+    pushed.length = 0;
+    r = await call(slip, { user: "Uowner", body: { room: "202", note: "เงินสด" } });
+    assert.deepStrictEqual([r.status, r.body.status, r.body.autoConfirmed], [200, "pending", undefined]);
+    assert.strictEqual(ownerCards().length, 1);
+
+    // ...and for several months at once
+    bindDirect("Utenant3", "203");
+    putBill(mkBill("203", "2026-10", "unpaid", { issuedAt: ago(40 * DAY) }));
+    putBill(mkBill("203", "2026-11", "unpaid", { issuedAt: ago(DAY) }));
+    pushed.length = 0;
+    r = await call(slip, { user: "Uowner", body: { room: "203", periods: ["2026-10", "2026-11"], note: "เงินสด" } });
+    assert.deepStrictEqual([r.status, r.body.status, r.body.autoConfirmed], [200, "pending", undefined]);
+    assert.deepStrictEqual([data.get("bill:2026-10:203").status, data.get("bill:2026-11:203").status], ["pending", "pending"]);
+    assert.strictEqual(ownerCards().length, 1);
+  });
+
+  await tc("TC-12-15", "บิลที่ปิดเองยกเลิก (void) ได้ตามเดิม: paid → void, refundDue = ยอดบิล, เก็บ receiptNo/autoConfirmed เป็นหลักฐาน, อยู่ในรายการต้องคืนเงิน", async () => {
+    withSlipok();
+    openBill("201");
+    slipok = okSlip(4450, "REF-VOID-AUTO", nowIso());
+    assert.strictEqual((await sendSlip("Ut201")).body.status, "paid");
+    const r = await call(bill, { user: "Uowner", body: { action: "void", room: "201", period: "2026-11", reason: "ผู้เช่าขอคืนเงิน" } });
+    assert.deepStrictEqual([r.status, r.body.status, r.body.refund], [200, "void", 4450]);
+    const v = data.get("bill:2026-11:201");
+    assert.deepStrictEqual(
+      [v.status, v.statusBefore, v.refundDue, v.receiptNo, v.autoConfirmed, v.confirmedVia, v.confirmedBy, v.voidedBy],
+      ["void", "paid", 4450, "R202611-201", true, "slipok", null, "Uowner"]
+    );
+    const list = await call(bill, { method: "GET", user: "Uowner", query: { voided: "1", refunds: "1", room: "201" } });
+    assert.deepStrictEqual(list.body.items.map((i) => [i.kind, i.refundDue]), [["void", 4450]]);
+    // the tenant still does not get the staff userIds
+    const t = await call(bill, { method: "GET", user: "Ut201" });
+    assert.ok(!("confirmedBy" in t.body) && !("voidedBy" in t.body));
+  });
+
   // ================================================================ UC-13 ชำระหลายงวดในสลิปเดียว
   // Two open bills of room 201 (Oct, Nov) and the tenant bound; bill:201 is the newest (Nov).
   const twoOpen = () => {
@@ -2023,13 +2290,16 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
       assert.strictEqual(data.get("bill:2026-11:208").overpaid, undefined);
       data.delete("bill:2026-11:208"); data.delete("bill:208");
     }
-    // ...and a slip whose amount was matched carries no such line
+    // ...and a slip whose amount was matched carries no such line. (Auto-confirm is switched off for
+    // this part: a fully verified slip now closes the bill and there is no card to read.)
+    process.env.SLIP_AUTO_CONFIRM = "off";
     withSlipok();
     putBill(mkBill("208", "2026-11", "unpaid"));
     slipok = okSlip(4450, "REF-FINE", new Date().toISOString());
     r = await sendSlip("Utenant8");
     assert.strictEqual(r.body.verify.ok, true);
     assert.ok(!cardText().includes("ยังไม่ได้ตรวจยอด") && !cardText().includes("ยอดในสลิป"));
+    delete process.env.SLIP_AUTO_CONFIRM;
 
     // end to end: over-paid slip -> owner confirms -> the extra shows in the refund list -> marked -> gone
     const owed = (room) => call(bill, { method: "GET", user: "Uowner", query: { voided: "1", refunds: "1", room } });
