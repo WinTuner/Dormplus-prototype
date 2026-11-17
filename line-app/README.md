@@ -201,7 +201,7 @@ LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js
 วงจรฝั่งแชท: LINE ส่ง event → `/api/webhook` ตรวจ `x-line-signature` (HMAC-SHA256 ของ raw body) → อ่าน/เขียน Blob → ตอบด้วย reply หรือ push การ์ด Flex
 วงจรฝั่งผู้เช่า: เปิด `/liff/bill.html` → `liff.init()` → เอา `liff.getIDToken()` แนบเป็น `Authorization: Bearer …` ทุก request → API เอาไปตรวจกับ `https://api.line.me/oauth2/v2.1/verify` แล้วได้ LINE userId กลับมา
 
-สถานะบิล: `unpaid` → `pending` (แนบสลิปแล้ว) → `paid` (เจ้าของกดยืนยัน)
+สถานะบิล: `unpaid` → `pending` (แนบสลิปแล้ว) → `paid` (เจ้าของกดยืนยัน หรือปิดเองเมื่อ SlipOK ตรวจสลิปบิลรายเดือนผ่าน `ok: true`)
 
 > รัน/ทดสอบในเครื่องต้องใช้ **Node.js >= 20** (ตาม `engines` ใน `package.json`) — dependency มี 2 ตัว: `@vercel/blob` (เก็บ state) และ `qrcode-svg` (สร้าง QR ฝั่ง server)
 

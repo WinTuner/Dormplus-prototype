@@ -109,9 +109,9 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "$B/api/bill?room=203"
 | `kv/room-<room>.json` | `{ rent, waterRate, elecRate }` — ค่าเช่าเฉพาะห้อง (เขียนโดย `POST /api/rooms`) |
 | `slips/<room>-<ts>.jpg` | รูปสลิป (private) |
 
-`status`: `unpaid` → `pending` (แนบสลิป) → `paid` (เจ้าของยืนยัน)
+`status`: `unpaid` → `pending` (แนบสลิป) → `paid` (เจ้าของยืนยัน — หรือปิดเองทันทีเมื่อ SlipOK ตรวจสลิปบิลรายเดือนผ่าน `ok: true`, `autoConfirmed: true`) · `void` = เจ้าของยกเลิกบิล (ออกใหม่ได้ด้วย `rev + 1`) · สลิปโอนก่อนบิลออก/prepay ยังรอเจ้าของยืนยันเสมอ
 
-> ⚠️ **เพดาน Vercel Hobby: 12 serverless functions ต่อ deployment** — ตอนนี้ใช้ **11** (`api/*.js` ที่ไม่ขึ้นต้นด้วย `_`; helper ขึ้นต้นด้วย `_` ไม่นับ) เหลือที่ว่างอีก 1 ก่อนต้องรวม endpoint ไม่งั้น deploy ล้มด้วย `exceeded_serverless_functions_per_deployment`
+> ⚠️ **เพดาน Vercel Hobby: 12 serverless functions ต่อ deployment** — ตอนนี้ใช้ **12 ครบพอดี** (`api/*.js` ที่ไม่ขึ้นต้นด้วย `_`; helper ขึ้นต้นด้วย `_` ไม่นับ) ไม่เหลือที่ว่าง — endpoint ใหม่ต้องรวมเข้าไฟล์เดิม ไม่งั้น deploy ล้มด้วย `exceeded_serverless_functions_per_deployment`
 
 ## 6. กับดักที่เจอมาแล้ว (อ่านก่อนแก้)
 
@@ -128,13 +128,13 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "$B/api/bill?room=203"
 
 | งาน | จุดที่ต้องแตะ | หมายเหตุ |
 |---|---|---|
-| หน้าสรุปยอด/ทวงหนี้ของเจ้าของ | `api/rooms.js` + `liff/bill.html` | ตอนนี้เห็นแค่สถานะต่อห้อง |
+| ~~หน้าสรุปยอด/ทวงหนี้ของเจ้าของ~~ | `api/bill.js` + `liff/bill.html` | ✅ มีแล้ว — รายการค้างชำระ `GET /api/bill?overdue=1` (นับฝั่งเซิร์ฟเวอร์ด้วยวันที่ไทย) · รายงานรายรับนับตาม `paidAt` (`?income=YYYY-MM`) · เงินที่ต้องคืน (`?voided=1&refunds=1`) |
 | เก็บประวัติหลายรอบบิล | `_store.js` | ✅ มีแล้ว — `bill:<period>:<room>` คู่กับ `bill:<room>` และ `saveBill()` เขียนทั้งคู่ |
 | cron ออกรอบบิลอัตโนมัติ | Vercel Cron → `/api/run` | ต้องมี secret ป้องกัน endpoint |
 | ~~หลายเจ้าของ/ผู้ช่วย~~ | `_auth.js` | ✅ มีแล้ว — root จาก `OWNER_USER_ID`, คนต่อ ๆ ไปรับสิทธิ์ด้วย QR · role `owner`/`viewer` · root ถอนสิทธิ์ได้ที่หน้า "เจ้าของและผู้ช่วย" |
 | ~~ลบ `x-seed-token` bypass~~ | `_auth.js` | ✅ ปิดแล้ว — production ปิดเสมอ · เปิดได้เฉพาะ `vercel dev` หรือ preview ที่ตั้ง `ALLOW_SEED_BYPASS=true` · token ต้องยาว ≥ 16 ตัวและส่งทาง header เท่านั้น |
 | ผูกผู้เช่าด้วยการพิมพ์เลขห้อง | `webhook.js` | ✅ ลบแล้ว — ใครพิมพ์เลขห้องก็อ้างสิทธิ์ห้องนั้นได้ ทางเดียวที่เหลือคือ QR หน้าห้อง (`/api/qr` → `?bind=<code>`) |
-| LINE Notify/แจ้งเตือนก่อนครบกำหนด | Vercel Cron | push ข้อความเตือนจาก `room-user:` map |
+| ~~LINE Notify/แจ้งเตือนก่อนครบกำหนด~~ | `api/cron.js` + `_remind.js` | ✅ มีแล้ว — Vercel Cron `/api/cron` วันละครั้ง (09:00 ไทย): 1–3 วันก่อนครบกำหนด · วันครบกำหนด · เลย 1/5/10 วัน |
 | UI หลายภาษา / หลายหอใน deploy เดียว | ทั้งหมด | ตอนนี้ 1 deploy = 1 หอ (ตั้งใจ) |
 
 ## 8. กติกาการทำงานที่ทีมควรยึด
