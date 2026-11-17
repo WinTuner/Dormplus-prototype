@@ -18,10 +18,11 @@ repo นี้แยกเป็นสองครึ่งที่ deploy แ�
 | `line-app` use case | `smoke-usecases.js` | `node smoke-usecases.js` | Node ≥ 20 · ไม่ต้องมีเน็ต · ไม่ต้องมี `node_modules` | **177 เคส** ที่ id ตรงกับ `docs/TEST-CASES.md` (TC-xx-n) ไล่ตาม UC-01 … UC-18 (ไม่มี UC-19 ซึ่งเป็น pytest) |
 | `line-app` cron เตือนรายวัน | `smoke-cron.js` | `node smoke-cron.js` | Node ≥ 20 · ไม่ต้องมีเน็ต · ไม่ต้องมี `node_modules` | auth ของ `/api/cron`, lock กันรอบซ้อน, 6 หน้าต่างเตือน, dedup, catch-up, ข้ามบิลที่ไม่ควรเตือน, retry, สรุปถึงเจ้าของ |
 | `backend` API | `backend/tests/*.py` (15 ไฟล์ · 148 ฟังก์ชัน `def test_` · 150 test node) | `pytest` | Python ≥ 3.11 · **Postgres** สำหรับ test ที่แตะ DB | สัญญา error, session cookie, LINE idToken, owner login + หน้า `/owner`, ห้อง/มิเตอร์, ออกบิล + ส่งบิลเข้า LINE, สลิป/ยืนยัน/ตีกลับ, ผูก LINE, dunning, cron, **RLS**, webhook signature + dedupe, รายงานสรุป |
+| LIFF UI | `line-app/liff/bill.html` | `cd line-app/e2e && npm test` (Playwright) | Node ≥ 20 · `npm ci` + `npx playwright install chromium` ใน `line-app/e2e` | หน้าผู้เช่า/เจ้าของจริงบน handler จริง (stub LINE/LIFF) |
 | LIFF inline script | `line-app/liff/bill.html` | `node --check` (ใน CI) | Node | แค่ **parse ได้** ไม่ได้รัน logic |
 | production หลัง deploy | `scripts/prod-smoke.mjs` | `node scripts/prod-smoke.mjs` | เน็ต + URL จริง | **14 ข้อ**: build ปัจจุบัน, security header, endpoint ที่ต้อง auth ตอบ 401, dev endpoint ปิด, cron ป้องกัน secret |
 
-> ไม่มี Jest/Vitest/Playwright และไม่มี coverage tool ใน repo นี้ — ทุกอย่างข้างบนคือทั้งหมดที่มี
+> ไม่มี Jest/Vitest และไม่มี coverage tool ใน repo นี้ · UI test ของหน้า LIFF ใช้ Playwright แยกเป็นแพ็กเกจของตัวเองที่ `line-app/e2e/` (ดูหัวข้อ 2.1)
 
 **catalogue ของเคสคือ [`docs/TEST-CASES.md`](TEST-CASES.md)**: **282 เคสใน 19 use case** โดยแบ่งเป็น ✅ 256 เคสที่ automation แตะ, 🖐 26 เคสที่ต้องทำมือกับ LINE/LIFF จริง และ **⏳ 0 เคส** (ทุกแถวในเอกสารมีคนตรวจแล้ว) — ใน 256 เคสนั้น **177 เคสมี id ของตัวเองใน `smoke-usecases.js`**, 51 เคสชี้ไปที่ backend pytest, 8 เคสชี้ไปเคสที่ automate ไว้แล้วใน UC อื่น (`TC-10-12`→`TC-08-6`, `TC-11-16`→`TC-08-8`, `TC-14-3`→`TC-10-5`, `TC-15-1`→`TC-04-1`, `TC-17-24`→`TC-08-11`, `TC-17-25`→`TC-18-5`, `TC-17-26`→`TC-18-9`, `TC-18-12`→`TC-13-10`), 1 เคสชี้ไป `smoke-cron.js` และ 19 เคสอ้าง `smoke-handlers.js` (ตรวจสลิป, สมาชิกห้อง, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป, อ่านมิเตอร์จากรูป, guard เล็ก ๆ) — id ใน `smoke-usecases.js` กับแถวในเอกสารตรงกัน 1:1 ทั้ง 177 ตัว
 
@@ -150,6 +151,24 @@ harness เดียวกับ `smoke-handlers.js` แต่เพิ่ม: `
 - ทุกอย่างถูก stub: **ไม่ได้ทดสอบ Vercel Blob จริง, LINE Messaging API จริง, SlipOK จริง, runtime ของ Vercel, หรือ LIFF** — adapter R2 ก็ถูกตรวจแค่กับ endpoint S3 ปลอมใน `smoke.js` (ไม่ได้ต่อ Cloudflare R2 จริง จึงไม่รู้ว่า `aws4fetch` เซ็น request ได้ตรงที่ R2 ยอมรับ หรือ permission ของบัคเก็ตถูก)
 - ตรวจได้เฉพาะ request ที่เรียก handler ตรง ๆ ด้วย `req`/`res` ปลอม — routing, header ที่ platform ใส่, และ timeout ไม่ถูกทดสอบ
 - เคสที่ยิงพร้อมกันถูกจำลองด้วย `gate` (บังคับลำดับการอ่าน/เขียน) และด้วย LINE ที่ตอบ 409 ให้ retry key ซ้ำ — **ไม่ใช่สองโปรเซสจริงบนเครือข่ายจริง** และการกันของซ้ำฝั่ง LINE อาศัยหน้าต่าง dedupe ของ LINE (24 ชั่วโมง) ไม่ใช่ lock ในสโตร์ของเรา (ดูข้อ 10 ข้อ 4–5)
+
+---
+
+## 2.1 `line-app/e2e/` — UI test ของหน้า LIFF (Playwright)
+
+เปิด `liff/bill.html` จริงใน Chromium (viewport มือถือ Pixel 7) ต่อกับ handler `api/*.js` จริง โดยโลกภายนอกถูกปลอมแบบเดียวกับ `smoke-usecases.js` (store ในหน่วยความจำ, LINE/SlipOK stub) และ LIFF SDK ถูกแทนด้วย stub ที่คืน userId ที่เทสต์เลือก (`Uowner`, `Utenant201` …) เป็น idToken · เป็นแพ็กเกจ npm แยก (`package.json` + lockfile ของตัวเอง) และ `line-app/.vercelignore` กันโฟลเดอร์นี้ไม่ให้ถูก deploy
+
+```bash
+cd line-app/e2e
+npm ci
+npx playwright install chromium   # ครั้งแรกเท่านั้น (บน CI ใช้ --with-deps)
+npm test                          # = npx playwright test
+```
+
+- `server.js` = เซิร์ฟเวอร์ `http` ธรรมดา (พอร์ต `E2E_PORT`, ค่าเริ่มต้น 4317) ที่ Playwright เปิดให้เอง · มี endpoint เฉพาะเทสต์ใต้ `/__test/` (`reset`, `seed`, `slipok`, `confirm`, `state`)
+- `fixtures.js` = stub ของ LIFF + `app.seed / asOwner / asTenant / state / confirm` · ทุกเทสต์เริ่มจากหอว่าง และ **ล้มถ้าหน้าเว็บมี console error หรือ exception** (ยกเว้น 404 ของ `GET /api/bill?room=` ที่ออกแบบให้ตอบเมื่อห้องยังไม่มีบิล)
+- ปุ่ม "ยืนยันการชำระ" อยู่ในการ์ด LINE ไม่ใช่หน้า LIFF จึงใช้ `app.confirm(room, period)` ยิง postback ที่เซ็นแล้วเข้า `/api/webhook` จริง
+- รัน worker เดียว (state ร่วมกันในเซิร์ฟเวอร์) · ตก → ดู `playwright-report/` และ `test-results/` (screenshot + trace) · CI: job `line-app-e2e`
 
 ---
 
