@@ -3,5 +3,7 @@ node_modules/
 .planning/
 .env
 .env.*
-
 .env*
+
+# The template is committed; only real values are ignored.
+!.env.example
