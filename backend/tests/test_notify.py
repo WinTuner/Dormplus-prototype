@@ -9,6 +9,7 @@ class Recorder:
 
     def __init__(self):
         self.calls = []
+        self.batches = 0
         self._ids = 0
 
     def open(self):
@@ -28,10 +29,14 @@ class Recorder:
         outer = self
 
         class Push:
-            def defer(self, **kwargs):
-                outer.calls.append(kwargs)
-                outer._ids += 1
-                return outer._ids
+            def batch_defer(self, *kwargs_list):
+                outer.batches += 1
+                ids = []
+                for kwargs in kwargs_list:
+                    outer.calls.append(kwargs)
+                    outer._ids += 1
+                    ids.append(outer._ids)
+                return ids
 
         return Push()
 
@@ -56,6 +61,7 @@ def test_one_job_per_invoice(monkeypatch):
     ])
 
     assert (count, first) == (2, "1")
+    assert recorder.batches == 1  # one insert for both rows
     assert [c["kind"] for c in recorder.calls] == ["invoice", "invoice"]
     assert [c["to_user_id"] for c in recorder.calls] == ["U_201", "U_202"]
     assert [c["invoice_id"] for c in recorder.calls] == ["inv_201_2026-11", "inv_202_2026-11"]

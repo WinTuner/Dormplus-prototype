@@ -11,12 +11,12 @@ dependencies = [
     "psycopg[binary]>=3.2.10",
     "alembic>=1.14",
     "procrastinate>=3.11",
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8",
-    "httpx>=0.27",
 ]
 
 [build-system]

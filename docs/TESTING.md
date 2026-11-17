@@ -17,7 +17,7 @@ repo นี้แยกเป็นสองครึ่งที่ deploy แ�
 | `line-app` โครงสร้าง/handler | `smoke.js`, `smoke-handlers.js`, `smoke-reads.js` | `node` (หรือ `npm test`) | Node ≥ 20 · ไม่ต้องมีเน็ต · **`smoke.js` ต้องมี `npm ci` ก่อน** (บล็อก R2 ใช้ `aws4fetch`) · `smoke-handlers.js`/`smoke-reads.js` ไม่ต้องมี `node_modules` | signature ของ webhook, Flex card, QR binding + move-confirm, rate limit, ยืนยันการชำระ + ใบเสร็จ, ยกเลิก/ออกบิลใหม่, สลิปหนึ่งใบหลายงวด, roles/invite, slip limits, **ตรวจสลิปผ่าน SlipOK (stub)**, **แก้ราคาห้อง**, สมาชิกห้อง/รูมเมท, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป, concurrency ของ read, **adapter R2 เทียบ S3 ปลอม (get/404/put/delete/list paging)** และ `/api/bill?overdue=` / `?income=` / `?refunds=1` |
 | `line-app` use case | `smoke-usecases.js` | `node smoke-usecases.js` | Node ≥ 20 · ไม่ต้องมีเน็ต · ไม่ต้องมี `node_modules` | **168 เคส** ที่ id ตรงกับ `docs/TEST-CASES.md` (TC-xx-n) ไล่ตาม UC-01 … UC-18 (ไม่มี UC-19 ซึ่งเป็น pytest) |
 | `line-app` cron เตือนรายวัน | `smoke-cron.js` | `node smoke-cron.js` | Node ≥ 20 · ไม่ต้องมีเน็ต · ไม่ต้องมี `node_modules` | auth ของ `/api/cron`, lock กันรอบซ้อน, 6 หน้าต่างเตือน, dedup, catch-up, ข้ามบิลที่ไม่ควรเตือน, retry, สรุปถึงเจ้าของ |
-| `backend` API | `backend/tests/*.py` (15 ไฟล์ · 148 ฟังก์ชัน `def test_` · 150 test node) | `pytest` | Python ≥ 3.11 · **Postgres** สำหรับ test ที่แตะ DB | สัญญา error, session cookie, LINE idToken, owner login + หน้า `/owner`, ห้อง/มิเตอร์, ออกบิล + ส่งบิลเข้า LINE, สลิป/ยืนยัน/ตีกลับ, ผูก LINE, dunning, cron, **RLS**, webhook signature + dedupe, รายงานสรุป |
+| `backend` API | `backend/tests/*.py` (18 ไฟล์ · 165 ฟังก์ชัน `def test_` · 167 test node) | `pytest` | Python ≥ 3.11 · **Postgres** สำหรับ test ที่แตะ DB | สัญญา error, session cookie, LINE idToken, owner login + หน้า `/owner`, ห้อง/มิเตอร์, ออกบิล + ส่งบิลเข้า LINE, สลิป/ยืนยัน/ตีกลับ, ผูก LINE, dunning, cron, **RLS**, webhook signature + dedupe, รายงานสรุป |
 | LIFF inline script | `line-app/liff/bill.html` | `node --check` (ใน CI) | Node | แค่ **parse ได้** ไม่ได้รัน logic |
 | production หลัง deploy | `scripts/prod-smoke.mjs` | `node scripts/prod-smoke.mjs` | เน็ต + URL จริง | **14 ข้อ**: build ปัจจุบัน, security header, endpoint ที่ต้อง auth ตอบ 401, dev endpoint ปิด, cron ป้องกัน secret |
 
@@ -164,7 +164,7 @@ pip install -e "backend[dev]"        # CI ใช้คำสั่งนี้
 pip install -e ".[dev]"
 ```
 
-`dev` extras มีแค่ `pytest>=8` กับ `httpx>=0.27` (`backend/pyproject.toml`)
+`dev` extras มีแค่ `pytest>=8` (`backend/pyproject.toml`) — `httpx>=0.27` ย้ายไปอยู่ dependency หลักแล้ว เพราะ LINE push/verify ใช้ `httpx.Client`
 
 ```bash
 cd backend
@@ -200,9 +200,9 @@ pytest -q
 
 | สภาพ | ผล |
 |---|---|
-| `pytest --collect-only -q` | **150 test node จาก 148 ฟังก์ชัน `def test_` ใน 15 ไฟล์** (`test_rooms.py` มี `parametrize` 1 ตัวที่แตกเป็น 3 node) |
-| `pytest -q` ไม่มี Postgres | **25 passed, 125 skipped** (วัดบนเครื่องที่เขียนเอกสาร — test ที่ไม่ต้องใช้ DB รันได้หมด ที่เหลือถูก skip) |
-| `pytest -q` มี Postgres ตาม `TEST_DATABASE_URL` | ทั้ง **150 node รันจริง** — CI รันแบบนี้ทุกครั้งด้วย service `postgres:16` (job `backend` ใน `ci.yml`) เอกสารนี้ไม่รายงานเลข passed จากเครื่อง local เพราะเครื่องที่เขียนไม่มี Postgres ที่พอร์ต 5432 |
+| `pytest --collect-only -q` | **167 test node จาก 165 ฟังก์ชัน `def test_` ใน 18 ไฟล์** (`test_rooms.py` มี `parametrize` 1 ตัวที่แตกเป็น 3 node) |
+| `pytest -q` ไม่มี Postgres | **34 passed, 133 skipped** (วัดบนเครื่องที่เขียนเอกสาร — test ที่ไม่ต้องใช้ DB รันได้หมด ที่เหลือถูก skip) |
+| `pytest -q` มี Postgres ตาม `TEST_DATABASE_URL` | ทั้ง **167 node รันจริง** (ได้ 167 passed) — CI รันแบบนี้ทุกครั้งด้วย service `postgres:16` (job `backend` ใน `ci.yml`) เอกสารนี้ไม่รายงานเลข passed จากเครื่อง local เพราะเครื่องที่เขียนไม่มี Postgres ที่พอร์ต 5432 |
 
 ### 3.3 ไฟล์ test แต่ละไฟล์
 
@@ -221,6 +221,7 @@ pytest -q
 | `test_reports.py` | ใช่ | `GET /v1/reports/summary`: ยอดตรงกับ `GET /v1/invoices` · `rooms_total` = ทุกห้อง · `rooms_overdue` นับเฉพาะ unpaid ที่เลยกำหนด (ก่อนถึงกำหนด = 0) · ค่าเริ่มต้นคืองวดนี้ · ผู้เช่า 403 · หออื่นได้ 0 |
 | `test_slip_confirm_reject.py` | ใช่ | สลิป → `pending` และเก็บ URL ตามที่หน้าเว็บส่ง · แนบห้องอื่น → 404 · แนบซ้ำ → 409 · **ผู้เช่าที่ไม่มีห้อง → 403** · ยืนยันแล้ว `paid` + `receipt_no` ไม่ซ้ำ · ยืนยันก่อนมีสลิปไม่ได้ · หออื่นยืนยันไม่ได้ · **ยืนยันรอ lock ระดับหอ** (`test_confirm_waits_for_the_dorm_lock`) · ตีกลับ → `unpaid` + `audit_log` |
 | `test_line_link.py` | ใช่ | ออก invite ให้ผู้เช่าที่ยังไม่มี LINE · invite ใหม่ยกเลิกอันเก่า · ผูกแล้ว login ได้ทันที · พิมพ์ตัวเล็ก/เว้นวรรคได้ · เปิดซ้ำได้ · คนอื่นใช้ซ้ำ 409 · หมดอายุ/ถูกยกเลิก 410 · รหัสผิด 404 · ผูกครั้งเดียวต่อบัญชี · รูมเมท · หออื่นทำไม่ได้ · ยกเลิกผูก/move-out ตัด session เดิม · เดารหัสถี่ถูก rate limit |
+| `test_line_push.py` | ไม่ | `app/line_push.py`: ไม่มี token = skip · 200 = ok และ request ถูกรูป · HTTP error / transport error คืนผลล้มโดยไม่ raise · `client()` สร้างครั้งเดียวแล้วใช้ซ้ำ (keep-alive) |
 | `test_dunning.py` | ใช่ | เลือกบิลตามวัน overdue (1/5/10) · kind ต่อบิล · `due_for_reminder` ใช้ `SELECT` เดียว · push ล้มไม่นับว่าส่งแล้วและ task โยน error ให้คิว retry · ผู้เช่าที่ไม่มี LINE ไม่ถูก enqueue · บิล `paid` ข้าม · เคย log kind นั้นแล้วไม่เลือกซ้ำ · หออื่นไม่ถูกแตะ |
 | `test_rls.py` | ใช่ (และต้องสร้าง role ได้) | migration 0004: connection หนึ่งเห็นได้หอเดียว **แม้ query ไม่มี `where property_id`** · `app.property_id` = `p_1` เห็นข้อมูล · สลับเป็น `p_2` → 0 แถวทั้ง `rooms`/`invoices` · ไม่ตั้งค่า → 0 แถว (fail closed ไม่ใช่ fail open) · insert แถวของหออื่นถูกปฏิเสธ (`DBAPIError`) · ตารางลูก (`invoices`, `tenants`, `payments`) ที่ไม่มี `property_id` ถูกกรองผ่าน `rooms` |
 

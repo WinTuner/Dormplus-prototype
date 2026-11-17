@@ -350,9 +350,24 @@ def list_invoices(
     )
 
 
+# One round trip for the whole bill: the items fold into a json array and the latest payment comes
+# from a lateral join, so the detail page costs one select instead of three. amount is not null on
+# payments, so pay_amount being null means the bill has no payment yet.
 INVOICE_DETAIL_SQL = text("""
-    select i.id, i.period, i.total, i.status, i.due_date, r.room_no
+    select i.id, i.period, i.total, i.status, i.due_date, r.room_no,
+           coalesce((
+               select json_agg(json_build_object('label', it.label, 'qty', it.qty,
+                                                 'unit_price', it.unit_price, 'amount', it.amount)
+                               order by it.id)
+               from invoice_items it where it.invoice_id = i.id
+           ), '[]'::json) as items,
+           pay.amount as pay_amount, pay.slip_key as pay_slip_key,
+           pay.verify_ok as pay_verify_ok, pay.verified_at as pay_verified_at
     from invoices i join rooms r on r.id = i.room_id
+    left join lateral (
+        select amount, slip_key, verify_ok, verified_at from payments p
+        where p.invoice_id = i.id order by p.created_at desc, p.id desc limit 1
+    ) pay on true
     where i.id = :id and r.property_id = :property_id
       and (cast(:room_id as text) is null or i.room_id = :room_id)
 """)
@@ -381,22 +396,14 @@ def get_invoice(
         ).first()
         if row is None:
             raise ApiError(404, "NOT_FOUND", "ไม่พบบิลนี้")
-        items = conn.execute(
-            text("select label, qty, unit_price, amount from invoice_items "
-                 "where invoice_id = :id order by id"),
-            {"id": invoice_id},
-        ).all()
-        payment = conn.execute(
-            text("select amount, slip_key, verify_ok, verified_at from payments "
-                 "where invoice_id = :id order by created_at desc, id desc limit 1"),
-            {"id": invoice_id},
-        ).first()
 
     return InvoiceDetailOut(
         id=row.id, period=row.period, room_no=row.room_no, total=row.total, status=row.status,
         due_date=row.due_date,
-        items=[InvoiceItemOut(**item._mapping) for item in items],
-        payment=PaymentOut(**payment._mapping) if payment is not None else None,
+        items=[InvoiceItemOut(**item) for item in row.items],
+        payment=None if row.pay_amount is None else PaymentOut(
+            amount=row.pay_amount, slip_key=row.pay_slip_key,
+            verify_ok=row.pay_verify_ok, verified_at=row.pay_verified_at),
     )
 
 
@@ -472,9 +479,11 @@ def confirm_invoice(
         """), {"property_id": session.property_id, "period": row.period}).scalar_one()
         receipt_no = f"REC-{row.period}-{used + 1:04d}"
 
-        conn.execute(text("""
-            update invoices set status = 'paid', receipt_no = :receipt_no, paid_at = now() where id = :id
-        """), {"id": row.id, "receipt_no": receipt_no})
+        # returning hands back the timestamp now() just wrote, so no second select is needed.
+        paid_at = conn.execute(text("""
+            update invoices set status = 'paid', receipt_no = :receipt_no, paid_at = now()
+            where id = :id returning paid_at
+        """), {"id": row.id, "receipt_no": receipt_no}).scalar_one()
         conn.execute(text("""
             update payments set verify_ok = true, verified_by = :by, verified_at = now()
             where invoice_id = :id
@@ -484,8 +493,6 @@ def confirm_invoice(
             values (:pid, :actor, 'invoice.confirm', cast(:payload as jsonb))
         """), {"pid": session.property_id, "actor": session.user_id,
                "payload": json.dumps({"invoice_id": row.id, "receipt_no": receipt_no})})
-        paid_at = conn.execute(text("select paid_at from invoices where id = :id"),
-                               {"id": row.id}).scalar_one()
 
     return ConfirmOut(status="paid", receipt_no=receipt_no, paid_at=paid_at)
 

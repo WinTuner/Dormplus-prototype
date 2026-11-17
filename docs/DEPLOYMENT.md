@@ -39,7 +39,7 @@
 - `line-app/` ไม่มีขั้นตอน build — ทั้งระบบคือ static 1 หน้า (`liff/bill.html`) + serverless function ใน `api/*.js`
   `package.json` มีแค่ `test` (รัน smoke 3 ชุด) ไม่มี `build`
 - `backend/` ใช้ Vercel Python runtime: entrypoint คือ `backend/api/index.py` (`from app.main import app`)
-  dependency มาจาก `backend/requirements.txt`
+  dependency มาจาก `backend/requirements.txt` (รวม `procrastinate` และ `httpx` — LINE push/verify ใช้ `httpx.Client` ตัวเดียวแบบ keep-alive)
 - **cron อยู่ที่ `line-app` เท่านั้น** — `line-app/vercel.json` มี `crons` (`/api/cron`, `0 2 * * *`)
   ส่วน `backend/vercel.json` **ไม่มี `crons` แล้ว** เหลือแค่ `git.deploymentEnabled` (ดูข้อ 6)
 - **ทางเลือกที่ไม่ใช่ Vercel:** `Dockerfile` ที่ root ของ repo สร้าง image ของ backend (`COPY backend/ /app/`,
@@ -231,9 +231,9 @@ key ใหม่นี้ **ถูกสร้างเองแบบ lazy** �
 (**มีถึง `0004`** — มี policy RLS ครบ แต่ยังไม่มีตาราง `line_events` ของ `0005` อย่าใช้ตัดสินว่า DB จริงอยู่ revision ไหน
 ให้ดู `alembic current`)
 
-มี 5 revision: `0001` initial · `0002` `link_codes` · `0003` `auth_failures` · `0004` **RLS (`force row level security`)** ·
+มี 6 revision: `0001` initial · `0002` `link_codes` · `0003` `auth_failures` · `0004` **RLS (`force row level security`)** ·
 `0005` `line_events` (`event_id` เป็น PK · `property_id` · `received_at` · **`force row level security`** ·
-grant ให้ `dormplus_app` แบบมีเงื่อนไข) — กัน LINE ส่ง event ซ้ำแล้วเขียน `audit_log` สองแถว
+grant ให้ `dormplus_app` แบบมีเงื่อนไข) — กัน LINE ส่ง event ซ้ำแล้วเขียน `audit_log` สองแถว · `0006` index FK ของ `invoice_items`/`payments` (`invoice_items_invoice_id_idx`, `payments_invoice_id_idx`)
 
 เพราะ merge เข้า `master` = deploy ทันที **migration ต้องขึ้นก่อน merge ไม่ใช่หลัง** ไม่งั้นช่วงสั้น ๆ
 โค้ดใหม่จะวิ่งชน schema เก่า (500 ทั้งหน้า และ cron ก็ล้มด้วย)
@@ -253,6 +253,8 @@ grant ให้ `dormplus_app` แบบมีเงื่อนไข) — ก�
 > ✅ **`0005` ไม่ใช่ข้อยกเว้น** — เป็น migration แบบเพิ่มอย่างเดียว (สร้างตาราง `line_events` + policy + grant)
 > จึงใช้ลำดับปกติ: `alembic upgrade head` ก่อน merge (ข้อ 3) ได้เลย · ยกเว้นของ `0004` ยังมีผลแยกกันอยู่
 > อย่าอ่านสองข้อนี้ปนกัน
+>
+> ✅ **`0006` เป็น migration แบบเพิ่มอย่างเดียวเช่นกัน** (สร้างแค่ index สองตัว ไม่มีตาราง/policy/grant) — apply ก่อนหรือหลัง deploy โค้ดก็ได้ · `downgrade()` drop แค่สอง index **ข้อมูลไม่หาย**
 
 grant ใน `0005` มีเงื่อนไข (`if exists (select 1 from pg_roles where rolname = 'dormplus_app')`) เพราะ
 CI/ฐานข้อมูลใหม่ยังไม่มี role นั้นและต้อง migrate ผ่าน — บน production role มีอยู่แล้วจึงได้ grant ครบ
@@ -297,7 +299,7 @@ alembic revision -m "add xyz"     # แล้วเขียน op.execute(...) 
 alembic upgrade head
 ```
 
-ทุก revision มีฟังก์ชัน `downgrade()` (ครบทั้งห้าไฟล์) แต่ **ให้ถือว่า migration เป็น forward-only ตอนวางแผน** —
+ทุก revision มีฟังก์ชัน `downgrade()` (ครบทั้งหกไฟล์) แต่ **ให้ถือว่า migration เป็น forward-only ตอนวางแผน** —
 `downgrade()` มีไว้เป็นทางหนีตอน apply ผิดเท่านั้น ไม่ใช่ขั้นตอน rollback ปกติ เพราะ `0002`/`0003`
 ย้อนแล้ว **drop ตารางทิ้ง** (`link_codes`, `auth_failures`) ข้อมูลหายถาวร · ถ้าต้องถอย ให้ถอย **โค้ด**
 (redeploy deployment เก่า — ข้อ 8.1) แล้วปล่อย schema ใหม่ไว้ ซึ่งปลอดภัยกว่าเมื่อ migration เป็นแบบเพิ่มอย่างเดียว
@@ -543,6 +545,7 @@ DATABASE_URL="postgresql+psycopg://…unpooled…" alembic current          # �
 - `downgrade()` ของ `0002`/`0003` จะ drop ตาราง `link_codes` / `auth_failures` — **ข้อมูลในนั้นหายถาวร**
 - `downgrade()` ของ `0005` drop ตาราง `line_events` — **ข้อมูล event id หายถาวร** · ผลคือ LINE ที่ retry
   ข้อความเดิมจะถูกนับเป็น event ใหม่ (เขียน `audit_log` ซ้ำ) ไม่มีอะไร crash · ถ้าจะถอยแค่โค้ดไม่ต้องถอย revision นี้
+- `downgrade()` ของ `0006` drop แค่ index สองตัว — **ข้อมูลไม่หาย** (ช้าลงเฉพาะ `GET /v1/invoices/:id`)
 - `downgrade()` ของ `0004` แค่ drop policy และ `no force row level security` — **ข้อมูลไม่หาย** แต่ **RLS ยังเปิดอยู่**
   (ไม่มีการ `disable row level security`) ดังนั้น role ที่ไม่ใช่ owner และไม่มี policy (`dormplus_app`) จะอ่านได้ **0 แถว**
   → ถ้าจะถอย `0004` ต้องถอยโค้ด/role ไปใช้ owner ด้วย หรือ `alter table … disable row level security` เอง ไม่งั้นแอปจะเห็นข้อมูลว่าง

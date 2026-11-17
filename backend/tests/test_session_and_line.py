@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import line as line_module
+from app import line_push
 from app import session as session_cookie
 from app.main import create_app
 
@@ -53,24 +54,35 @@ def test_the_shipped_default_secret_is_never_trusted():
 # ---------------------------------------------------------------- LINE verify
 
 class _FakeResponse:
-    def __init__(self, payload):
+    def __init__(self, payload=None, status_code=200):
         self._payload = payload
+        self.status_code = status_code
+        self.text = str(payload)
 
-    def read(self):
+    def json(self):
+        if self._payload is None:
+            raise ValueError("bad json")
         return self._payload
 
-    def __enter__(self):
-        return self
 
-    def __exit__(self, *exc):
-        return False
+class _FakeClient:
+    """Stands in for the shared httpx client: returns a canned response or raises."""
+
+    def __init__(self, result):
+        self.result = result
+
+    def post(self, url, **kwargs):
+        if isinstance(self.result, Exception):
+            raise self.result
+        return self.result
+
+
+def _use_client(monkeypatch, result):
+    monkeypatch.setattr(line_push, "client", lambda: _FakeClient(result))
 
 
 def test_verify_id_token_accepts_matching_channel(monkeypatch):
-    monkeypatch.setattr(
-        line_module.urllib.request, "urlopen",
-        lambda request, timeout: _FakeResponse(b'{"sub":"U123","aud":"1234567890","name":"\\u0e2a\\u0e21"}'),
-    )
+    _use_client(monkeypatch, _FakeResponse({"sub": "U123", "aud": "1234567890", "name": "สม"}))
     payload = line_module.verify_id_token("token", "1234567890")
     assert payload["sub"] == "U123"
 
@@ -78,14 +90,32 @@ def test_verify_id_token_accepts_matching_channel(monkeypatch):
 def test_verify_id_token_rejects_other_channel(monkeypatch):
     from app.errors import ApiError
 
-    monkeypatch.setattr(
-        line_module.urllib.request, "urlopen",
-        lambda request, timeout: _FakeResponse(b'{"sub":"U123","aud":"999"}'),
-    )
+    _use_client(monkeypatch, _FakeResponse({"sub": "U123", "aud": "999"}))
     with pytest.raises(ApiError) as exc:
         line_module.verify_id_token("token", "1234567890")
     assert exc.value.status == 401
     assert exc.value.code == "UNAUTHORIZED"
+
+
+def test_verify_id_token_maps_a_400_from_line_to_401(monkeypatch):
+    from app.errors import ApiError
+
+    _use_client(monkeypatch, _FakeResponse({"error": "invalid_request"}, status_code=400))
+    with pytest.raises(ApiError) as exc:
+        line_module.verify_id_token("token", "1234567890")
+    assert exc.value.status == 401
+    assert exc.value.code == "UNAUTHORIZED"
+
+
+def test_verify_id_token_maps_a_transport_error_to_502(monkeypatch):
+    import httpx
+    from app.errors import ApiError
+
+    _use_client(monkeypatch, httpx.ConnectError("boom"))
+    with pytest.raises(ApiError) as exc:
+        line_module.verify_id_token("token", "1234567890")
+    assert exc.value.status == 502
+    assert exc.value.code == "UPSTREAM"
 
 
 # ---------------------------------------------------------------- endpoint guard

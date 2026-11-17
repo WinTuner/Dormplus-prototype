@@ -75,7 +75,7 @@ curl.exe -s -H "X-Dev-Property: p_1" "http://127.0.0.1:8000/v1/rooms?period=2026
 ```
 
 - `/docs` เปิดเฉพาะตอนไม่ใช่ production (`app/main.py`) — ใช้ดู route ทั้งหมดได้เลยในเครื่อง
-- migration Head ปัจจุบันคือ **`0005`** (ตาราง `line_events` กัน webhook ของ LINE ที่ส่งซ้ำถูกบันทึกสองครั้ง) — `alembic upgrade head` พาไปถึงตัวล่าสุดให้เอง ไม่ต้องระบุเลข revision · ทั้งห้าไฟล์อยู่ที่ `backend/migrations/versions/` (`0001`…`0005`) และ `0004` คือตัวที่เปิด RLS
+- migration Head ปัจจุบันคือ **`0006`** (index FK ของ `invoice_items`/`payments`; ก่อนหน้านี้ `0005` = ตาราง `line_events` กัน webhook ของ LINE ที่ส่งซ้ำถูกบันทึกสองครั้ง) — `alembic upgrade head` พาไปถึงตัวล่าสุดให้เอง ไม่ต้องระบุเลข revision · ทั้งหกไฟล์อยู่ที่ `backend/migrations/versions/` (`0001`…`0006`) และ `0004` คือตัวที่เปิด RLS
 - seed ใส่ข้อมูลรอบ `2026-10` (มิเตอร์ครบทุกห้อง) และ `2026-11` (มิเตอร์ 12 ห้องแรก) · **บิลค้าง 9 ใบ** ที่ seed ไว้อยู่รอบ `2026-08/09/10` ไม่ใช่ `2026-11` · รันซ้ำได้ไม่สร้างข้อมูลซ้ำ
 - ถ้าไม่ส่ง `period` API จะใช้เดือนปัจจุบันตามเวลาไทย ซึ่งอาจไม่มีข้อมูลถ้าไม่ได้รันตอน พ.ย. 2026
 
@@ -127,7 +127,7 @@ cron OK — auth, 6 reminder windows, dedup, catch-up, skips, tenancy, retry, ow
 ```powershell
 cd backend
 .\.venv\Scripts\python.exe -m pytest -q
-# 25 passed, 125 skipped  (collect ได้ 150 test จาก 15 ไฟล์)
+# 34 passed, 133 skipped  (collect ได้ 167 test จาก 18 ไฟล์)
 ```
 
 test ที่ต้องใช้ฐานข้อมูลจะถูก **skip** เมื่อไม่ได้ตั้ง `TEST_DATABASE_URL` (ดู `tests/conftest.py`) ถ้าอยากรันครบ 150 ตัว:
@@ -184,14 +184,14 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 | อาการ | สาเหตุ | ทางแก้ |
 |---|---|---|
 | `docker compose up -d` → `failed to connect to the docker API ... dockerDesktopLinuxEngine` | Docker Desktop ยังไม่เปิด (เจอจริงตอนเขียนเอกสารนี้) | เปิด Docker Desktop แล้วรอจนขึ้น Running |
-| `pytest` ได้ `25 passed, 125 skipped` | ไม่ได้ตั้ง `TEST_DATABASE_URL` — เป็นพฤติกรรมปกติ (collect ได้ 150 test แต่ **125 ตัวต้องมี Postgres**; อีก 25 ตัวรันได้เปล่า ๆ) | ตั้ง `TEST_DATABASE_URL` ชี้ `domplus_test` ตามข้อ 3.3 |
+| `pytest` ได้ `34 passed, 133 skipped` | ไม่ได้ตั้ง `TEST_DATABASE_URL` — เป็นพฤติกรรมปกติ (collect ได้ 167 test แต่ **133 ตัวต้องมี Postgres**; อีก 34 ตัวรันได้เปล่า ๆ) | ตั้ง `TEST_DATABASE_URL` ชี้ `domplus_test` ตามข้อ 3.3 |
 | `node smoke.js` → `Cannot find module '@vercel/blob'` หรือ `'aws4fetch'` | ยังไม่ได้ลง dependency (หา `node_modules` ไม่เจอ) | `cd line-app && npm ci` แล้วรันใหม่ |
 | หน้า `/owner` ล็อกอินไม่ได้ ตอบ `503 OWNER_LOGIN_OFF` | `OWNER_ACCESS_CODE` ว่าง (ค่า default ใน `.env.example`) | ใส่รหัสหอใน `.env` แล้วรีสตาร์ต uvicorn (บน Vercel: ใส่ env แล้ว Redeploy) |
 | ล็อกอิน `/owner` ผิดรหัสหลายครั้งแล้วได้ `429 TOO_MANY_ATTEMPTS` | กันเดารหัส: ผิดเกิน 10 ครั้ง/ชั่วโมงต่อ IP (`app/attempts.py`) | รอให้พ้นหน้าต่าง 1 ชั่วโมง แล้วใช้รหัสให้ถูก |
 | `GET /api/cron` ได้ `503 NOT_CONFIGURED` | ไม่ได้ตั้ง `CRON_SECRET` บนโปรเจกต์ หรือค่าสั้นกว่า 16 ตัวอักษร | ตั้งค่าใหม่แล้ว Redeploy (Vercel แนบ header ให้เอง) — รันมือด้วย `curl -H "Authorization: Bearer <CRON_SECRET>" ...` |
 | ข้อมูลข้ามหอโผล่ หรือ query ตรง ๆ ได้ `0` แถว | role ที่ต่อมี `BYPASSRLS` (เช่น `neondb_owner` ของ Neon) หรือ `app.property_id` ไม่ถูกตั้งบน connection | ใช้ role ที่ไม่มี `BYPASSRLS` (`dormplus_app`) — `app/db.py` เป็นคนตั้ง `app.property_id` ให้ทุก connection |
 | `alembic upgrade head` → `connection refused` หรือต่อผิดฐาน | รันจากโฟลเดอร์อื่น (`.env` ไม่ถูกโหลด) หรือ `DATABASE_URL` ผิด | `cd backend` ก่อน แล้วเช็ก `DATABASE_URL` ใน `.env` |
-| `alembic upgrade head` พาไปไม่ถึง `0005` | มี revision ค้างหรือ DB ถูกสร้างจาก schema เก่า | ดู `alembic current` / `alembic heads` — head ต้องเป็น `0005` (ตาราง `line_events`) |
+| `alembic upgrade head` พาไปไม่ถึง `0006` | มี revision ค้างหรือ DB ถูกสร้างจาก schema เก่า | ดู `alembic current` / `alembic heads` — head ต้องเป็น `0006` |
 | สลิปที่โอนถูกต้องได้ `1014` / `verify.ok = false` "บัญชีผู้รับไม่ใช่บัญชีของหอ" | `SLIPOK_BRANCH_ID` ยังไม่ผูกบัญชีรับเงินของหอ | ผูกบัญชีใน branch ของ SlipOK ไม่งั้นทุกสลิปจะตก `1014` — หรือถอด `SLIPOK_*` ออกเพื่อกลับไปตรวจมือ (`verify.ok = null`) |
 | `/v1/rooms` ตอบ `401 UNAUTHORIZED` | `DEV_AUTH=false` (ค่า default) จึงไม่มี session | ตั้ง `DEV_AUTH=true` **ในเครื่อง** แล้วรีสตาร์ต uvicorn |
 | เรียก `/v1/rooms` ได้ `[]` หรือไม่มีบิล | ยังไม่รัน `python -m app.seed` หรือส่ง `period` ไม่ตรงกับที่ seed ไว้ | รัน seed แล้วใช้ `?period=2026-10` (บิลค้างที่ seed อยู่รอบ 2026-08/09/10) |

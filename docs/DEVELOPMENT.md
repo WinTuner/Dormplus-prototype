@@ -58,7 +58,7 @@ python -m venv .venv
 pip install -e ".[dev]"
 cp .env.example .env             # PowerShell: Copy-Item .env.example .env
 docker compose up -d             # Postgres 17 พอร์ต 5432 + ฐาน domplus และ domplus_test
-alembic upgrade head             # 0001–0005 (0004 = RLS policy, 0005 = line_events)
+alembic upgrade head             # 0001–0006 (0004 = RLS policy, 0005 = line_events, 0006 = index FK ของ invoice_items/payments)
 python -m app.seed               # หอ p_1 · 42 ห้อง
 uvicorn app.main:app --reload    # http://127.0.0.1:8000/docs
 ```
@@ -73,7 +73,7 @@ TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/domplus_
 
 > ⚠️ ฐานข้อมูลใน `TEST_DATABASE_URL` **ถูกล้างทุกครั้ง** (`conftest.py` สั่ง `downgrade base` → `upgrade head` แล้ว `truncate ... restart identity cascade`) — ห้ามชี้ไปที่ Neon ตัวจริง
 
-- ชุดเต็มวันนี้คือ **150 test ใน 15 ไฟล์** (`backend/tests/test_*.py` — `pytest --collect-only` นับได้ 150) — ไฟล์ล่าสุดคือ `tests/test_owner_ui.py` (ล็อกอิน `/owner`, รหัสผิด/ไม่ตั้งรหัส, cookie ผู้เช่าเข้าไม่ได้) · ถ้าจำนวนไม่ตรง แปลว่า collection พังหรือ import ค้าง ไม่ใช่ "test หาย"
+- ชุดเต็มวันนี้คือ **167 test ใน 18 ไฟล์** (`backend/tests/test_*.py` — `pytest --collect-only` นับได้ 167) — ไฟล์ล่าสุดคือ `tests/test_owner_ui.py` (ล็อกอิน `/owner`, รหัสผิด/ไม่ตั้งรหัส, cookie ผู้เช่าเข้าไม่ได้) · ถ้าจำนวนไม่ตรง แปลว่า collection พังหรือ import ค้าง ไม่ใช่ "test หาย"
 
 ### 2.4 หมายเหตุบน Windows / PowerShell
 
@@ -96,7 +96,7 @@ TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/domplus_
 | `node smoke-cron.js` | `line-app/` | `/api/cron`: secret, cron-lock, หน้าต่าง 1–3 วัน/เลยกำหนด 1·5·10 วัน, dedup ตาม `rev`, push ล้ม | `smoke-cron.js` |
 | `vercel --prod` | `line-app/`, `backend/` | deploy จากเครื่อง (ปกติไม่ต้อง — push `master` แล้ว auto) | `line-app/docs/DEPLOYMENT.md`, `backend/README.md` |
 | `node scripts/prod-smoke.mjs` | root | ตรวจ deployment จริงหลัง merge (ไม่ต้องล็อกอิน) | `scripts/prod-smoke.mjs` |
-| `pytest -q` | `backend/` | test ทั้งหมด (150 test ใน 15 ไฟล์; DB test ข้ามถ้าไม่มี `TEST_DATABASE_URL`) | `pyproject.toml` `testpaths` |
+| `pytest -q` | `backend/` | test ทั้งหมด (167 test ใน 18 ไฟล์; DB test ข้ามถ้าไม่มี `TEST_DATABASE_URL`) | `pyproject.toml` `testpaths` |
 | `alembic upgrade head` | `backend/` | apply migration | `migrations/` |
 | `alembic revision -m "..."` | `backend/` | สร้าง migration ใหม่ (เขียน `op.execute()` เอง) | `migrations/env.py` (`target_metadata = None`) |
 | `python -m app.seed` | `backend/` | seed หอ 42 ห้อง (รันซ้ำได้ ไม่สร้างซ้ำ) | `app/seed.py` |
@@ -221,7 +221,7 @@ trigger: `push` เข้า `master` และ **ทุก** `pull_request` · 
 4. **เขียน SQL** — `text()` + bound parameter, กรอง `property_id` จาก session เสมอ; ถ้าเขียนหลายตารางให้อยู่ใน `engine.begin()` ก้อนเดียว
 5. **error** — `raise ApiError(409, "CONFLICT", "…")`; ถ้าเพิ่ม code ใหม่ ต้องเพิ่มในตาราง error ของ [`docs/API.md`](./API.md) ด้วย
 6. **ลงทะเบียน** — `app.include_router(<area>.router)` ใน `app/main.py`
-7. **schema change?** — สร้าง `backend/migrations/versions/000N_<slug>.py` ต่อจาก head (`revision`/`down_revision` เป็นสตริง `"0005"`…) เขียน `op.execute()` และ **ต้องมี `downgrade()`**; ห้าม autogenerate (ไม่มี ORM metadata) · `db/schema.sql` เป็น snapshot อ่านอย่างเดียว ไม่ใช่ที่แก้ · **ไม่มี `db/migrations` ในเรพนี้** — SQL ใหม่ทุกตัวต้องเป็น Alembic revision เท่านั้น แล้ว apply ตามลำดับ (`alembic upgrade head`, ไม่มีคำสั่งแยกสำหรับรัน SQL ตรง)
+7. **schema change?** — สร้าง `backend/migrations/versions/000N_<slug>.py` ต่อจาก head (`revision`/`down_revision` เป็นสตริง `"0006"`…) เขียน `op.execute()` และ **ต้องมี `downgrade()`**; ห้าม autogenerate (ไม่มี ORM metadata) · `db/schema.sql` เป็น snapshot อ่านอย่างเดียว ไม่ใช่ที่แก้ · **ไม่มี `db/migrations` ในเรพนี้** — SQL ใหม่ทุกตัวต้องเป็น Alembic revision เท่านั้น แล้ว apply ตามลำดับ (`alembic upgrade head`, ไม่มีคำสั่งแยกสำหรับรัน SQL ตรง)
 8. **ตารางใหม่ที่ผูกกับหอ = ต้องมี RLS policy** — ลอกแบบ `0004_rls_property.py` (หรือ `0005_line_events.py` ซึ่งเป็นตารางใหม่ล่าสุด): `enable` **และ `force` row level security** แล้วสร้าง policy `for all using (…) with check (…)` ที่เทียบกับ `current_setting('app.property_id', true)` (ตารางที่มี `property_id` ตรง ๆ ใช้ค่านั้น; ตารางที่ผูกทาง FK ใช้ `exists (select 1 from rooms r where …)`) — ถ้าลืมข้อนี้ ตารางใหม่จะอ่านข้ามหอได้ และถ้า `enable` แต่ไม่ `force` policy จะไม่มีผลกับเจ้าของตาราง · **role ที่ app ใช้ connect ต้องไม่มี `BYPASSRLS`**: `select rolbypassrls from pg_roles where rolname = current_user` ต้องได้ `false` (เจ้าของ Neon อย่าง `neondb_owner` bypass ได้ — ต้องมี role เฉพาะอย่าง `dormplus_app` สำหรับ production, alembic ยังใช้ owner) · **grant ให้ role นั้นแบบมีการ์ด** — `dormplus_app` สร้างนอก migration ดังนั้น `0005` จึง `grant` ภายใน `do $$ begin if exists (select 1 from pg_roles where rolname='dormplus_app') then … end if; end $$` เพื่อให้ DB สด (CI) migrate ผ่านได้โดยไม่มี role นี้
 9. **test** — `backend/tests/test_<area>.py`, **หนึ่ง test ต่อหนึ่งพฤติกรรม** ใช้ชื่ออ่านรู้เรื่อง (`test_a_billed_period_cannot_be_changed`) และ fixture จาก `conftest.py`: `engine` (skip ถ้าไม่มี `TEST_DATABASE_URL`), `seeded`, `client_for(engine, session, day)` · ถ้าเป็นเรื่องข้ามหอ ให้ทำ fixture แบบ `second_dorm` ใน `test_rooms.py` แล้วยืนยัน 403/ไม่เห็นข้อมูล · ตารางใหม่ควรมีกรณีใน `backend/tests/test_rls.py` ด้วย (test รันด้วย `set local role` เพราะ role ใน CI เป็น superuser ที่ bypass RLS) · ถ้าแตะหน้าเจ้าของหอ (`backend/owner/index.html`) หรือ `POST /v1/auth/owner` ให้ต่อใน `backend/tests/test_owner_ui.py` (หน้ามี string `เจ้าของหอ` และ `/v1/auth/owner` อยู่ — test ตรวจสองอย่างนี้)
 10. **เอกสาร** — [`docs/API.md`](./API.md): อัปเดตตารางสถานะด้านบน (✅), เพิ่มหัวข้อ `### \`METHOD /path\`` พร้อม req/res JSON และรหัส error, และเพิ่มตัวอย่างในบล็อก `## ตัวอย่าง curl (\`backend/\` บนเครื่อง)` · จากนั้นอัปเดตตาราง endpoint ใน [`backend/README.md`](../backend/README.md) · ถ้าเพิ่ม env ต้องอัปเดต [`docs/CONFIGURATION.md`](./CONFIGURATION.md)

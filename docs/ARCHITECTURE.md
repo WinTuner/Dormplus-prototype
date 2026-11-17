@@ -287,6 +287,7 @@ RLS ทำงานจริงตั้งแต่ migration `0004`:
   (setting ว่าง = ไม่เห็นแถว) · `event_id` เป็น primary key เดียวทั้งระบบ ไม่ได้แยกตามหอ · grant ให้
   `dormplus_app` ถูกทำแบบมีเงื่อนไข (`if exists (select 1 from pg_roles …)`) เพื่อให้ DB ใหม่ใน CI
   ที่ยังไม่มี role นั้นยัง migrate ผ่าน
+- `0006` เป็น migration แบบเพิ่มอย่างเดียว: index `invoice_items_invoice_id_idx (invoice_id, id)` และ `payments_invoice_id_idx (invoice_id, created_at desc, id desc)` — ไม่แตะตาราง/policy/grant
 - **role ของ app ต้องไม่มี `BYPASSRLS`** — `neondb_owner` ของ Neon เป็นเจ้าของและ bypass policy
   (เช็คได้ด้วย `select rolbypassrls from pg_roles where rolname = current_user`) ส่วน role ที่แนะนำ
   สำหรับ production คือ `dormplus_app` (DML + sequences, ไม่มี BYPASSRLS) · alembic ยังรันด้วย owner
@@ -350,7 +351,10 @@ backend ใช้ **Procrastinate** เป็นคิวที่เก็บ�
 - `backend/app/queue.py` — สร้าง `procrastinate.App` สองตัว: `app` (sync connector, ใช้ตอน enqueue)
   และ `async_app` (async connector, ใช้ตอน drain เพราะ `run_worker` ต้องมี event loop)
   · `apply_schema()` สร้างตารางของ Procrastinate
+- การ enqueue: `notify_invoices` / `queue_reminders` ส่งทุกงาน LINE ด้วย `batch_defer` ครั้งเดียว (insert เดียว) ไม่ใช่ `defer` ต่อแถว
 - `backend/app/tasks.py` — task เดียวที่คุยกับ LINE: `line.push_text` (`retry=3`) เขียนทุกความพยายามลง
+- การเรียก LINE (`app/line_push.py` push, `app/line.py` ตรวจ idToken) ใช้ `httpx.Client` ตัวเดียวแบบ keep-alive (`line_push.client()`, timeout 10 วินาที, import แบบ lazy) แทน urllib ต่อครั้ง
+- `GET /v1/invoices/{id}` เป็น select เดียว (items ผ่าน `json_agg`, payment ล่าสุดผ่าน lateral join) และ `POST /v1/invoices/{id}/confirm` อ่าน `paid_at` จาก `update … returning` ไม่ select เพิ่ม
   `message_log` และ raise `PushFailed` เมื่อ LINE ไม่รับ เพื่อให้คิว retry
 - `backend/app/dunning.py` — `due_for_reminder()` เลือกบิล `unpaid` ที่เลยกำหนด 1 / 5 / 10 วัน
 - `backend/app/routes/cron.py` — `GET /v1/cron/daily`: ตรวจ `Authorization: Bearer <CRON_SECRET>`
@@ -684,7 +688,7 @@ pakdee-prototype/
 │  │  └─ routes/           # auth, properties, rooms, billing, me, dunning, cron, invites, reports, webhooks
 │  ├─ liff/index.html      # หน้า LIFF ผู้เช่าของ stack นี้ (เสิร์ฟที่ /liff)
 │  ├─ owner/index.html     # หน้าเจ้าของของ stack นี้ (เสิร์ฟที่ /owner, 4 แท็บ, ไม่มี build)
-│  ├─ migrations/          # Alembic (schema จริงที่รัน) — 0001…0005 (0004 = RLS, 0005 = line_events)
+│  ├─ migrations/          # Alembic (schema จริงที่รัน) — 0001…0006 (0004 = RLS, 0005 = line_events, 0006 = index FK ของ invoice_items/payments)
 │  ├─ tests/               # pytest (ต้องมี Postgres) — รวม test_rls.py
 │  └─ vercel.json          # ไม่มี crons แล้ว (งานประจำวันย้ายไป line-app)
 ├─ db/schema.sql           # snapshot ของ schema Postgres (อ่านอย่างเดียว)

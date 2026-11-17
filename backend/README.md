@@ -135,7 +135,7 @@ vercel --prod        # deploy จากเครื่อง
 ```
 
 - entrypoint คือ `api/index.py` ซึ่งแค่ `from app.main import app` → Vercel รู้จักว่าเป็น ASGI
-- dependency มาจาก `requirements.txt` (คู่กับ `pyproject.toml` ที่ยังใช้ตอนพัฒนาในเครื่อง)
+- dependency มาจาก `requirements.txt` (รวม `procrastinate` และ `httpx` — คู่กับ `pyproject.toml` ที่ยังใช้ตอนพัฒนาในเครื่อง)
 - env ที่ต้องตั้งบน Vercel: `DATABASE_URL` (pooled endpoint ของ Neon + `?sslmode=require`),
   `LINE_CHANNEL_ID`, `LIFF_ID`, `SESSION_SECRET`, `COOKIE_SECURE=true`, `DEV_AUTH=false`
 - **ไม่ต้องรัน migration ตอน deploy** — schema ถูก apply ไปแล้ว ให้รัน `alembic upgrade head` จากเครื่องเมื่อมี migration ใหม่

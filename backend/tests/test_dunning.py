@@ -199,10 +199,13 @@ def test_other_dorms_are_not_touched(seeded):
 
 def test_queue_reminders_hands_each_row_to_the_worker(seeded, monkeypatch):
     calls = []
+    batches = []
 
     class FakePush:
-        def defer(self, **kwargs):
-            calls.append(kwargs)
+        def batch_defer(self, *kwargs_list):
+            batches.append(len(kwargs_list))
+            calls.extend(kwargs_list)
+            return list(range(1, len(kwargs_list) + 1))
 
     class FakeApp:
         def open(self):
@@ -229,6 +232,18 @@ def test_queue_reminders_hands_each_row_to_the_worker(seeded, monkeypatch):
     assert calls[0]["to_user_id"] == "U_201"
     assert calls[0]["kind"] == "reminder_1"
     assert "3,930" in calls[0]["body"]
+    assert batches == [1]
+
+    calls.clear()
+    batches.clear()
+    rows.append({"id": "inv_2", "period": "2026-11", "total": 4100, "due_date": date(2026, 11, 14),
+                 "room_no": "202", "line_user_id": "U_202", "days_late": 6, "kind": "reminder_5"})
+
+    assert dunning.queue_reminders(rows) == 2
+    assert batches == [2]  # one insert for all rows, not one per row
+    assert [c["to_user_id"] for c in calls] == ["U_201", "U_202"]
+    assert [c["invoice_id"] for c in calls] == ["inv_1", "inv_2"]
+    assert [c["kind"] for c in calls] == ["reminder_1", "reminder_5"]
 
 
 def test_a_tenant_who_moved_out_is_not_reminded(seeded):

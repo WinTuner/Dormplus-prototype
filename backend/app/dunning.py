@@ -72,7 +72,7 @@ def due_for_reminder(engine: Engine, property_id: str, today: date) -> list[dict
 
 
 def queue_reminders(rows: list[dict]) -> int:
-    """Hand each row to the worker. Returns how many jobs were queued."""
+    """Hand each row to the worker in a single batch insert. Returns how many jobs were queued."""
     if not rows:
         return 0
     from app.tasks import reminder_text
@@ -83,13 +83,15 @@ def queue_reminders(rows: list[dict]) -> int:
         queue = get_app()
     else:
         queue = app
+    jobs = [
+        {
+            "to_user_id": row["line_user_id"],
+            "body": reminder_text(row["room_no"], row["period"], row["total"], row["due_date"], row["days_late"]),
+            "invoice_id": row["id"],
+            "kind": row["kind"],
+        }
+        for row in rows
+    ]
     with queue.open():
-        for row in rows:
-            push = queue.configure_task("line.push_text")
-            push.defer(
-                to_user_id=row["line_user_id"],
-                body=reminder_text(row["room_no"], row["period"], row["total"], row["due_date"], row["days_late"]),
-                invoice_id=row["id"],
-                kind=row["kind"],
-            )
+        queue.configure_task("line.push_text").batch_defer(*jobs)
     return len(rows)
