@@ -16,6 +16,15 @@ const dry = process.argv.includes("--dry");
 const only = (process.argv.find((a) => a.startsWith("--only=")) || "").split("=")[1];
 const prefixes = only ? PREFIXES.filter((p) => p.startsWith(only)) : PREFIXES;
 
+// Say exactly what is missing instead of failing inside a client with a stack trace.
+const missing = ["BLOB_READ_WRITE_TOKEN", ...(dry ? [] : ["R2_ACCOUNT_ID", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET"])]
+  .filter((k) => !process.env[k]);
+if (missing.length) {
+  console.error(`ขาด env: ${missing.join(", ")}`);
+  console.error("วางค่าใน line-app/.env (คัดลอกจาก .env.example) แล้วรันด้วย: node --env-file=.env scripts/migrate-blob-to-r2.js" + (dry ? " --dry" : ""));
+  process.exit(1);
+}
+
 const r2 = dry ? null : createStore();
 
 async function paths(prefix) {
