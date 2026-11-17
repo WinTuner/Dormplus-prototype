@@ -12,6 +12,7 @@ dependencies = [
     "alembic>=1.14",
     "procrastinate>=3.11",
     "httpx>=0.27",
+    "cryptography>=43",
 ]
 
 [project.optional-dependencies]

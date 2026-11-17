@@ -597,6 +597,9 @@ endpoint พร้อมและตรวจ signature จริง แต่ *
 | TC-19-4 | body ที่ไม่ใช่ JSON → 400 | signature ของ body นั้นถูกต้อง | POST body ขยะ | 400 · ไม่เขียน `audit_log` | ✅ `backend/tests/test_webhook.py::test_body_that_is_not_json_is_400` |
 | TC-19-5 | ยังไม่ตั้ง secret → 503 | `LINE_CHANNEL_SECRET` ว่าง | POST อะไรก็ได้ | 503 `LINE_NOT_CONFIGURED` | ✅ `backend/tests/test_webhook.py::test_missing_secret_is_503` |
 | TC-19-6 | LINE ส่ง event เดิมซ้ำ (redelivery) → บันทึกครั้งเดียว | ตั้ง secret แล้ว | POST body เดิมสองครั้ง | 200 ทั้งสองครั้ง · `audit_log` มีแถวเดียว · event id อื่นยังถูกบันทึก | ✅ `backend/tests/test_webhook.py::test_a_redelivered_event_is_ignored` |
+| TC-19-7 | secret รายหอ (`properties.line_secret_enc`) ชนะ env | เก็บ secret ที่เข้ารหัสไว้ + ตั้ง `SECRET_ENC_KEY` + ตั้ง env เป็นค่าอื่น | POST ด้วย signature ของ secret ที่เก็บไว้ / ของ env | ตัวแรก 200 · ตัวที่สอง 401 (env เป็นแค่ fallback) | ✅ `backend/tests/test_webhook.py::test_a_stored_secret_wins_over_the_env` |
+| TC-19-8 | ถอด secret รายหอไม่ได้ → 503 ไม่ใช่ 401 | เก็บ secret ด้วยกุญแจ A แล้วสลับ `SECRET_ENC_KEY` เป็นกุญแจ B | POST ด้วย signature ที่ถูกของ secret เดิม | 503 `LINE_SECRET_UNREADABLE` · ไม่เขียน `audit_log` · LINE จะ retry (5xx) ให้แก้กุญแจ | ✅ `backend/tests/test_webhook.py::test_an_unreadable_stored_secret_is_503_not_401` |
+| TC-19-9 | มี secret รายหอแล้วไม่ต้องตั้ง env | `LINE_CHANNEL_SECRET` ว่าง + เก็บ secret รายหอไว้ | POST ด้วย signature ของ secret ที่เก็บไว้ | 200 (ไม่ใช่ 503 `LINE_NOT_CONFIGURED`) | ✅ `backend/tests/test_webhook.py::test_a_stored_secret_works_without_the_env` |
 
 ## สรุป
 
@@ -620,8 +623,8 @@ endpoint พร้อมและตรวจ signature จริง แต่ *
 | UC-16 | ทวงอัตโนมัติ (เลยกำหนด 1 / 5 / 10 วัน) | 24 | 22 | 2 | 0 |
 | UC-17 | แจ้งชำระก่อนบิลออก (โอนก่อน) | 26 | 22 | 4 | 0 |
 | UC-18 | ยกเลิกบิล (void) และออกบิลใหม่ | 13 | 12 | 1 | 0 |
-| UC-19 | รับ event จาก LINE (webhook ฝั่ง backend) | 6 | 6 | 0 | 0 |
-| **รวม** | | **282** | **256** | **26** | **0** |
+| UC-19 | รับ event จาก LINE (webhook ฝั่ง backend) | 9 | 9 | 0 | 0 |
+| **รวม** | | **285** | **259** | **26** | **0** |
 
 หมายเหตุ: คอลัมน์ ✅ รวมทั้ง test ใน `line-app/smoke-usecases.js` (177 ข้อ) และ test ที่มีอยู่แล้วใน `backend/tests/` ที่ผูกกับกรณีนั้น (บางแถวอ้างหลายฟังก์ชัน นับเป็น 1 TC) แถว ✅ ที่อ้าง pytest ไม่ได้ถูกรันโดยชุดนี้ — รันด้วย `cd backend && pytest -q`
 

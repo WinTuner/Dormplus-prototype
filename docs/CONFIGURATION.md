@@ -29,7 +29,8 @@
 | `LINE_CHANNEL_ID` | **จำเป็นถ้าใช้ LINE Login** | ไม่ใส่ก็ได้ | `""` | `POST /v1/auth/line` ตอบ `503 LINE_NOT_CONFIGURED` |
 | `LIFF_ID` | **จำเป็นถ้าใช้หน้า LIFF** | ไม่ใส่ก็ได้ | `""` | `GET /v1/liff-config` คืน `{"liff_id": ""}` → หน้า LIFF `liff.init()` ไม่ได้ |
 | `LINE_CHANNEL_ACCESS_TOKEN` | **จำเป็นถ้าต้องส่งข้อความ** | ไม่ใส่ก็ได้ | `""` | push ไม่Throw แต่คืน `"skipped: no LINE_CHANNEL_ACCESS_TOKEN"` แล้ว log `skipped` — ผู้ใช้ไม่ได้รับข้อความ |
-| `LINE_CHANNEL_SECRET` | **จำเป็นถ้าจะรับ webhook** | ไม่ใส่ก็ได้ | `""` | `POST /v1/webhooks/line/:property_id` ตอบ `503 LINE_NOT_CONFIGURED`; ค่าต้องเป็น channel secret ของ OA เดียวกับ access token |
+| `LINE_CHANNEL_SECRET` | **จำเป็นถ้าจะรับ webhook** | ไม่ใส่ก็ได้ | `""` | `POST /v1/webhooks/line/:property_id` ตอบ `503 LINE_NOT_CONFIGURED`; ค่าต้องเป็น channel secret ของ OA เดียวกับ access token · ใช้เมื่อ `properties.line_secret_enc` ว่างเท่านั้น |
+| `SECRET_ENC_KEY` | **จำเป็นถ้าเก็บ secret รายหอ** | ไม่ใส่ก็ได้ | `""` | กุญแจ Fernet สำหรับ `properties.line_secret_enc`; ไม่ตั้ง → `scripts/set_line_secret.py` เขียนไม่ได้ และ webhook ถอดค่าเดิมไม่ได้ → `503 LINE_SECRET_UNREADABLE` |
 | `CRON_SECRET` | ไม่บังคับ (cron ของ backend ปิดอยู่) | ไม่ใส่ก็ได้ | `""` | endpoint `/v1/cron/daily` ยังอยู่แต่ตอบ 401 ทุกครั้ง จนกว่าจะตั้งค่านี้ — ใช้เมื่อยิงมือหรือเปิด cron กลับ (ดู §1.4) |
 | `DUNNING_TOKEN` | ทางเลือกแทน `CRON_SECRET` | — | — | ชื่อเก่าที่ยังรับผ่าน `AliasChoices`; ถ้าตั้งทั้งคู่ `CRON_SECRET` ชนะ · **alias นี้มีเฉพาะฝั่ง backend** `line-app` ไม่รับชื่อนี้ |
 | `PROPERTY_ID` | **ควรตั้งให้ตรงหอ** | `p_1` | `p_1` | ไม่ error แต่ทุก connection ถูกตั้ง `app.property_id` เป็นค่านี้ → RLS จะไม่เห็นแถวของหออื่นเลย และ cron จะเลือกบิลเฉพาะหอนี้ (ดู §1.6) · deployment ที่ไม่ได้ตั้ง env นี้จะเดินเป็น `p_1` เงียบ ๆ |
@@ -105,7 +106,8 @@
 | `LINE_CHANNEL_ID` | `app/routes/auth.py` | LINE Login channel ที่ออก idToken; ว่าง → 503 |
 | `LIFF_ID` | `app/main.py` | `GET /v1/liff-config` คืนให้หน้า LIFF (public โดยตั้งใจ) |
 | `LINE_CHANNEL_ACCESS_TOKEN` | `app/line_push.py` | Messaging API push; ว่าง → คืน `skipped:` ไม่ throw |
-| `LINE_CHANNEL_SECRET` | `app/routes/webhooks.py` | ตรวจ `X-Line-Signature` (HMAC-SHA256 ของ raw body แบบ base64); ว่าง → `503 LINE_NOT_CONFIGURED` · `property_id` ใน path ต้องเท่ากับ `PROPERTY_ID` ไม่งั้น `404 NOT_FOUND` · signature ผิด → `401 UNAUTHORIZED` |
+| `LINE_CHANNEL_SECRET` | `app/routes/webhooks.py` | ตรวจ `X-Line-Signature` (HMAC-SHA256 ของ raw body แบบ base64) **เมื่อ `properties.line_secret_enc` ว่าง**; ไม่มีทั้งสองที่ → `503 LINE_NOT_CONFIGURED` · `property_id` ใน path ต้องเท่ากับ `PROPERTY_ID` ไม่งั้น `404 NOT_FOUND` · signature ผิด → `401 UNAUTHORIZED` |
+| `SECRET_ENC_KEY` | `app/secrets.py` | กุญแจ Fernet (urlsafe base64 32 ไบต์) สำหรับถอด `properties.line_secret_enc` / `line_token_enc` · ไม่ตั้งหรือผิดรูป → เขียน/อ่านไม่ได้ · ถอดค่าเดิมไม่ได้ → webhook ตอบ `503 LINE_SECRET_UNREADABLE` (ไม่ใช่ 401 เพื่อให้ LINE retry) · หมุนกุญแจแล้วต้องรัน `scripts/set_line_secret.py` ใหม่ |
 
 webhook ฝั่งนี้บันทึกทุก event ลงตาราง `line_events` (migration `0005`) ด้วย `webhookEventId` เป็น PK — LINE ส่งซ้ำจะไม่เพิ่ม `audit_log` แถวที่สอง และยังตอบ 200 เพื่อให้ LINE หยุด retry · **endpoint นี้ยังไม่ได้ผูกกับ OA จริง** (LINE Console ยังชี้ไปที่ `line-app`)
 
