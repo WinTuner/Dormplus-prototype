@@ -122,7 +122,12 @@ async function saveDorm(res, input) {
       fields.promptpay = String(input.promptpay).replace(/\D/g, "");
     }
   }
-  if (!Object.keys(fields).length) return fail(res, 400, "VALIDATION", "ต้องระบุ name, rent, waterRate, elecRate หรือ dueDay");
+  if (input.autoConfirm !== undefined) {
+    // Only a real boolean: "false" or 0 turning the switch on by accident would close bills unseen.
+    if (typeof input.autoConfirm !== "boolean") return fail(res, 400, "VALIDATION", "autoConfirm ต้องเป็น true หรือ false");
+    fields.autoConfirm = input.autoConfirm;
+  }
+  if (!Object.keys(fields).length) return fail(res, 400, "VALIDATION", "ต้องระบุ name, rent, waterRate, elecRate, dueDay, promptpay หรือ autoConfirm");
 
   const current = (await store.get("dorm")) || {};
   const next = { ...current, ...fields };

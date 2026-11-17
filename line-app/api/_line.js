@@ -201,6 +201,46 @@ function confirmBubble(bill) {
   };
 }
 
+// The short notice the owner gets when the slip check closed the bill by itself: nothing to decide,
+// so no confirm or reject button. "ดูสลิป" opens the slip in the LIFF like the confirm card does.
+// `bills` is every bill the one slip closed (several for a multi-month slip).
+function autoPaidBubble(bills) {
+  const money = (n) => Number(n || 0).toLocaleString("th-TH");
+  const first = bills[0];
+  const total = bills.reduce((n, b) => n + Number(b.total || 0), 0);
+  const periods = bills.map((b) => b.period).join(", ");
+  const text = `ห้อง ${first.room} ชำระแล้ว ${money(total)} บาท (ตรวจสลิปอัตโนมัติ)`;
+  return {
+    type: "flex",
+    altText: text,
+    contents: {
+      type: "bubble",
+      size: "kilo",
+      body: {
+        type: "box",
+        layout: "vertical",
+        spacing: "md",
+        contents: [
+          { type: "text", text, weight: "bold", size: "md", wrap: true },
+          { type: "text", text: `รอบ ${periods}`, size: "xs", color: "#8B9AAB", wrap: true },
+          { type: "text", text: "ถ้าไม่ใช่ ให้ยกเลิกบิล", size: "xs", color: "#8B9AAB", wrap: true },
+        ],
+      },
+      ...(LIFF_ID && first.slipPath
+        ? {
+            footer: {
+              type: "box",
+              layout: "vertical",
+              contents: [
+                { type: "button", style: "secondary", action: { type: "uri", label: "ดูสลิป", uri: `https://liff.line.me/${LIFF_ID}` } },
+              ],
+            },
+          }
+        : {}),
+    },
+  };
+}
+
 // The receipt the tenant gets when the owner confirms a payment. Its button opens the LIFF receipt
 // screen: the page routes by hash, but LIFF can drop a fragment on login, so the period also rides
 // in the query (`receipt=`) and the page rebuilds the route from it.
@@ -260,4 +300,4 @@ function receiptBubble(bill, baseUrl) {
   };
 }
 
-module.exports = { verify, reply, push, retryKeyOf, linkRichMenu, unlinkRichMenu, displayName, billBubble, confirmBubble, receiptBubble, LIFF_ID };
+module.exports = { verify, reply, push, retryKeyOf, linkRichMenu, unlinkRichMenu, displayName, billBubble, confirmBubble, autoPaidBubble, receiptBubble, LIFF_ID };

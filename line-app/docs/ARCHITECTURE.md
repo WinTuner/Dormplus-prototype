@@ -16,7 +16,7 @@ path แพงที่สุดเคยคือการอ่านบิล
 
 dependency ของโปรเจกต์คือ `@vercel/blob`, `aws4fetch` และ `qrcode-svg` (`package.json`)
 
-การตรวจสลิปใช้บริการภายนอก **SlipOK** ผ่าน `fetch` + `FormData` ของ Node (ไม่เพิ่ม dependency) — เปิดใช้เมื่อตั้ง `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` และผลตรวจเป็น *หลักฐานให้เจ้าของ* ไม่ใช่การปิดบิล (§3.4)
+การตรวจสลิปใช้บริการภายนอก **SlipOK** ผ่าน `fetch` + `FormData` ของ Node (ไม่เพิ่ม dependency) — เปิดใช้เมื่อตั้ง `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` และผลตรวจเป็น *หลักฐานให้เจ้าของ*; มีข้อเดียวที่ปิดบิลเอง: สลิปรายเดือนที่รูปใหม่ได้ `ok === true` และเจ้าของหอเปิดสวิตช์ `dorm.autoConfirm` เอง (ค่าเริ่มต้น = ปิด; `SLIP_AUTO_CONFIRM=0|off|false` เป็น kill switch ทั้ง deployment ชนะสวิตช์หอ) (§3.4)
 
 รูปแบบสถาปัตยกรรมจึงเป็น *stateless serverless functions + external blob store* ไม่มีเลเยอร์ middleware กลาง ทุก endpoint ประกอบ `_auth` / `_store` / `_line` เองทีละไฟล์
 
@@ -95,7 +95,7 @@ graph TD
    - body error ของ SlipOK เป็น `{ code, message, data }` ไม่มี `success:false` — โค้ดจึงถือ "ไม่ใช่ success ชัดเจน" = ไม่ผ่าน และรหัสที่ไม่รู้จักตกไปที่ `ok:null`
 5. กันสลิปซ้ำของเราเอง (`rememberRef()`): ถ้า `ok:true` และมี `transRef` → อ่าน `slip-ref:<transRef>`; ถ้ามีอยู่แล้วคืน `ok:false` พร้อมบอกห้องที่ใช้ไป (SlipOK จำได้เท่าที่ branch จำ) · ถ้าไม่มี เขียน `{ room, at }` แล้วเก็บผลนั้น · ทาง `prepay` และทางหลายงวดก็ผ่านขั้นนี้เหมือนกัน
 6. เขียน `bill:<room>` และ `bill:<period>:<room>` เป็นสถานะ `pending` พร้อม `slipPath`, `slipNote`, `slipAt`, `slipCount`, `slipVerify` (ผู้เช่าส่งได้ 5 ครั้ง/บิล ห่างกัน ≥ 30 วินาที) แล้วลบรูปสลิปเก่าที่ถูกแทน — เฉพาะเมื่อไม่มีบิลอื่นของห้องที่ยังชี้ไปที่รูปนั้น (สลิปหลายงวดแชร์รูปเดียวกัน) · ทาง `prepay` เขียน `slipVerify` ลง `prepay:<room>`
-7. `push()` การ์ด `confirmBubble()` หา `OWNER_USER_ID` — push พังไม่ทำให้ request ของผู้เช่าล้ม · **ผลตรวจไม่ได้ปิดบิลให้:** บิลยังเป็น `pending` จนกว่าเจ้าของจะกดยืนยัน (ข้อ 9)
+7. `push()` การ์ด `confirmBubble()` หา `OWNER_USER_ID` — push พังไม่ทำให้ request ของผู้เช่าล้ม · **ผลตรวจปิดบิลให้เฉพาะเมื่อ `ok === true` จากรูปใหม่ของสลิปบิลรายเดือน** (บิลเดียวหรือ `periods`; `autoConfirmOn()` ใน `_pay.js`: env `SLIP_AUTO_CONFIRM` เป็น `0`/`off`/`false` = ปิดทั้ง deployment → ไม่งั้น `dorm.autoConfirm === true` = เปิด → นอกนั้นปิด; อ่าน `dorm` ขนานกับการตรวจสลิป ไม่เพิ่มรอบอ่านแบบต่อคิว): `slip.js` เรียก `closeBills` ใน `_pay.js` (ตัวเดียวกับที่ webhook ใช้) เขียน `paid` + `autoConfirmed:true` + `confirmedVia:"slipok"` + `confirmedBy:null` ครั้งเดียว ส่งใบเสร็จให้ผู้เช่า และส่งข้อความสั้น "ตรวจสลิปอัตโนมัติ" (ไม่มีปุ่มยืนยัน) ให้เจ้าของแทนการ์ด · ผลอื่นทุกแบบ สลิปล่วงหน้า และ prepay ที่ผูกกับบิล ยังเป็น `pending` จนกว่าเจ้าของจะกดยืนยัน (ข้อ 9)
    - **สลิปเดียวหลายงวด:** ถ้า body มี `periods: ["2026-10","2026-11"]` ทุกบิลต้องเป็น `unpaid`/`pending` ของสัญญาเช่าปัจจุบัน → ทุกบิลเป็น `pending` ด้วยรูป/`slipAt`/`slipVerify` เดียวกัน พร้อม `slipGroup: { periods, total }` และเจ้าของได้การ์ดใบเดียว (ยอดรวม ปุ่ม `periods=`) · สลิปกลุ่มถูกตรวจกับ **ยอดรวม** ของทุกรอบ
 8. เจ้าของกดปุ่ม "ยืนยันการชำระ" → postback `action=confirm&room=<room>&period=<period>` (หรือ `periods=<p1,p2>` กรณีหลายงวด) → `POST /api/webhook`
 9. `webhook.js` ตรวจ `isOwner` แล้วเขียนบิลเป็น `paid` + `paidAt` + `confirmedBy` + `receiptNo` (`R<yyyymm>-<room>[-<rev>]` คำนวณจากบิล ไม่ใช้ตัวนับกลาง) แล้ว `push()` **ใบเสร็จ** (Flex `receiptBubble`) ให้ผู้เช่าจาก `room-user:<room>` และ `reply()` ยืนยันกลับ · บิล `void` ตอบ "บิลนี้ถูกยกเลิกแล้ว" ไม่เขียนอะไร · กรณี `periods=` ยืนยันเฉพาะบิลที่ยัง `pending` และ `slipGroup.periods` ตรงกับการ์ด แต่ละใบได้เลขใบเสร็จของตัวเอง (push ละไม่เกิน 5 ข้อความ) · `slipVerify` ไม่ถูกอ่านตอนยืนยัน — เจ้าของเป็นคนตัดสิน
@@ -135,6 +135,7 @@ stateDiagram-v2
   unpaid --> pending: POST /api/slip
   pending --> pending: POST /api/slip อีกครั้ง (เปลี่ยนรูป)
   pending --> paid: postback action=confirm (เจ้าของ)
+  unpaid --> paid: POST /api/slip ที่รูปใหม่ตรวจผ่านครบ ok:true (สลิปบิลรายเดือน ปิดเอง เมื่อหอเปิด dorm.autoConfirm)
   unpaid --> void: POST /api/bill action=void (เจ้าของ)
   pending --> void: POST /api/bill action=void (เจ้าของ)
   paid --> void: POST /api/bill action=void (เจ้าของ)
@@ -146,7 +147,7 @@ stateDiagram-v2
 
 สลิปที่มาก่อนบิล (ไม่มีบิล หรือบิลล่าสุด `paid`) ไม่เปลี่ยนสถานะบิลใด ๆ — `POST /api/slip` เก็บเป็น `prepay:<room>` แล้ว `POST /api/run` ของรอบถัดไปคัดลอกลงบิลใหม่ให้เป็น `pending` ทันทีและตั้ง `prepay` เป็น `null`
 
-ผลตรวจสลิป (`slipVerify`) เป็นข้อมูลประกอบ ไม่ใช่การเปลี่ยนสถานะ: `ok:true` ยังคงเป็น `pending` รอเจ้าของกดยืนยัน และ `ok:false`/`null` ก็ไม่เปลี่ยนสถานะบิลหรือปฏิเสธสลิป (ผู้เช่าได้แจ้งชำระเสมอ; เจ้าของเห็นป้ายผลตรวจบนการ์ด) — state machine ด้านบนจึงไม่เปลี่ยนเพราะฟีเจอร์ตรวจสลิป
+ผลตรวจสลิป (`slipVerify`) เป็นข้อมูลประกอบ มีข้อยกเว้นเดียวคือ `ok:true` ของรูปใหม่บนสลิปบิลรายเดือนที่ปิดบิลเอง (ลูกศร `unpaid --> paid` ด้านบน เฉพาะหอที่เปิด `dorm.autoConfirm`; สลิปล่วงหน้าและ prepay ไม่ปิดเอง); นอกนั้น `ok:true` ยังคงเป็น `pending` รอเจ้าของกดยืนยัน และ `ok:false`/`null` ก็ไม่เปลี่ยนสถานะบิลหรือปฏิเสธสลิป (ผู้เช่าได้แจ้งชำระเสมอ; เจ้าของเห็นป้ายผลตรวจบนการ์ด) — state machine ด้านบนจึงไม่เปลี่ยนเพราะฟีเจอร์ตรวจสลิป
 
 | การเปลี่ยนสถานะ | ใคร/what | ไฟล์ | เงื่อนไข/ผลข้างเคียง |
 |---|---|---|---|

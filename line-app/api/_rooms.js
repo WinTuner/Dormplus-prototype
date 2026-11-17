@@ -18,6 +18,7 @@ const DEFAULTS = {
 const RATE_KEYS = ["rent", "waterRate", "elecRate"];
 
 // What the owner saved from the settings screen (may be null on a fresh dorm).
+// `autoConfirm` (boolean) is read as "off unless exactly true", see autoConfirmOn() in _pay.js.
 async function dormOf() {
   return (await store.get("dorm")) || null;
 }

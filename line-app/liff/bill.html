@@ -612,7 +612,8 @@ function tenantSlip() {
     try {
       const image = await shrink(file);
       const out = await api("/api/slip", { method: "POST", body: JSON.stringify({ room: T.room, image, ...(chosen && { periods: chosen }) }) });
-      toast(out.status === "advance" ? "ส่งสลิปแล้ว — จะผูกกับบิลรอบถัดไปเมื่อเจ้าของออกบิล"
+      // A slip that passed every check closes the bill by itself: say so; the reload below shows the receipt.
+      toast(out.autoConfirmed ? "ชำระแล้ว — ตรวจสลิปอัตโนมัติ" : out.status === "advance" ? "ส่งสลิปแล้ว — จะผูกกับบิลรอบถัดไปเมื่อเจ้าของออกบิล"
         : out.periods?.length > 1 ? `แจ้งชำระ ${out.periods.length} งวดแล้ว — รอเจ้าของหอยืนยัน` : "แจ้งชำระแล้ว — รอเจ้าของหอยืนยัน");
       history.replaceState(null, "", location.pathname + location.search);
       await loadTenant();
@@ -891,13 +892,18 @@ async function ownerSettings() {
       <div class="err" id="dormErr" style="margin-top:8px" hidden></div>
     </div>
     <div class="card">
+      <label class="opt"><input type="checkbox" id="sAuto" ${dorm.autoConfirm === true ? "checked" : ""}>
+        <span class="grow">ปิดบิลอัตโนมัติเมื่อสลิปตรวจผ่าน</span></label>
+      <div class="hint">ระบบจะปิดบิลและออกใบเสร็จทันทีโดยเจ้าของไม่เห็นสลิป · ถ้าไม่ใช่ ให้ยกเลิกบิล</div>
+    </div>
+    <div class="card">
       <button class="btn" id="saveDorm">บันทึก</button>
       <div class="hint" style="margin-top:8px">ค่าเช่า/ค่าน้ำ/ค่าไฟ ใช้กับบิลที่ออกหลังจากนี้ · QR พร้อมเพย์ขึ้นกับบิลที่ยังไม่ชำระทันที</div>
     </div>`;
 
   $("saveDorm").onclick = async () => {
     const num = (id) => ($(id).value.trim() === "" ? null : Number($(id).value));
-    const body = { dorm: { name: $("sName").value.trim() || null, rent: num("sRent"), waterRate: num("sWater"), elecRate: num("sElec"), dueDay: num("sDue"), promptpay: $("sPay").value.trim() || null } };
+    const body = { dorm: { name: $("sName").value.trim() || null, rent: num("sRent"), waterRate: num("sWater"), elecRate: num("sElec"), dueDay: num("sDue"), promptpay: $("sPay").value.trim() || null, autoConfirm: $("sAuto").checked } };
     const box = $("dormErr");
     box.hidden = true;
     try {
