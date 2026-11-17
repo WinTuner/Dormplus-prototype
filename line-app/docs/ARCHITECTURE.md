@@ -201,6 +201,7 @@ bill object ที่ `run.js` สร้าง: `{ room, period, rent, water, el
 | `api/_store.js` | `get(key)` / `set(key, value)` บน Blob | JSON เท่านั้น; หนึ่ง key = หนึ่งไฟล์; เขียนทับได้ |
 | `api/_rooms.js` | `ROOMS`, `DEFAULTS`, `configFor(room)` | ค่า default จาก env, ทับด้วย `room:<room>` |
 | `api/_verify.js` | `verifySlip({ bytes, mime, amount })` — ตรวจสลิปกับ SlipOK | ไม่ใช่ endpoint; `log:"true"` บังคับ; `ok:null` = ตรวจไม่ได้ (ไม่ใช่ปลอม); อ่าน env ตอนเรียก |
+| `api/_gemini.js` | `readMeter({ data, mime })` — อ่านเลขหน้าปัดน้ำ/ไฟจากรูป | ไม่ใช่ endpoint; ใช้ `GEMINI_API_KEY` (ไม่ตั้ง = `503 METERS_OFF`); คืน `{ok:true,water,elec,confidence,note}` หรือ `{ok:null,reason}`; ไม่เขียน Blob — เจ้าของยืนยันเลขเอง |
 | `api/me.js` | `GET` ข้อมูลตัวเอง: `userId`, `owner`, `room` | ใช้ตัดสินว่า LIFF จะแสดง view ไหน |
 | `api/bill.js` | `GET` บิลห้องเดียว / ประวัติ · `POST` ยกเลิกบิล (void) | ผู้เช่าเห็นเฉพาะห้องที่ผูก, เจ้าของเห็นทุกห้อง · void เฉพาะเจ้าของ |
 | `api/slip.js` | `POST` แนบสลิป → (ถ้าตั้ง SlipOK) ตรวจสลิป → `pending` + push การ์ดหาเจ้าของ | เขียนไฟล์รูปผ่าน `_store.putFile()`; จำกัด 3MB; จำ `slip-ref:<transRef>`; ตรวจไม่ผ่านก็ยังรับสลิป |
@@ -241,13 +242,17 @@ line-app/
 │  ├─ _async.js         # helper ที่ขึ้นต้นด้วย _ (ไม่ได้ออกแบบให้เรียกเป็น endpoint)
 │  ├─ _auth.js
 │  ├─ _bills.js
+│  ├─ _gemini.js        # อ่านเลขมิเตอร์จากรูป (Google Gemini) — ไม่เขียน Blob
 │  ├─ _ledger.js
 │  ├─ _limit.js
 │  ├─ _line.js
+│  ├─ _prepay.js
+│  ├─ _promptpay.js
 │  ├─ _qr.js
 │  ├─ _remind.js
 │  ├─ _rooms.js
 │  ├─ _store.js
+│  ├─ _store-r2.js      # S3 adapter ของ Cloudflare R2 (ใช้เมื่อตั้ง R2_BUCKET)
 │  ├─ _verify.js        # ตรวจสลิปกับ SlipOK (helper ไม่ใช่ route)
 │  └─ *.js              # 12 endpoints: webhook · bill · slip · slip-image · rooms
 │                       #   run · me · qr · owner · cron · dev · config

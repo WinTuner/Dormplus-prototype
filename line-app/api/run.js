@@ -1,5 +1,6 @@
 // POST /api/run — owner records this month's meter units and pushes the bills.
-// body: { period?, due?, readings: [{ room, water, elec }] }  (units, not baht)
+// body: { period?, due?, readings: [{ room, water, elec, dial? }] }  (units, not baht)
+// body: { action: "read", image: "data:image/jpeg;base64,…" } → the dial numbers, nothing written
 //
 // Money rules:
 // - a room whose bill for this period already has a slip (pending) or is paid is skipped, never
@@ -14,6 +15,7 @@
 // - units must be whole numbers ≥ 0 and the room must be one of ROOMS; a missing water or elec
 //   reading is refused (an explicit 0 is fine), never billed as 0 units
 const store = require("./_store");
+const { readMeter } = require("./_gemini");
 const { saveBill, archiveVoid, prepaidCopy, PERIOD } = require("./_bills");
 const { push, billBubble } = require("./_line");
 const { usable: canUse, clearPrepay, notifyOwner, attachPrepay } = require("./_prepay");
@@ -24,6 +26,10 @@ const { mapLimit } = require("./_async");
 const DATE = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 const MAX_UNITS = 100000;
 const ROOM_CONCURRENCY = 6;
+// A phone photo after the browser's downscale is a few hundred KB; anything near a function's body
+// limit is not a meter photo and is cheaper to refuse before sending it to Gemini.
+const MAX_IMAGE_CHARS = 3_000_000;
+const DATA_URL = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/;
 
 // A reading that was left out (or blank) is not "0 units": billing it as 0 would hide a forgotten meter.
 const isMissing = (value) => value === undefined || value === null || (typeof value === "string" && value.trim() === "");
@@ -43,7 +49,12 @@ module.exports = async (req, res) => {
   if (!userId) return;
   if (!await isOwner(userId)) return res.status(403).json({ error: { code: "FORBIDDEN", message: "เฉพาะเจ้าของหอ" } });
 
-  const { period, due, readings } = req.body || {};
+  const body = req.body || {};
+  // A photo of the dial is answered here, on the same screen as the numbers it is about, so the
+  // OCR needs no function of its own (Vercel's free plan allows 12).
+  if (body.action === "read") return readPhoto(res, body.image);
+
+  const { period, due, readings } = body;
   if (!Array.isArray(readings) || !readings.length) {
     return res.status(400).json({ error: { code: "VALIDATION", message: "ต้องส่ง readings" } });
   }
@@ -84,6 +95,42 @@ module.exports = async (req, res) => {
 
   return res.status(200).json({ ok: true, period: billPeriod, due: billDue || null, rooms: out });
 };
+
+// The photo is a suggestion for the owner, never a reading: nothing is written here, and the page
+// only fills the two unit fields. The owner's save is still what makes the bill.
+async function readPhoto(res, image) {
+  const m = DATA_URL.exec(String(image || ""));
+  if (!m) {
+    return res.status(400).json({ error: { code: "VALIDATION", message: "ต้องส่งรูปเป็น data URL (jpeg/png/webp)" } });
+  }
+  if (m[2].length > MAX_IMAGE_CHARS) {
+    return res.status(413).json({ error: { code: "TOO_LARGE", message: "รูปใหญ่เกินไป — ย่อรูปก่อนส่ง" } });
+  }
+  const out = await readMeter({ data: m[2], mime: `image/${m[1]}` });
+  if (out.ok === null) {
+    const off = out.reason === "not_configured";
+    return res.status(off ? 503 : 422).json({
+      error: {
+        code: off ? "METERS_OFF" : "UNREADABLE",
+        message: off ? "ยังไม่ได้ตั้งค่า GEMINI_API_KEY" : out.reason,
+      },
+    });
+  }
+  return res.status(200).json({
+    ok: true,
+    reading: { water: out.water, elec: out.elec, confidence: out.confidence, note: out.note },
+  });
+}
+
+// The dial from the page, kept only when it is a pair of numbers we would accept: it is shown back
+// next month to turn a new dial into "units used", so a string or a negative would poison that.
+function dialOf(v) {
+  if (!v || typeof v !== "object") return null;
+  const n = (x) => (typeof x === "number" && Number.isFinite(x) && x >= 0 && x < 10_000_000 ? x : null);
+  const water = n(v.water);
+  const elec = n(v.elec);
+  return water === null && elec === null ? null : { water, elec };
+}
 
 // One room: validate, refuse to touch a bill that has a slip or is paid, write, push the card.
 async function issueBill(r, room, billPeriod, billDue, baseUrl, base) {
@@ -137,9 +184,11 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl, base) {
     status: "unpaid",
   };
   const first = usable ? prepaidCopy(bill, usable) : bill;
+  // The dial the owner confirmed with this reading: next month it turns a new dial into "used".
+  const dial = dialOf(r.dial);
 
   await Promise.all([
-    store.set(`meter:${room}`, { water: waterUnits, elec: elecUnits, at: new Date().toISOString() }),
+    store.set(`meter:${room}`, { water: waterUnits, elec: elecUnits, at: new Date().toISOString(), ...(dial && { dial }) }),
     saveBill(first, { latest }), // `latest` was read above: no second read inside
   ]);
 

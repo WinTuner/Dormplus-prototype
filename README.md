@@ -27,7 +27,7 @@ docs/         เอกสารทั้ง repo: API · สถาปัตย�
 ```bash
 cd line-app
 node smoke.js && node smoke-handlers.js && node smoke-reads.js   # offline tests, ไม่ต้อง npm install
-node smoke-usecases.js   # 168 use case ที่ automate ได้ (ชุดเดียวกับ docs/TEST-CASES.md)
+node smoke-usecases.js   # 177 use case ที่ automate ได้ (ชุดเดียวกับ docs/TEST-CASES.md)
 node smoke-cron.js       # แจ้งเตือนรายวัน /api/cron + cron-lock
 ```
 
@@ -172,12 +172,12 @@ cd line-app
 node smoke.js           # signature ของ webhook + รูปร่าง Flex card
 node smoke-handlers.js  # dev gate, QR binding, rate limit, confirm, ออกบิล
 node smoke-reads.js     # concurrency ของ read, ลำดับ, history, สิทธิ์
-node smoke-usecases.js  # 168 use case (receipt · void/refund · prepay · group slip · tenancy · income/overdue)
+node smoke-usecases.js  # 177 use case (receipt · void/refund · prepay · group slip · tenancy · income/overdue)
 node smoke-cron.js      # /api/cron: ชนิดการเตือน, dedup ต่อ rev, cron-lock, push ล้ม
 npm test                # รันสามตัวแรกตามลำดับ (usecases/cron ไม่อยู่ใน npm test แต่ CI รัน)
 ```
 
-`node smoke-usecases.js` คือชุดเดียวกับ [`docs/TEST-CASES.md`](docs/TEST-CASES.md) (269 เคสใน 19 use case: 244 automate ✅ / 25 manual 🖐 / 0 ยังไม่สร้าง ⏳ — เคสที่ automate ได้ใน `line-app` มี 168 เคส ที่เหลือเป็น manual/LINE e2e หรือ pytest ฝั่ง backend) และ CI รันทั้งห้าไฟล์
+`node smoke-usecases.js` คือชุดเดียวกับ [`docs/TEST-CASES.md`](docs/TEST-CASES.md) (282 เคสใน 19 use case: 256 automate ✅ / 26 manual 🖐 / 0 ยังไม่สร้าง ⏳ — เคสที่ automate ได้ใน `line-app` มี 177 เคส ที่เหลือเป็น manual/LINE e2e หรือ pytest ฝั่ง backend) และ CI รันทั้งห้าไฟล์
 
 **`backend/`** — ต้องมี Postgres ก่อน (test ที่ต้องใช้ DB จะถูกข้ามถ้าไม่ได้ตั้ง `TEST_DATABASE_URL`):
 
@@ -269,7 +269,7 @@ exit code 1 ถ้ามีข้อไหนตก — ใช้เป็น ga
 | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | env ของทั้งสองฝั่ง + ค่า default |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | deploy ทั้งสองโปรเจกต์ Vercel · Neon · cron · rollback |
 | [`docs/TESTING.md`](docs/TESTING.md) | ชุดทดสอบ offline, pytest, manual matrix, CI |
-| [`docs/TEST-CASES.md`](docs/TEST-CASES.md) | 269 test case ใน 19 use case (244 automate / 25 manual / 0 ยังไม่สร้าง) |
+| [`docs/TEST-CASES.md`](docs/TEST-CASES.md) | 282 test case ใน 19 use case (256 automate / 26 manual / 0 ยังไม่สร้าง) |
 | [`docs/HANDOFF.md`](docs/HANDOFF.md) | งานที่เหลือ + เกณฑ์ "เสร็จ" |
 | [`backend/README.md`](backend/README.md) | endpoint · session · migration · test ของ backend |
 
