@@ -166,6 +166,8 @@ webhook ฝั่งนี้บันทึกทุก event ลงตาร�
 | `ELEC_RATE` | ไม่บังคับ | ไม่บังคับ | `7` | ค่าไฟ/หน่วย |
 | `SLIPOK_API_KEY` | ไม่บังคับ | ไม่บังคับ | — | ใช้คู่กับ `SLIPOK_BRANCH_ID`; ตั้งไม่ครบทั้งคู่ = ตรวจสลิปไม่ทำงาน (`ok: null`, `reason: "not_configured"`) แต่สลิปยังถูกบันทึก (§2.5) |
 | `SLIPOK_BRANCH_ID` | ไม่บังคับ | ไม่บังคับ | — | branch ของหอนี้ใน SlipOK — ต้องผูกบัญชีรับเงินของหอไว้ ไม่งั้นสลิปทุกใบได้ `1014` (บัญชีผู้รับไม่ใช่บัญชีของหอ) |
+| `GEMINI_API_KEY` | ไม่บังคับ | ไม่บังคับ | — | เปิด "อ่านมิเตอร์จากรูป" (`POST /api/run {action:"read"}`, `api/_gemini.js`) — ไม่ตั้ง = `503 METERS_OFF` และปุ่มถ่ายรูปยังขึ้นแต่กดแล้วได้ข้อความให้พิมพ์เอง · ส่งรูปไป Google (PDPA) |
+| `GEMINI_MODEL` | ไม่บังคับ | ไม่บังคับ | `gemini-2.5-flash` | เปลี่ยนโมเดลที่อ่านมิเตอร์ (ต้องรองรับ `responseSchema`) |
 | `BILL_PERIOD` | ไม่บังคับ | ไม่บังคับ | `""` (seed ใช้ `2026-11`) | `/api/run` ถ้า body ไม่ส่ง `period` และ env ว่าง → `400 VALIDATION`; `/api/rooms` คืน `period: null` |
 | `BILL_DUE` | ไม่บังคับ | ไม่บังคับ | `""` (seed ใช้ `2026-11-16`) | บิลเก็บ `due: ""`/`null` → การ์ดแสดงค่าว่าง และ **cron จะข้ามบิลนั้น** (`candidateBills` ต้องมี `due`) |
 | `VERCEL_ENV` | platform ฉีดให้ | `vercel dev` ตั้งเป็น `development` | `""` | ใช้ปิด bypass บน production (`IS_PRODUCTION`) |

@@ -15,15 +15,16 @@ repo นี้แยกเป็นสองครึ่งที่ deploy แ�
 | ชั้น | ไฟล์ | รันด้วย | ต้องมีอะไร | ครอบอะไร |
 |---|---|---|---|---|
 | `line-app` โครงสร้าง/handler | `smoke.js`, `smoke-handlers.js`, `smoke-reads.js` | `node` (หรือ `npm test`) | Node ≥ 20 · ไม่ต้องมีเน็ต · **`smoke.js` ต้องมี `npm ci` ก่อน** (บล็อก R2 ใช้ `aws4fetch`) · `smoke-handlers.js`/`smoke-reads.js` ไม่ต้องมี `node_modules` | signature ของ webhook, Flex card, QR binding + move-confirm, rate limit, ยืนยันการชำระ + ใบเสร็จ, ยกเลิก/ออกบิลใหม่, สลิปหนึ่งใบหลายงวด, roles/invite, slip limits, **ตรวจสลิปผ่าน SlipOK (stub)**, **แก้ราคาห้อง**, สมาชิกห้อง/รูมเมท, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป, concurrency ของ read, **adapter R2 เทียบ S3 ปลอม (get/404/put/delete/list paging)** และ `/api/bill?overdue=` / `?income=` / `?refunds=1` |
-| `line-app` use case | `smoke-usecases.js` | `node smoke-usecases.js` | Node ≥ 20 · ไม่ต้องมีเน็ต · ไม่ต้องมี `node_modules` | **168 เคส** ที่ id ตรงกับ `docs/TEST-CASES.md` (TC-xx-n) ไล่ตาม UC-01 … UC-18 (ไม่มี UC-19 ซึ่งเป็น pytest) |
+| `line-app` use case | `smoke-usecases.js` | `node smoke-usecases.js` | Node ≥ 20 · ไม่ต้องมีเน็ต · ไม่ต้องมี `node_modules` | **177 เคส** ที่ id ตรงกับ `docs/TEST-CASES.md` (TC-xx-n) ไล่ตาม UC-01 … UC-18 (ไม่มี UC-19 ซึ่งเป็น pytest) |
 | `line-app` cron เตือนรายวัน | `smoke-cron.js` | `node smoke-cron.js` | Node ≥ 20 · ไม่ต้องมีเน็ต · ไม่ต้องมี `node_modules` | auth ของ `/api/cron`, lock กันรอบซ้อน, 6 หน้าต่างเตือน, dedup, catch-up, ข้ามบิลที่ไม่ควรเตือน, retry, สรุปถึงเจ้าของ |
 | `backend` API | `backend/tests/*.py` (18 ไฟล์ · 165 ฟังก์ชัน `def test_` · 167 test node) | `pytest` | Python ≥ 3.11 · **Postgres** สำหรับ test ที่แตะ DB | สัญญา error, session cookie, LINE idToken, owner login + หน้า `/owner`, ห้อง/มิเตอร์, ออกบิล + ส่งบิลเข้า LINE, สลิป/ยืนยัน/ตีกลับ, ผูก LINE, dunning, cron, **RLS**, webhook signature + dedupe, รายงานสรุป |
+| LIFF UI | `line-app/liff/bill.html` | `cd line-app/e2e && npm test` (Playwright) | Node ≥ 20 · `npm ci` + `npx playwright install chromium` ใน `line-app/e2e` | หน้าผู้เช่า/เจ้าของจริงบน handler จริง (stub LINE/LIFF) |
 | LIFF inline script | `line-app/liff/bill.html` | `node --check` (ใน CI) | Node | แค่ **parse ได้** ไม่ได้รัน logic |
 | production หลัง deploy | `scripts/prod-smoke.mjs` | `node scripts/prod-smoke.mjs` | เน็ต + URL จริง | **14 ข้อ**: build ปัจจุบัน, security header, endpoint ที่ต้อง auth ตอบ 401, dev endpoint ปิด, cron ป้องกัน secret |
 
-> ไม่มี Jest/Vitest/Playwright และไม่มี coverage tool ใน repo นี้ — ทุกอย่างข้างบนคือทั้งหมดที่มี
+> ไม่มี Jest/Vitest และไม่มี coverage tool ใน repo นี้ · UI test ของหน้า LIFF ใช้ Playwright แยกเป็นแพ็กเกจของตัวเองที่ `line-app/e2e/` (ดูหัวข้อ 2.1)
 
-**catalogue ของเคสคือ [`docs/TEST-CASES.md`](TEST-CASES.md)**: **269 เคสใน 19 use case** โดยแบ่งเป็น ✅ 244 เคสที่ automation แตะ, 🖐 25 เคสที่ต้องทำมือกับ LINE/LIFF จริง และ **⏳ 0 เคส** (ทุกแถวในเอกสารมีคนตรวจแล้ว) — ใน 244 เคสนั้น **168 เคสมี id ของตัวเองใน `smoke-usecases.js`**, 51 เคสชี้ไปที่ backend pytest, 8 เคสชี้ไปเคสที่ automate ไว้แล้วใน UC อื่น (`TC-10-12`→`TC-08-6`, `TC-11-16`→`TC-08-8`, `TC-14-3`→`TC-10-5`, `TC-15-1`→`TC-04-1`, `TC-17-24`→`TC-08-11`, `TC-17-25`→`TC-18-5`, `TC-17-26`→`TC-18-9`, `TC-18-12`→`TC-13-10`), 1 เคสชี้ไป `smoke-cron.js` และ 16 เคสอ้าง `smoke-handlers.js` (ตรวจสลิป, สมาชิกห้อง, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป, guard เล็ก ๆ) — id ใน `smoke-usecases.js` กับแถวในเอกสารตรงกัน 1:1 ทั้ง 168 ตัว
+**catalogue ของเคสคือ [`docs/TEST-CASES.md`](TEST-CASES.md)**: **282 เคสใน 19 use case** โดยแบ่งเป็น ✅ 256 เคสที่ automation แตะ, 🖐 26 เคสที่ต้องทำมือกับ LINE/LIFF จริง และ **⏳ 0 เคส** (ทุกแถวในเอกสารมีคนตรวจแล้ว) — ใน 256 เคสนั้น **177 เคสมี id ของตัวเองใน `smoke-usecases.js`**, 51 เคสชี้ไปที่ backend pytest, 8 เคสชี้ไปเคสที่ automate ไว้แล้วใน UC อื่น (`TC-10-12`→`TC-08-6`, `TC-11-16`→`TC-08-8`, `TC-14-3`→`TC-10-5`, `TC-15-1`→`TC-04-1`, `TC-17-24`→`TC-08-11`, `TC-17-25`→`TC-18-5`, `TC-17-26`→`TC-18-9`, `TC-18-12`→`TC-13-10`), 1 เคสชี้ไป `smoke-cron.js` และ 19 เคสอ้าง `smoke-handlers.js` (ตรวจสลิป, สมาชิกห้อง, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป, อ่านมิเตอร์จากรูป, guard เล็ก ๆ) — id ใน `smoke-usecases.js` กับแถวในเอกสารตรงกัน 1:1 ทั้ง 177 ตัว
 
 ---
 
@@ -40,13 +41,13 @@ npm test                 # = node smoke.js && node smoke-handlers.js && node smo
 node smoke.js            # signature + Flex card + auth guards + adapter R2 (ต้องมี aws4fetch)
 node smoke-handlers.js   # dev gate, QR binding, สมาชิกห้อง, rate limit, confirm, ออกบิล, roles, slip limits, ใบเสร็จ, void, ตรวจสลิป (SlipOK), ราคาห้อง, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป
 node smoke-reads.js      # concurrency, ลำดับ, history, overdue, income, refunds, สิทธิ์
-node smoke-usecases.js   # 168 เคสตาม UC (id ตรง docs/TEST-CASES.md)
+node smoke-usecases.js   # 177 เคสตาม UC (id ตรง docs/TEST-CASES.md)
 node smoke-cron.js       # เตือนรายวัน: auth, lock, หน้าต่างเตือน, dedup, retry
 ```
 
 `package.json` ตั้ง `"test": "node smoke.js && node smoke-handlers.js && node smoke-reads.js"` และ `"engines": {"node": ">=20"}`
 
-> ⚠️ **`npm test` รันแค่ 3 ไฟล์** — `smoke-usecases.js` (168 เคส) และ `smoke-cron.js` ไม่ได้อยู่ใน script นี้ CI รันครบทั้ง 5 ไฟล์แยกเป็น step (`ci.yml`) พร้อม `pytest` ของ backend ดังนั้นก่อน push ให้รันเองทั้ง 5 หรือรันตามข้อ 4
+> ⚠️ **`npm test` รันแค่ 3 ไฟล์** — `smoke-usecases.js` (177 เคส) และ `smoke-cron.js` ไม่ได้อยู่ใน script นี้ CI รันครบทั้ง 5 ไฟล์แยกเป็น step (`ci.yml`) พร้อม `pytest` ของ backend ดังนั้นก่อน push ให้รันเองทั้ง 5 หรือรันตามข้อ 4
 
 **`smoke.js` ต้องมี `node_modules`:** `smoke-handlers.js`, `smoke-reads.js`, `smoke-usecases.js` และ `smoke-cron.js` `require` เฉพาะ builtin ของ Node (`assert`, `crypto`, `module`, `path`) และ stub dependency เองผ่าน `Module._load` / `require.cache` จึงรันได้โดยไม่ต้องติดตั้งอะไร แต่บล็อก R2 adapter ใน `smoke.js` (`smoke.js` บรรทัด 103–141) `require` `./api/_store-r2` ซึ่ง `require` `aws4fetch` — ถ้ายังไม่ `npm ci` ไฟล์จะล้มด้วย `MODULE_NOT_FOUND` และ `exit 1` (ไม่ได้ skip) · บล็อก QR ยังข้ามได้เองและพิมพ์ `qrcode-svg not installed, QR check skipped` (`smoke.js` บรรทัด 88–101)
 
@@ -108,14 +109,14 @@ stub ทั้งหมด: Blob store เป็น `Map` ในหน่วย�
 | `/api/bill?income=<period>` (เจ้าของ) | นับตามวันที่ชำระในเวลาไทย ไม่ใช่ period ของบิล (บิล ต.ค. ที่จ่าย 1 พ.ย. 00:30 น. เป็นรายรับ พ.ย.) · `void` ไม่นับ · งวดล่วงหน้าที่จ่ายเดือนนี้ก็นับ และไม่ไปโผล่ในเดือนของมันเอง · 13 เดือนย้อนหลังดูได้ · แต่ละแถวมี `receiptNo` · ผู้เช่า → 403 · period ผิดรูป (`2026-13`, `abc`, `2026-1`) → 400 |
 | `/api/bill?voided=1&refunds=1` (เจ้าของ) | บิล `void` ที่ต้องคืนเงิน + บิล `paid` ที่โอนเกิน อยู่ในรายการเดียวพร้อม `kind` (`void`/`overpaid`) และ `refundDue` · tag `overpaid` ที่ rev ไม่ตรงถูกข้าม · `POST {action:"refunded"}` บันทึกได้ (ไม่ใส่ `kind` = `void`), ติดที่บิลและสำเนาล่าสุด · `kind` ผิด → 400 · ผู้เช่า → 403 · ใบที่ไม่มี → 404 · rev ไม่ตรง/บันทึกซ้ำ → 409 · บันทึกแล้วหลุดจากรายการ |
 
-### 2.5 `smoke-usecases.js` — 168 เคสตาม use case
+### 2.5 `smoke-usecases.js` — 177 เคสตาม use case
 
-ไฟล์นี้จัดกลุ่มตาม use case และ **ทุกบล็อกมี id เดียวกับแถวใน [`docs/TEST-CASES.md`](TEST-CASES.md)** (`await tc("TC-04-10", ...)`) — ถ้าเคสในเอกสารกับในโค้ดไม่ตรงกัน ให้ถือเอกสารเป็นสเปก ปัจจุบัน id ในไฟล์และแถวที่ชี้กลับมาที่ไฟล์ตรงกันครบ 168 ตัว (ไม่มี id เกินและไม่มีแถวที่อ้าง id ที่ไม่มีในไฟล์)
+ไฟล์นี้จัดกลุ่มตาม use case และ **ทุกบล็อกมี id เดียวกับแถวใน [`docs/TEST-CASES.md`](TEST-CASES.md)** (`await tc("TC-04-10", ...)`) — ถ้าเคสในเอกสารกับในโค้ดไม่ตรงกัน ให้ถือเอกสารเป็นสเปก ปัจจุบัน id ในไฟล์และแถวที่ชี้กลับมาที่ไฟล์ตรงกันครบ 177 ตัว (ไม่มี id เกินและไม่มีแถวที่อ้าง id ที่ไม่มีในไฟล์)
 
 ```bash
 cd line-app && node smoke-usecases.js
-# ... 168 บรรทัด ✓ ...
-# 168/168 use case tests passed
+# ... 177 บรรทัด ✓ ...
+# 177/177 use case tests passed
 ```
 
 - แต่ละเคสห่อด้วย `tc(id, title, fn)` — ผ่านพิมพ์ `✓ <id> <title>`, ตกพิมพ์ error แล้วสรุปท้ายเป็น `failed: TC-xx-n, ...` พร้อม `process.exit(1)` (CI จึงแดง)
@@ -150,6 +151,24 @@ harness เดียวกับ `smoke-handlers.js` แต่เพิ่ม: `
 - ทุกอย่างถูก stub: **ไม่ได้ทดสอบ Vercel Blob จริง, LINE Messaging API จริง, SlipOK จริง, runtime ของ Vercel, หรือ LIFF** — adapter R2 ก็ถูกตรวจแค่กับ endpoint S3 ปลอมใน `smoke.js` (ไม่ได้ต่อ Cloudflare R2 จริง จึงไม่รู้ว่า `aws4fetch` เซ็น request ได้ตรงที่ R2 ยอมรับ หรือ permission ของบัคเก็ตถูก)
 - ตรวจได้เฉพาะ request ที่เรียก handler ตรง ๆ ด้วย `req`/`res` ปลอม — routing, header ที่ platform ใส่, และ timeout ไม่ถูกทดสอบ
 - เคสที่ยิงพร้อมกันถูกจำลองด้วย `gate` (บังคับลำดับการอ่าน/เขียน) และด้วย LINE ที่ตอบ 409 ให้ retry key ซ้ำ — **ไม่ใช่สองโปรเซสจริงบนเครือข่ายจริง** และการกันของซ้ำฝั่ง LINE อาศัยหน้าต่าง dedupe ของ LINE (24 ชั่วโมง) ไม่ใช่ lock ในสโตร์ของเรา (ดูข้อ 10 ข้อ 4–5)
+
+---
+
+## 2.1 `line-app/e2e/` — UI test ของหน้า LIFF (Playwright)
+
+เปิด `liff/bill.html` จริงใน Chromium (viewport มือถือ Pixel 7) ต่อกับ handler `api/*.js` จริง โดยโลกภายนอกถูกปลอมแบบเดียวกับ `smoke-usecases.js` (store ในหน่วยความจำ, LINE/SlipOK stub) และ LIFF SDK ถูกแทนด้วย stub ที่คืน userId ที่เทสต์เลือก (`Uowner`, `Utenant201` …) เป็น idToken · เป็นแพ็กเกจ npm แยก (`package.json` + lockfile ของตัวเอง) และ `line-app/.vercelignore` กันโฟลเดอร์นี้ไม่ให้ถูก deploy
+
+```bash
+cd line-app/e2e
+npm ci
+npx playwright install chromium   # ครั้งแรกเท่านั้น (บน CI ใช้ --with-deps)
+npm test                          # = npx playwright test
+```
+
+- `server.js` = เซิร์ฟเวอร์ `http` ธรรมดา (พอร์ต `E2E_PORT`, ค่าเริ่มต้น 4317) ที่ Playwright เปิดให้เอง · มี endpoint เฉพาะเทสต์ใต้ `/__test/` (`reset`, `seed`, `slipok`, `confirm`, `state`)
+- `fixtures.js` = stub ของ LIFF + `app.seed / asOwner / asTenant / state / confirm` · ทุกเทสต์เริ่มจากหอว่าง และ **ล้มถ้าหน้าเว็บมี console error หรือ exception** (ยกเว้น 404 ของ `GET /api/bill?room=` ที่ออกแบบให้ตอบเมื่อห้องยังไม่มีบิล)
+- ปุ่ม "ยืนยันการชำระ" อยู่ในการ์ด LINE ไม่ใช่หน้า LIFF จึงใช้ `app.confirm(room, period)` ยิง postback ที่เซ็นแล้วเข้า `/api/webhook` จริง
+- รัน worker เดียว (state ร่วมกันในเซิร์ฟเวอร์) · ตก → ดู `playwright-report/` และ `test-results/` (screenshot + trace) · CI: job `line-app-e2e`
 
 ---
 
@@ -298,20 +317,20 @@ cd ..\backend; $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@lo
 
 **ไม่มีการตั้ง coverage threshold ที่ไหนเลย** — ไม่มี `.coveragerc`, `.nycrc`, `pytest-cov`, หรือ `--cov` ใน CI และ `line-app` ไม่มี coverage tool (ทดสอบด้วย `assert` ตรง ๆ) ดังนั้นตัวเลข coverage ที่ "ควรมี" ไม่มีอยู่ใน repo นี้
 
-สิ่งที่พอวัดได้คือ **ความครอบของ use case** จาก [`docs/TEST-CASES.md`](TEST-CASES.md) (269 เคส / 19 UC) — นับจากแถว `| TC-xx-n |` ในเอกสารและคอลัมน์ "ทดสอบโดย" ของแต่ละแถว:
+สิ่งที่พอวัดได้คือ **ความครอบของ use case** จาก [`docs/TEST-CASES.md`](TEST-CASES.md) (282 เคส / 19 UC) — นับจากแถว `| TC-xx-n |` ในเอกสารและคอลัมน์ "ทดสอบโดย" ของแต่ละแถว:
 
 | สถานะในเอกสาร | จำนวน | ใครตรวจ |
 |---|---|---|
-| ✅ automated — id ของตัวเองใน `smoke-usecases.js` | 168 | `line-app/smoke-usecases.js` |
+| ✅ automated — id ของตัวเองใน `smoke-usecases.js` | 177 | `line-app/smoke-usecases.js` |
 | ✅ automated — ชี้ไป backend pytest | 51 | `backend/tests/*.py` |
 | ✅ automated — ชี้ไปเคสที่ automate แล้วใน UC อื่น | 8 | `smoke-usecases.js` (`TC-10-12`→`TC-08-6`, `TC-11-16`→`TC-08-8`, `TC-14-3`→`TC-10-5`, `TC-15-1`→`TC-04-1`, `TC-17-24`→`TC-08-11`, `TC-17-25`→`TC-18-5`, `TC-17-26`→`TC-18-9`, `TC-18-12`→`TC-13-10`) |
 | ✅ automated — ชี้ไป `smoke-cron.js` | 1 | `line-app/smoke-cron.js` |
-| ✅ automated — ตรวจสลิป, สมาชิกห้อง, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป (`smoke-handlers.js`) | 16 | `line-app/smoke-handlers.js` |
-| 🖐 manual | 25 | คนกดกับ LINE OA + LIFF จริง (ข้อ 7) |
+| ✅ automated — ตรวจสลิป, สมาชิกห้อง, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป, อ่านมิเตอร์จากรูป (`smoke-handlers.js`) | 19 | `line-app/smoke-handlers.js` |
+| 🖐 manual | 26 | คนกดกับ LINE OA + LIFF จริง (ข้อ 7) |
 | ⏳ ยังไม่สร้าง | 0 | — (ทุกแถวมีคนตรวจแล้ว) |
-| **รวม** | **269** | |
+| **รวม** | **282** | |
 
-ตัวเลข 244 ไม่ได้แปลว่าโค้ดทุกบรรทัดถูกตรวจ — เคสหนึ่งอาจ assert หลายอย่างหรือแค่ทางเดียวของ handler
+ตัวเลข 256 ไม่ได้แปลว่าโค้ดทุกบรรทัดถูกตรวจ — เคสหนึ่งอาจ assert หลายอย่างหรือแค่ทางเดียวของ handler
 
 ---
 
@@ -422,7 +441,7 @@ test อัตโนมัติที่ครอบส่วนนี้: `lin
 8. **ไม่มี load/performance test** — ขอบเขต concurrency ของ read ถูก pin ด้วย `assert` (peak ≤ 72 และประวัติ ≤ 6) แต่ไม่ได้วัดเวลา
 9. **ไม่มี coverage measurement** — ดูข้อ 6
 10. **`prod-smoke.mjs` เป็น manual** — ไม่มี schedule หรือ workflow เรียก มันจึงเขียวค้างได้แม้ production พัง
-11. **`npm test` ไม่ได้รันทั้ง 5 ชุด** — `smoke-usecases.js` และ `smoke-cron.js` ต้องเรียกเอง (CI เรียกครบทั้ง 5 ชุด + `pytest` แต่คนที่รัน `npm test` ก่อน push จะพลาด 168 + 1 ชุด)
+11. **`npm test` ไม่ได้รันทั้ง 5 ชุด** — `smoke-usecases.js` และ `smoke-cron.js` ต้องเรียกเอง (CI เรียกครบทั้ง 5 ชุด + `pytest` แต่คนที่รัน `npm test` ก่อน push จะพลาด 177 + 1 ชุด)
 12. **เอกสารไม่เหลือเคส ⏳ แล้ว — แต่ไม่ได้แปลว่าทุกอย่างถูกตรวจอัตโนมัติ** — 25 เคสยังเป็น 🖐 (ต้องมี LINE/LIFF จริง) และเคสที่เคยเป็นช่องว่างถูกปิดด้วย test ในโปรเซสเดียว: ปฏิเสธสลิป (`TC-04-11`, `TC-13-5`), ค้างกี่งวด/เกินกี่วัน (`TC-05-7`, `TC-05-8`), รายรับตามวันที่ชำระ (`TC-06-6`), ผู้เช่าที่ย้ายออก (`TC-16-11`), กฎอายุสลิป (`TC-12-7`), ยืนยันพร้อมกัน (`TC-15-10`), cron สองรอบ (`TC-16-23`), สลิปชนกับการออกบิล (`TC-17-18`) — ทั้งหมดพิสูจน์กับ stub/`gate` ไม่ใช่ของจริง (ดูข้อ 3–5)
 13. **ผู้ให้บริการตรวจสลิปถูก stub ทั้งชุด** — `smoke-handlers.js` ตรึงสัญญาไว้ครบ (endpoint, header, `log:true`, `amount`, code `1012/1013/1014/1006/1009`, provider 500, ยอดรวมของสลิปกลุ่ม, body ผิดรูปจริงของ SlipOK) แต่ **ไม่มีการเรียก SlipOK จริงใน CI** และไม่มี test ที่ยืนยันว่า branch ผูกบัญชีรับเงินถูกบัญชี — ถ้า SlipOK เปลี่ยนสัญญา test จะยังเขียว
 
@@ -450,7 +469,7 @@ test อัตโนมัติที่ครอบส่วนนี้: `lin
 
 ## เอกสารที่เกี่ยวข้อง
 
-- [`docs/TEST-CASES.md`](TEST-CASES.md) — catalogue 269 เคส / 19 UC พร้อมสถานะ ✅/🖐/⏳ และโค้ดที่แต่ละเคสอ้างถึง
+- [`docs/TEST-CASES.md`](TEST-CASES.md) — catalogue 282 เคส / 19 UC พร้อมสถานะ ✅/🖐/⏳ และโค้ดที่แต่ละเคสอ้างถึง
 - [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — โครงสร้างสองครึ่ง, data flow, state machine ของบิล
 - [`docs/CONFIGURATION.md`](CONFIGURATION.md) — env ทุกตัว (`TEST_DATABASE_URL`, `CRON_SECRET`, `DEV_AUTH`, `SLIPOK_API_KEY`/`SLIPOK_BRANCH_ID`)
 - [`backend/README.md`](../backend/README.md) — วิธีรัน backend และ seed

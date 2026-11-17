@@ -219,6 +219,7 @@ LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js
 | `scripts/setup-richmenu.js`, `scripts/set-richmenu-image.js`, `scripts/_richmenu-defs.js` | สร้าง/เปลี่ยนรูป rich menu 2 ชุด (เจ้าของ 6 ช่อง · ผู้เช่า 3 ช่อง compact) |
 | `liff/bill.html` | หน้าเดียว 2 บทบาท: ผู้เช่า (บิล · แนบสลิป · ประวัติย้อนหลัง) / เจ้าของ (จดมิเตอร์ · ออกบิล · ตรวจสลิป · รายงาน · QR ห้อง · QR เพิ่มเจ้าของ) |
 | `smoke.js` | smoke test แบบ offline — `node smoke.js` (ตรวจ signature + รูปการ์ด ไม่ต่อเน็ต) |
+| `e2e/` | UI test ของหน้า LIFF ด้วย Playwright — `cd e2e && npm ci && npx playwright install chromium && npm test` (ดู [`../docs/TESTING.md`](../docs/TESTING.md) หัวข้อ 2.1) |
 | `smoke-usecases.js` | เทสต์ offline จัดตาม use case — `node smoke-usecases.js` (ดู [`../docs/TEST-CASES.md`](../docs/TEST-CASES.md)) |
 | `vercel.json` | rewrite `/` → `/liff/bill.html` |
 | `HANDOFF.md` | เอกสารส่งต่อทีม: แผนผัง, โครงข้อมูลใน Blob, กับดักที่เจอมาแล้ว |

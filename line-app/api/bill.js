@@ -25,6 +25,7 @@ const { push } = require("./_line");
 const { payloadFor } = require("./_promptpay");
 const { qrSvg } = require("./_qr");
 const { saveBill, archiveVoid, tenancyOf, visibleToTenant, receiptNoOf, PERIOD: STRICT_PERIOD } = require("./_bills");
+const { usableIn } = require("./_prepay");
 
 const PERIOD = /^\d{4}-\d{2}$/;
 const HISTORY_READ_CONCURRENCY = 6;
@@ -98,7 +99,11 @@ module.exports = async (req, res) => {
   // The latest bill also reports a slip sent before it existed, so the tenant sees "รอบิลออก".
   const [latest, prepay, tenancy] = await Promise.all([store.get(`bill:${room}`), store.get(`prepay:${room}`), tenancyP]);
   const bill = visibleIn(tenancy)(latest) ? latest : null; // the previous tenant's bill answers like "no bill"
-  const advance = prepay ? { slipAt: prepay.slipAt, hasSlip: !!prepay.slipPath, note: prepay.slipNote || null } : null;
+  // Shown only while some path will really attach it: a leftover from a previous tenant must not
+  // look like "the system will handle this" (usableIn checks that the sender is still of this room).
+  const advance = prepay && await usableIn(prepay, room, null)
+    ? { slipAt: prepay.slipAt, hasSlip: !!prepay.slipPath, note: prepay.slipNote || null }
+    : null;
   if (!bill) {
     return res.status(404).json({ error: { code: "NOT_FOUND", message: `ไม่พบบิลของห้อง ${room}`, advance } });
   }
@@ -156,9 +161,12 @@ async function voidBill(req, res, userId) {
     voidedBy: userId,
     voidReason: reason,
     statusBefore: bill.status,
-    // Money the dorm is holding for a cancelled payment. The system does not move money; this is the
-    // number the owner has to refund, kept on the record so it is not lost.
-    ...(bill.status === "paid" && bill.total ? { refundDue: bill.total + extraOwed } : {}),
+    // Money the dorm is holding for a cancelled payment: a paid bill, or a pending one whose slip the
+    // provider verified (the transfer is real; only the owner's tap was missing). The system does not
+    // move money; this is the number the owner has to refund, kept on the record so it is not lost.
+    ...((bill.status === "paid" || (bill.status === "pending" && bill.slipVerify?.ok === true)) && bill.total
+      ? { refundDue: bill.total + extraOwed }
+      : {}),
     // The extra was already paid back before the void: keep it for the history only.
     ...(overpaidExtra && oldRefundedAt ? { priorRefund: { reason: "overpaid", amount: overpaidExtra, refundedAt: oldRefundedAt } } : {}),
   };

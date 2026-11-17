@@ -1558,7 +1558,7 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
     putBill(mkBill("201", "2026-11", "unpaid"));
     await call(slip, { user: "Uowner", body: { room: "201", note: "เงินสด" } });
     const bare = JSON.stringify(lastTo("Uowner").messages[0]);
-    assert.ok(bare.includes("ไม่มีรูปสลิป — ตรวจยอดเงินเข้าเองก่อนยืนยัน"), "the warning is on the card");
+    assert.ok(bare.includes("ไม่มีรูปสลิป") && bare.includes("ตรวจยอดเงินเข้าเองก่อนยืนยัน"), "the warning is on the card");
     assert.ok(!bare.includes("ดูสลิป"), "nothing to look at");
     assert.ok(bare.includes("action=confirm&room=201&period=2026-11"), "the owner can still decide");
 

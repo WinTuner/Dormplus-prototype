@@ -54,6 +54,46 @@ jobs:
           node --check /tmp/page.js
           echo "liff/bill.html: inline script parses"
 
+  # Playwright UI tests of the LIFF page (line-app/e2e is its own npm package, never deployed).
+  line-app-e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: |
+            line-app/package-lock.json
+            line-app/e2e/package-lock.json
+
+      - name: Install line-app dependencies
+        working-directory: line-app
+        run: npm ci --no-audit --no-fund
+
+      - name: Install e2e dependencies
+        working-directory: line-app/e2e
+        run: npm ci --no-audit --no-fund
+
+      - name: Install Chromium
+        working-directory: line-app/e2e
+        run: npx playwright install --with-deps chromium
+
+      - name: Run UI tests
+        working-directory: line-app/e2e
+        run: npx playwright test
+
+      - name: Upload report and traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: line-app-e2e-report
+          path: |
+            line-app/e2e/playwright-report
+            line-app/e2e/test-results
+          retention-days: 7
+
   # The real backend (FastAPI + Postgres). Skips itself until backend/ exists on the branch,
   # so this file is safe to merge before the backend lands.
   backend:

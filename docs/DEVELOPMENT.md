@@ -40,7 +40,7 @@ git clone https://github.com/WinTuner/Dormplus-prototype.git
 cd Dormplus-prototype/line-app
 npm install                    # ให้ @vercel/blob, aws4fetch, qrcode-svg
 npm test                       # = node smoke.js && node smoke-handlers.js && node smoke-reads.js
-node smoke-usecases.js         # 168 use case (docs/TEST-CASES.md มี 269 แถว: ✅ 244 · 🖐 25 · ⏳ 0)
+node smoke-usecases.js         # 177 use case (docs/TEST-CASES.md มี 282 แถว: ✅ 256 · 🖐 26 · ⏳ 0)
 node smoke-cron.js             # /api/cron + ตัวเตือนรายวัน + cron-lock
 ```
 
@@ -92,7 +92,7 @@ TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/domplus_
 | `node smoke.js` | `line-app/` | signature ของ webhook + รูปร่าง Flex card + การ์ดยืนยัน | `smoke.js` |
 | `node smoke-handlers.js` | `line-app/` | handler ระดับเงิน/สิทธิ์: dev gate, QR binding, rate limit, สลิป, confirm, ออกบิล, void | `smoke-handlers.js` |
 | `node smoke-reads.js` | `line-app/` | read พร้อมกัน, ประวัติบิล, สิทธิ์ในการอ่าน | `smoke-reads.js` |
-| `node smoke-usecases.js` | `line-app/` | use case ทั้ง 168 กรณี — ชื่อ `TC-xx-n` ตรงกับตารางใน [`docs/TEST-CASES.md`](./TEST-CASES.md) | `smoke-usecases.js` |
+| `node smoke-usecases.js` | `line-app/` | use case ทั้ง 177 กรณี — ชื่อ `TC-xx-n` ตรงกับตารางใน [`docs/TEST-CASES.md`](./TEST-CASES.md) | `smoke-usecases.js` |
 | `node smoke-cron.js` | `line-app/` | `/api/cron`: secret, cron-lock, หน้าต่าง 1–3 วัน/เลยกำหนด 1·5·10 วัน, dedup ตาม `rev`, push ล้ม | `smoke-cron.js` |
 | `vercel --prod` | `line-app/`, `backend/` | deploy จากเครื่อง (ปกติไม่ต้อง — push `master` แล้ว auto) | `line-app/docs/DEPLOYMENT.md`, `backend/README.md` |
 | `node scripts/prod-smoke.mjs` | root | ตรวจ deployment จริงหลัง merge (ไม่ต้องล็อกอิน) | `scripts/prod-smoke.mjs` |
@@ -118,7 +118,7 @@ TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/domplus_
 รายละเอียดเต็มอยู่ใน [`line-app/docs/DEVELOPMENT.md`](../line-app/docs/DEVELOPMENT.md) ข้อ 2–9 · สรุปที่ต้องจำ:
 
 - **CommonJS เท่านั้น** — `require()` / `module.exports`; handler เป็น `async (req, res)` (ยกเว้น `api/config.js` ที่ sync)
-- helper ใช้ร่วมกันต้องขึ้นต้นด้วย `_` — วันนี้มี **14 ไฟล์**: `api/_store.js`, `api/_store-r2.js`, `api/_auth.js`, `api/_bills.js`, `api/_ledger.js`, `api/_line.js`, `api/_rooms.js`, `api/_async.js`, `api/_limit.js`, `api/_qr.js`, `api/_remind.js`, `api/_verify.js`, `api/_prepay.js`, `api/_promptpay.js` · logic ใหม่ที่ไม่ได้เป็น route ต้องไปอยู่ในไฟล์กลุ่มนี้ ไม่งั้นมันจะกลายเป็น serverless function นับเข้าเพดาน 12 (ข้อ 7.1) · route ที่ไม่ขึ้นต้น `_` ยังมี **12 ไฟล์เท่าเดิม** (`bill`, `config`, `cron`, `dev`, `me`, `owner`, `qr`, `rooms`, `run`, `slip-image`, `slip`, `webhook`) — helper ใหม่จึงไม่ขยับเพดาน เว้นแต่ไปสร้าง route ใหม่
+- helper ใช้ร่วมกันต้องขึ้นต้นด้วย `_` — วันนี้มี **15 ไฟล์**: `api/_store.js`, `api/_store-r2.js`, `api/_auth.js`, `api/_bills.js`, `api/_ledger.js`, `api/_line.js`, `api/_rooms.js`, `api/_async.js`, `api/_limit.js`, `api/_qr.js`, `api/_remind.js`, `api/_verify.js`, `api/_prepay.js`, `api/_promptpay.js`, `api/_gemini.js` · logic ใหม่ที่ไม่ได้เป็น route ต้องไปอยู่ในไฟล์กลุ่มนี้ ไม่งั้นมันจะกลายเป็น serverless function นับเข้าเพดาน 12 (ข้อ 7.1) · route ที่ไม่ขึ้นต้น `_` ยังมี **12 ไฟล์เท่าเดิม** (`bill`, `config`, `cron`, `dev`, `me`, `owner`, `qr`, `rooms`, `run`, `slip-image`, `slip`, `webhook`) — helper ใหม่จึงไม่ขยับเพดาน เว้นแต่ไปสร้าง route ใหม่
 - 2 spaces, double quotes, semicolons, `const`; คอมเมนต์เป็น **อังกฤษและอธิบาย "ทำไม"** ไม่ใช่ทวนโค้ด (ใส่คำไทยในวงเล็บเมื่อคำนั้นคือถ้อยคำที่ผู้ใช้เห็น เช่น `(ยกเลิกบิล)`) · บรรทัดแรกของไฟล์บอก route + หน้าที่
 - `liff/bill.html` เป็น **ไฟล์เดียวจบ** — HTML + CSS + JS inline ไม่มี build/bundler และไม่มีไฟล์แยกให้ import อะไรทั้งสิ้น
 - error เป็น `{ "error": { "code": "SCREAMING_SNAKE", "message": "ข้อความไทย" } }` — `message` ไทยเสมอ (ผู้ใช้เห็น) `code` อังกฤษ · 405 ของทุก handler วันนี้ใช้รูป object (`METHOD_NOT_ALLOWED`)
@@ -187,7 +187,7 @@ trigger: `push` เข้า `master` และ **ทุก** `pull_request` · 
 | `line-app` | `ubuntu-latest`, Node 20 | `npm ci --no-audit --no-fund` → `node --check` ทุก `api/*.js` → `node smoke.js` → `node smoke-handlers.js` → `node smoke-reads.js` → `node smoke-usecases.js` (step "Use case tests") → `node smoke-cron.js` (step "Reminder cron tests") → แยก inline `<script>` จาก `liff/bill.html` ออกมาแล้ว `node --check` |
 | `backend` | `ubuntu-latest` + service `postgres:16` (DB `domplus_test`), Python 3.12 | probe ว่า `backend/pyproject.toml` มีบน branch ไหม (ไม่มี = skip ทั้ง job) → `pip install -e "backend[dev]"` → `pytest -q` (150 test ใน 15 ไฟล์) ด้วย `TEST_DATABASE_URL` + `DEV_AUTH=true` |
 
-สิ่งที่ CI **บังคับ**ได้จริงคือ: syntax ทุก handler, พฤติกรรมที่ smoke **ทั้งห้าชุด**ครอบ (รวม use case 168 กรณีที่ id ตรงกับ [`docs/TEST-CASES.md`](./TEST-CASES.md) และ cron/ตัวเตือน), inline script ของหน้า LIFF parse ได้, และ `pytest` ผ่านบน Postgres สด
+สิ่งที่ CI **บังคับ**ได้จริงคือ: syntax ทุก handler, พฤติกรรมที่ smoke **ทั้งห้าชุด**ครอบ (รวม use case 177 กรณีที่ id ตรงกับ [`docs/TEST-CASES.md`](./TEST-CASES.md) และ cron/ตัวเตือน), inline script ของหน้า LIFF parse ได้, และ `pytest` ผ่านบน Postgres สด
 
 สิ่งที่ CI **ไม่ได้**ทำ (verified จากไฟล์ workflow): lint/format, typecheck, coverage, build, deploy, ยิง production
 

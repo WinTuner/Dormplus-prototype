@@ -31,6 +31,20 @@ assert.strictEqual(pb.type, "postback");
 assert.ok(pb.data.includes("action=confirm"), "postback action");
 assert.ok(pb.data.includes("room=203"), "postback carries room");
 
+// 3b) A field the component type does not have (a button has no cornerRadius) makes LINE reject the
+// whole message, so the chat shows nothing at all — the bill looks unsent. Walk every node once.
+const badField = [];
+const walk = (node) => {
+  if (!node || typeof node !== "object") return;
+  if (node.type === "button" && "cornerRadius" in node) badField.push(node.action?.label);
+  for (const value of Object.values(node)) {
+    if (Array.isArray(value)) value.forEach(walk);
+    else walk(value);
+  }
+};
+[card, confirm].forEach(walk);
+assert.deepStrictEqual(badField, [], "no button carries a field LINE does not allow");
+
 // 4) the seed-token bypass must be denied by default and on every production deploy
 function bypassAllowed(env) {
   const keys = ["VERCEL_ENV", "ALLOW_SEED_BYPASS"];

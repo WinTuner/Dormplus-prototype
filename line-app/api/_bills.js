@@ -127,11 +127,17 @@ async function tagOverpaid(room, bills) {
 }
 
 // The overpayment this bill must carry once it is paid. A group slip is one transfer, so its extra
-// goes on the group's NEWEST period only (and only when that bill is the one being closed).
-function overpaidOf(bill) {
+// goes on ONE period of that group: the newest one being closed in this pass. Taking it from
+// `group.periods` alone lost the extra when that period had been voided or re-issued and only the
+// older ones remained — the money was paid but no bill carried the refund.
+function overpaidOf(bill, closing) {
   const group = bill.slipGroup;
   if (group && group.periods?.length) {
-    return bill.period === group.periods[group.periods.length - 1] && group.overpaid > 0 ? group.overpaid : 0;
+    if (!(group.overpaid > 0)) return 0;
+    const mine = (closing || []).filter((b) => group.periods.includes(b.period));
+    const newest = mine.length ? mine.reduce((a, b) => (a.period > b.period ? a : b)) : null;
+    if (!newest) return bill.period === group.periods[group.periods.length - 1] ? group.overpaid : 0;
+    return bill.period === newest.period ? group.overpaid : 0;
   }
   return bill.overpaid > 0 ? bill.overpaid : 0;
 }
