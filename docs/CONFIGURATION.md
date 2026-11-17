@@ -56,8 +56,8 @@
 
 > **ตรวจแล้ว 2026-11-16 (read-only):** ตอนนั้นฐานข้อมูลที่ `backend/.env` ใช้อยู่ head = `0004` และมี role `dormplus_app` ที่ `rolbypassrls = false` — **แต่ connection ของ `.env` ในเครื่องนี้ล็อกอินเป็น `neondb_owner` ซึ่ง `rolbypassrls = true`** แปลว่า RLS ถูกข้ามเมื่อรัน backend จากเครื่องนี้ ถ้าจะทดสอบเรื่องข้ามหอในเครื่อง ต้องเปลี่ยน `.env` ไปใช้ `dormplus_app` (หรือเชื่อ `tests/test_rls.py` ที่ `set local role` เอง) — production ยังต้องยืนยันจาก Vercel env ว่าใช้ `dormplus_app`
 
-> **Head ของ migration ในเรพตอนนี้คือ `0005`** (`backend/migrations/versions/0005_line_events.py`) ต่อจาก `0004` — สร้างตาราง `line_events` (PK `event_id`) พร้อม RLS policy แบบเดียวกับ `0004` เพื่อกัน LINE ส่ง event ซ้ำ แล้วบันทึก `audit_log` ซ้ำ ฐาน/deployment ที่ยังไม่ `upgrade head` จะทำให้ `POST /v1/webhooks/line/:property_id` ล้มตอน insert `line_events` (500)
-<!-- VERIFY: ฐาน Neon ที่ production ใช้อยู่ `alembic_version` = `0005` แล้วหรือยัง — เช็กได้จาก `select version_num from alembic_version` เท่านั้น ไม่มีในเรพ -->
+> **Head ของ migration ในเรพตอนนี้คือ `0006`** (`backend/migrations/versions/0006_invoice_child_indexes.py`) ต่อจาก `0005` (`0005_line_events.py`) และ `0004` — สร้างตาราง `line_events` (PK `event_id`) พร้อม RLS policy แบบเดียวกับ `0004` เพื่อกัน LINE ส่ง event ซ้ำ แล้วบันทึก `audit_log` ซ้ำ ฐาน/deployment ที่ยังไม่ `upgrade head` จะทำให้ `POST /v1/webhooks/line/:property_id` ล้มตอน insert `line_events` (500) · `0006` เพิ่มเฉพาะ index บน FK ของ `invoice_items`/`payments` (ไม่เปลี่ยนตาราง/policy/grant)
+<!-- VERIFY: ฐาน Neon ที่ production ใช้อยู่ `alembic_version` = `0006` แล้วหรือยัง — เช็กได้จาก `select version_num from alembic_version` เท่านั้น ไม่มีในเรพ -->
 
 ### 1.2 `SESSION_SECRET`
 
@@ -379,7 +379,7 @@ PROPERTY_ID=p_1
 | จำนวน endpoint ใน `api/` | 12 (เท่าเพดาน Vercel Hobby) | `line-app/api/` |
 | `SLIPOK_API_KEY` / `SLIPOK_BRANCH_ID` (line-app) | ไม่ตั้ง (undefined = ไม่ตรวจสลิป) | `line-app/api/_verify.js` |
 | `R2_BUCKET` / `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` (line-app) | ไม่ตั้งทั้งชุด = ใช้ Vercel Blob; ตั้ง `R2_BUCKET` = ต้องมีครบสี่ตัว | `line-app/api/_store.js`, `line-app/api/_store-r2.js` |
-| migration head (backend) | `0005` (`line_events`) | `backend/migrations/versions/0005_line_events.py` |
+| migration head (backend) | `0006` (index FK ของ `invoice_items`/`payments`; `0005` = `line_events`) | `backend/migrations/versions/0006_invoice_child_indexes.py` |
 | `PUBLIC_BASE_URL` | `https://<host ของ request>` | `line-app/api/run.js`, `dev.js`, `webhook.js`, `cron.js` |
 | `LIFF_ID` (line-app) | `null` (ตอบใน `/api/config`) | `line-app/api/config.js` |
 | `LOGIN_CHANNEL_ID` | prefix ของ `LIFF_ID` ก่อน `-` | `line-app/api/_auth.js` |

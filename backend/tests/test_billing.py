@@ -253,6 +253,54 @@ def test_owner_reads_any_invoice_of_the_dorm(client_for, seeded):
     assert body["payment"] is None
 
 
+def capture_statements(engine, call):
+    """Run call() and return what it sent to the database, without the per-transaction set_config."""
+    statements = []
+
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        result = call()
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    # The set_config calls are intended: RLS is set at the start of every transaction (app/db.py),
+    # so they are not part of what the endpoint itself costs.
+    return result, [s for s in statements if "set_config" not in s]
+
+
+def test_invoice_detail_is_one_select_with_items_and_latest_payment(client_for, seeded):
+    run(client_for(seeded, OWNER_P1, BILL_DAY))
+    with seeded.begin() as conn:
+        conn.execute(text("select set_config('app.property_id', 'p_1', true)"))
+        conn.execute(text("""
+            insert into payments (id, invoice_id, amount, slip_key, verify_ok, created_at) values
+              ('pay_old', 'inv_201_2026-11', 1000, 'old.jpg', false, '2026-11-01 10:00+00'),
+              ('pay_new', 'inv_201_2026-11', 3562, 'new.jpg', true, '2026-11-02 10:00+00')
+        """))
+    client = client_for(seeded, OWNER_P1, BILL_DAY)
+    res, statements = capture_statements(seeded, lambda: client.get("/v1/invoices/inv_201_2026-11"))
+
+    assert len(statements) == 1, f"{len(statements)} statements: {statements}"
+    body = res.json()
+    assert [i["label"] for i in body["items"]] == ["ค่าเช่า", "ค่าน้ำ", "ค่าไฟ"]
+    assert body["payment"]["amount"] == 3562
+    assert body["payment"]["slip_key"] == "new.jpg"
+    assert body["payment"]["verify_ok"] is True
+    assert body["payment"]["verified_at"] is None or isinstance(body["payment"]["verified_at"], str)
+
+
+def test_invoice_without_items_or_payment_has_empty_items_and_null_payment(client_for, seeded):
+    with seeded.begin() as conn:
+        conn.execute(text("select set_config('app.property_id', 'p_1', true)"))
+        conn.execute(text("insert into invoices (id, room_id, period, rent, total, due_date, status) "
+                          "values ('inv_bare', 'r_201', '2026-12', 0, 0, date '2026-12-09', 'unpaid')"))
+    body = client_for(seeded, OWNER_P1, BILL_DAY).get("/v1/invoices/inv_bare").json()
+    assert body["items"] == []
+    assert body["payment"] is None
+
+
 def test_tenant_reads_own_room_invoice_only(client_for, seeded):
     run(client_for(seeded, OWNER_P1, BILL_DAY))
     tenant = client_for(seeded, TENANT_R201, BILL_DAY)
@@ -412,9 +460,11 @@ def test_all_42_bills_reach_the_tenant_and_the_message_log(client_for, seeded, m
     calls = []
 
     class FakePush:
-        def defer(self, **kwargs):
-            calls.append(kwargs)
-            return len(calls)
+        # Only batch_defer: the whole run is queued in one insert, so a per-row defer would fail here.
+        def batch_defer(self, *jobs):
+            start = len(calls)
+            calls.extend(jobs)
+            return list(range(start + 1, len(calls) + 1))
 
     class FakeApp:
         def open(self):
@@ -444,3 +494,17 @@ def test_all_42_bills_reach_the_tenant_and_the_message_log(client_for, seeded, m
     assert scalar(seeded, "select count(*) from message_log where kind = 'invoice'") == 42
     assert scalar(seeded, "select count(*) from message_log "
                           "where kind = 'invoice' and line_status = 'ok'") == 42
+
+
+def test_confirm_reads_paid_at_from_the_update_not_a_second_select(client_for, seeded):
+    run(client_for(seeded, OWNER_P1, BILL_DAY))
+    assert client_for(seeded, TENANT_R201, BILL_DAY).post(
+        "/v1/invoices/inv_201_2026-11/slip", json={}).status_code == 200
+    owner = client_for(seeded, OWNER_P1, BILL_DAY)
+    res, statements = capture_statements(
+        seeded, lambda: owner.post("/v1/invoices/inv_201_2026-11/confirm", json={}))
+
+    assert res.status_code == 200
+    assert res.json()["paid_at"]
+    assert not [s for s in statements if s.lower().lstrip().startswith("select paid_at")]
+    assert any("returning paid_at" in s.lower() for s in statements)

@@ -10,7 +10,7 @@ app = None
 
 
 def notify_invoices(rows: list[dict]) -> tuple[int, str | None]:
-    """Queue one LINE message per row. Returns (how many were queued, the first job id).
+    """Queue one LINE message per row, all in a single batch insert. Returns (how many were queued, the first job id).
 
     A row without `line_user_id` is skipped: the invoice is still real, there is just nobody to
     message. The caller decides what to do with the gap.
@@ -26,15 +26,16 @@ def notify_invoices(rows: list[dict]) -> tuple[int, str | None]:
         queue = get_app()
     else:
         queue = app
-    first: str | None = None
+    jobs = [
+        {
+            "to_user_id": row["line_user_id"],
+            "body": invoice_text(row["room_no"], row["period"], row["total"], row["due_date"]),
+            "invoice_id": row["id"],
+            "kind": "invoice",
+        }
+        for row in sendable
+    ]
     with queue.open():
-        for row in sendable:
-            job_id = queue.configure_task("line.push_text").defer(
-                to_user_id=row["line_user_id"],
-                body=invoice_text(row["room_no"], row["period"], row["total"], row["due_date"]),
-                invoice_id=row["id"],
-                kind="invoice",
-            )
-            if first is None and job_id is not None:
-                first = str(job_id)
+        ids = queue.configure_task("line.push_text").batch_defer(*jobs)
+    first = str(ids[0]) if ids else None
     return len(sendable), first

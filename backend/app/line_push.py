@@ -2,13 +2,25 @@
 
 Uses the Messaging API directly (the backend does not run LIFF pages).
 """
-import json
-import urllib.error
-import urllib.request
+import functools
 
 from app.config import get_settings
 
 PUSH_URL = "https://api.line.me/v2/bot/message/push"
+
+
+@functools.lru_cache(maxsize=1)
+def client():
+    """One shared keep-alive HTTPS client for every LINE call.
+
+    A new urllib request pays a TCP + TLS handshake each time; reusing one client
+    keeps the connection to api.line.me open. httpx.Client is thread-safe, and
+    lru_cache makes the first creation race-free enough (worst case one spare client).
+    httpx is imported here, not at module top, so app start-up stays cheap.
+    """
+    import httpx
+
+    return httpx.Client(timeout=10)
 
 
 def push_text(to_user_id: str, text: str) -> str:
@@ -17,18 +29,16 @@ def push_text(to_user_id: str, text: str) -> str:
     if not token:
         return "skipped: no LINE_CHANNEL_ACCESS_TOKEN"
 
-    body = json.dumps({"to": to_user_id, "messages": [{"type": "text", "text": text}]}).encode()
-    request = urllib.request.Request(
-        PUSH_URL,
-        data=body,
-        method="POST",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-    )
+    import httpx
+
     try:
-        with urllib.request.urlopen(request, timeout=10) as response:
-            return "ok" if response.status == 200 else f"error: HTTP {response.status}"
-    except urllib.error.HTTPError as err:
-        detail = err.read().decode(errors="replace")[:120]
-        return f"error: HTTP {err.code} {detail}"
-    except (urllib.error.URLError, OSError) as err:
+        response = client().post(
+            PUSH_URL,
+            json={"to": to_user_id, "messages": [{"type": "text", "text": text}]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+    except (httpx.HTTPError, OSError) as err:
         return f"error: {err}"
+    if response.status_code == 200:
+        return "ok"
+    return f"error: HTTP {response.status_code} {response.text[:120]}"
