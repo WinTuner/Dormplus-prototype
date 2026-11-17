@@ -6,6 +6,8 @@
 const blobStore = require("@vercel/blob");
 // Built lazily by createStore() so importing this module never needs R2 credentials.
 const r2Store = process.env.R2_BUCKET ? require("./_store-r2").createStore() : null;
+// One line per cold start: the only way to tell from runtime logs which backend a deployment is on.
+if (r2Store) console.log("storage: r2");
 
 // Blob pathnames dislike ":" and "="; keys are ASCII so a flat replace is enough. R2 uses the same
 // path, so a copy of the bucket keeps every key readable.
