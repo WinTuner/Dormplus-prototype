@@ -328,14 +328,30 @@ async function slipUrl(room, advance) {
 // to know, and it answers only in a LIFF browser whose Login channel has an OA linked to it —
 // anything it cannot answer stays `null` so we say nothing instead of nagging.
 let FRIEND = null; // true = friend, false = not a friend, null = cannot tell
+// Why we could not tell, for `?frienddebug=1`. Without it the card silently disappears and there is
+// no way to see on a phone whether the OA is unlinked, the API is missing, or the user is a friend.
+let FRIEND_ERROR = null;
 
 async function checkFriend() {
   try {
-    FRIEND = (await liff.getFriendship()).friendFlag === true;
+    const out = await liff.getFriendship();
+    FRIEND = !!(out && out.friendFlag === true);
+    FRIEND_ERROR = null;
   } catch (e) {
     FRIEND = null;
+    FRIEND_ERROR = (e && (e.message || e.code)) || String(e);
+    console.warn("[DormPlus] liff.getFriendship() failed:", e);
   }
   return FRIEND;
+}
+
+// `?frienddebug=1` on the LIFF URL — the only way to see the state on a real phone.
+function friendDebug() {
+  if (!new URLSearchParams(location.search).has("frienddebug")) return "";
+  return `<div class="card">
+    <div class="m">สถานะเพื่อน OA: <b>${FRIEND === null ? "อ่านไม่ได้" : FRIEND ? "เป็นเพื่อนแล้ว" : "ยังไม่เป็นเพื่อน"}</b></div>
+    ${FRIEND_ERROR ? `<div class="err" style="margin-top:8px">${esc(FRIEND_ERROR)}</div>` : ""}
+  </div>`;
 }
 
 function friendCard() {
@@ -421,7 +437,7 @@ function advanceCard(adv) {
 function tenantNoBill() {
   header(`ห้อง ${T.room}`, "ใบแจ้งหนี้");
   view.innerHTML = `<div id="overdueBox">${tenantOverdueCard()}</div><div class="card"><div class="m">ยังไม่มีบิลรอบนี้</div>
-    <div class="hint" style="margin-top:8px">ถ้าโอนค่าเช่าไว้ก่อนแล้ว แนบสลิปได้เลย ระบบจะผูกกับบิลเมื่อเจ้าของหอออกบิล</div></div>${advanceCard(T.advance)}${friendCard()}`;
+    <div class="hint" style="margin-top:8px">ถ้าโอนค่าเช่าไว้ก่อนแล้ว แนบสลิปได้เลย ระบบจะผูกกับบิลเมื่อเจ้าของหอออกบิล</div></div>${advanceCard(T.advance)}${friendCard()}${friendDebug()}`;
   bottom(`<button class="btn primary" id="toSlip">${T.advance ? "ส่งสลิปใหม่แทน" : "โอนก่อน / แนบสลิป"}</button>`);
   $("toSlip").onclick = () => go("slip");
   wireFriend();
@@ -487,7 +503,7 @@ function tenantInvoice() {
       <button class="linkrow" id="histBtn"><span>ประวัติการชำระ</span><span class="go">›</span></button>
       <div id="hist"></div>
     </div>
-    ${b.status === "paid" ? advanceCard(T.advance) : ""}${friendCard()}`;
+    ${b.status === "paid" ? advanceCard(T.advance) : ""}${friendCard()}${friendDebug()}`;
 
   wireFriend();
   if ($("rcptBtn")) $("rcptBtn").onclick = () => go(`receipt/${b.period}`);
@@ -1163,7 +1179,7 @@ async function acceptBind(code, me) {
 // in chat, so the add-friend button gets its own screen while the tenant is still paying attention.
 function bindDone(room, msg) {
   header(`ห้อง ${room}`, "ผูกห้องแล้ว");
-  view.innerHTML = `<div class="card"><div class="m">${esc(msg)}</div></div>${friendCard()}`;
+  view.innerHTML = `<div class="card"><div class="m">${esc(msg)}</div></div>${friendCard()}${friendDebug()}`;
   bottom(`<button class="btn primary" id="toBill">ไปหน้าบิลของฉัน</button>`);
   $("toBill").onclick = () => startTenant(room);
   wireFriend(() => bindDone(room, msg));
