@@ -78,7 +78,9 @@ def test_a_billing_run_is_a_handful_of_statements(client_for, seeded):
 
     assert res.json()["rooms_to_bill"] == 42
     # Per-transaction set_config x2, dorm lock, rooms select, readings update, invoices insert,
-    # items insert, audit insert, notify select = 9.
+    # items insert, audit insert, notify select = 9. The two set_config calls are intended: RLS is
+    # set at the start of every transaction (app/db.py) because a per-connection setting is lost
+    # behind Neon's PgBouncer pooler. Do not move it back to connect time to shave the count.
     assert len(statements) <= 10, f"{len(statements)} statements: {statements}"
     inserts = [s for s in statements if "insert into invoice" in s.lower()]
     assert len(inserts) == 2, "one multi-row insert for invoices, one for their items"
