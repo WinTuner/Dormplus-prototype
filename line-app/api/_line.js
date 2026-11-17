@@ -77,6 +77,76 @@ async function displayName(userId) {
   }
 }
 
+// Card palette, shared by every bubble below: ink for text and for the primary button, teal only as
+// a small accent, a hairline for structure. Teal text on white was ~1.7:1 — unreadable on a phone.
+const CARD = {
+  ink: "#111827",
+  muted: "#6B7280",
+  hair: "#E5E7EB",
+  teal: "#4FD8D2",
+  onTeal: "#062B29",
+  warnBg: "#FFFBEB",
+  warn: "#B45309",
+  badBg: "#FEF2F2",
+  bad: "#B91C1C",
+};
+
+// A small period / count chip. Teal carries the brand without ever being the text colour.
+const chip = (text) => ({
+  type: "box",
+  layout: "vertical",
+  backgroundColor: CARD.teal,
+  cornerRadius: "md",
+  paddingStart: "8px",
+  paddingEnd: "8px",
+  paddingTop: "2px",
+  paddingBottom: "2px",
+  flex: 0,
+  contents: [{ type: "text", text, size: "xxs", weight: "bold", color: CARD.onTeal }],
+});
+
+const rule = () => ({ type: "box", layout: "vertical", height: "1px", backgroundColor: CARD.hair, margin: "sm", contents: [] });
+
+// One fee line: label left, number right, so the three numbers line up in a column.
+const feeRow = (label, value) => ({
+  type: "box",
+  layout: "horizontal",
+  contents: [
+    { type: "text", text: label, size: "sm", color: CARD.muted, flex: 1 },
+    { type: "text", text: value, size: "sm", color: CARD.ink, align: "end", flex: 0 },
+  ],
+});
+
+// The number the reader looks for first: ink, large, with a quiet unit beside it.
+const bigAmount = (value) => ({
+  type: "box",
+  layout: "baseline",
+  spacing: "sm",
+  contents: [
+    { type: "text", text: value, size: "3xl", weight: "bold", color: CARD.ink, flex: 0 },
+    { type: "text", text: "บาท", size: "sm", color: CARD.muted, flex: 0 },
+  ],
+});
+
+// A warning the owner must act on. A tinted block with a label reads as a finding; red text alone
+// reads as noise.
+const noteBox = (title, text, tone) => {
+  const warn = tone !== "bad";
+  return {
+    type: "box",
+    layout: "vertical",
+    margin: "md",
+    cornerRadius: "md",
+    paddingAll: "10px",
+    spacing: "xs",
+    backgroundColor: warn ? CARD.warnBg : CARD.badBg,
+    contents: [
+      { type: "text", text: title, size: "xxs", weight: "bold", color: warn ? CARD.warn : CARD.bad },
+      { type: "text", text, size: "xs", color: warn ? CARD.warn : CARD.bad, wrap: true },
+    ],
+  };
+};
+
 // The bill as a Flex card: amount, due date, and a button that opens the LIFF page.
 function billBubble(bill, baseUrl) {
   const money = (n) => Number(n || 0).toLocaleString("th-TH");
@@ -93,23 +163,38 @@ function billBubble(bill, baseUrl) {
       body: {
         type: "box",
         layout: "vertical",
-        spacing: "md",
+        spacing: "sm",
         contents: [
-          { type: "text", text: `ห้อง ${bill.room}`, weight: "bold", size: "md" },
-          { type: "text", text: `${bill.period}`, size: "xs", color: "#8B9AAB" },
-          { type: "text", text: `${money(bill.total)} บาท`, weight: "bold", size: "xxl", color: "#4FD8D2" },
           {
             type: "box",
-            layout: "vertical",
-            spacing: "sm",
+            layout: "horizontal",
             contents: [
-              { type: "text", text: `ค่าเช่า ${money(bill.rent)}`, size: "sm", color: "#555555" },
-              { type: "text", text: `ค่าน้ำ ${money(bill.water)}`, size: "sm", color: "#555555" },
-              { type: "text", text: `ค่าไฟ ${money(bill.elec)}`, size: "sm", color: "#555555" },
+              { type: "text", text: `ห้อง ${bill.room}`, weight: "bold", size: "md", color: CARD.ink, flex: 1 },
+              chip(bill.period),
             ],
           },
+          bigAmount(money(bill.total)),
+          rule(),
+          feeRow("ค่าเช่า", money(bill.rent)),
+          feeRow("ค่าน้ำ", money(bill.water)),
+          feeRow("ค่าไฟ", money(bill.elec)),
           // A bill issued without a due date has no due line (it used to print "ครบกำหนด null").
-          ...(bill.due ? [{ type: "text", text: `ครบกำหนด ${bill.due}`, size: "xs", color: "#F59E0B" }] : []),
+          ...(bill.due
+            ? [{
+                type: "box",
+                layout: "horizontal",
+                margin: "md",
+                cornerRadius: "md",
+                paddingStart: "10px",
+                paddingEnd: "10px",
+                paddingTop: "8px",
+                paddingBottom: "8px",
+                backgroundColor: CARD.warnBg,
+                contents: [
+                  { type: "text", text: `ครบกำหนด ${bill.due}`, size: "xs", weight: "bold", color: CARD.warn },
+                ],
+              }]
+            : []),
         ],
       },
       footer: {
@@ -119,7 +204,8 @@ function billBubble(bill, baseUrl) {
           {
             type: "button",
             style: "primary",
-            color: "#4FD8D2",
+            color: CARD.ink,
+            cornerRadius: "md",
             action: { type: "uri", label: "ดูบิล / แนบสลิป", uri: liff },
           },
         ],
@@ -137,11 +223,11 @@ function confirmBubble(bill) {
   // amount fields; with no amount read (SlipOK off, unverifiable) nothing was compared, and the
   // card must say so instead of looking like a clean check.
   const amountNote = (() => {
-    if (bill.overpaid > 0) return { text: `ยอดในสลิปเกินบิล ${money(bill.overpaid)} บาท — ต้องคืนผู้เช่า`, color: "#F59E0B" };
-    if (bill.shortBy > 0) return { text: `ยอดในสลิปขาด ${money(bill.shortBy)} บาท`, color: "#EF4444" };
+    if (bill.overpaid > 0) return { title: "ยอดเกินบิล", text: `ยอดในสลิปเกินบิล ${money(bill.overpaid)} บาท — ต้องคืนผู้เช่า`, tone: "warn" };
+    if (bill.shortBy > 0) return { title: "ยอดขาด", text: `ยอดในสลิปขาด ${money(bill.shortBy)} บาท`, tone: "bad" };
     if (!bill.slipPath || bill.slipVerify?.ok === true || bill.slipAmount != null) return null;
-    if (bill.slipVerify?.ok === false && bill.slipVerify.reason) return { text: bill.slipVerify.reason, color: "#EF4444" };
-    return { text: "ยังไม่ได้ตรวจยอดในสลิป — เทียบยอดเงินเข้าเอง", color: "#F59E0B" };
+    if (bill.slipVerify?.ok === false && bill.slipVerify.reason) return { title: "สลิปไม่ผ่านการตรวจ", text: bill.slipVerify.reason, tone: "bad" };
+    return { title: "ยังไม่ได้ตรวจ", text: "ยังไม่ได้ตรวจยอดในสลิป — เทียบยอดเงินเข้าเอง", tone: "warn" };
   })();
   const group = bill.slipGroup?.periods?.length > 1 ? bill.slipGroup : null;
   const total = group ? group.total : bill.total;
@@ -158,16 +244,21 @@ function confirmBubble(bill) {
       body: {
         type: "box",
         layout: "vertical",
-        spacing: "md",
+        spacing: "sm",
         contents: [
-          { type: "text", text: `ห้อง ${bill.room} แจ้งชำระ${group ? ` ${group.periods.length} งวด` : ""}`, weight: "bold", size: "md" },
-          { type: "text", text: `${money(total)} บาท`, weight: "bold", size: "xxl", color: "#4FD8D2" },
-          { type: "text", text: group ? `รอบ ${group.periods.join(", ")}` : `รอบ ${bill.period}`, size: "xs", color: "#8B9AAB", wrap: true },
+          {
+            type: "box",
+            layout: "horizontal",
+            contents: [
+              { type: "text", text: `ห้อง ${bill.room} แจ้งชำระ`, weight: "bold", size: "md", color: CARD.ink, flex: 1, wrap: true },
+              ...(group ? [chip(`${group.periods.length} งวด`)] : []),
+            ],
+          },
+          bigAmount(money(total)),
+          { type: "text", text: group ? `รอบ ${group.periods.join(", ")}` : `รอบ ${bill.period}`, size: "xs", color: CARD.muted, wrap: true },
           // No photo means nothing to look at: the owner must check the bank account before confirming.
-          ...(bill.slipPath
-            ? []
-            : [{ type: "text", text: "ไม่มีรูปสลิป — ตรวจยอดเงินเข้าเองก่อนยืนยัน", size: "xs", color: "#F59E0B", wrap: true }]),
-          ...(amountNote ? [{ type: "text", text: amountNote.text, size: "xs", color: amountNote.color, wrap: true }] : []),
+          ...(bill.slipPath ? [] : [noteBox("ไม่มีรูปสลิป", "ตรวจยอดเงินเข้าเองก่อนยืนยัน", "warn")]),
+          ...(amountNote ? [noteBox(amountNote.title, amountNote.text, amountNote.tone)] : []),
         ],
       },
       footer: {
@@ -178,7 +269,8 @@ function confirmBubble(bill) {
           {
             type: "button",
             style: "primary",
-            color: "#4FD8D2",
+            color: CARD.ink,
+            cornerRadius: "md",
             action: {
               type: "postback",
               label: "ยืนยันการชำระ",
@@ -190,7 +282,8 @@ function confirmBubble(bill) {
             ? [
                 {
                   type: "button",
-                  style: "secondary",
+                  style: "link",
+                  color: CARD.muted,
                   action: { type: "uri", label: "ดูสลิป", uri: `https://liff.line.me/${LIFF_ID}` },
                 },
               ]
