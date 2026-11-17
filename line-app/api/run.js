@@ -18,7 +18,7 @@ const store = require("./_store");
 const { readMeter } = require("./_gemini");
 const { saveBill, archiveVoid, prepaidCopy, PERIOD } = require("./_bills");
 const { push, billBubble } = require("./_line");
-const { usable: canUse, clearPrepay, notifyOwner, attachPrepay } = require("./_prepay");
+const { usableIn, clearPrepay, notifyOwner, attachPrepay } = require("./_prepay");
 const { requireUser, isOwner } = require("./_auth");
 const { ROOMS, configFor, baseDefaults } = require("./_rooms");
 const { mapLimit } = require("./_async");
@@ -161,7 +161,7 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl, base) {
   // period, or when it was sent by someone who is no longer the room's tenant (a stale record the
   // tenant change failed to archive). A slip the owner recorded is about the room: always usable.
   const isNextBill = !latest || billPeriod >= latest.period;
-  const usable = isNextBill && canUse(prepay, tenant) ? prepay : null;
+  const usablePrepay = isNextBill && await usableIn(prepay, room, tenant) ? prepay : null;
 
   // The cancelled bill goes to the archive before anything overwrites its key.
   if (existing && existing.status === "void") await archiveVoid(existing);
@@ -183,7 +183,7 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl, base) {
     issuedAt: new Date().toISOString(), // lets a new tenant be told apart from the previous tenant's bills
     status: "unpaid",
   };
-  const first = usable ? prepaidCopy(bill, usable) : bill;
+  const first = usablePrepay ? prepaidCopy(bill, usablePrepay) : bill;
   // The dial the owner confirmed with this reading: next month it turns a new dial into "used".
   const dial = dialOf(r.dial);
 
@@ -196,10 +196,10 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl, base) {
   // instant): look once more. /api/slip does the mirror-image check after it writes `prepay:`, so
   // whichever side is later sees the other and the slip is never left waiting for next month.
   let final = first;
-  let used = usable;
-  if (!usable) {
+  let used = usablePrepay;
+  if (!usablePrepay) {
     const late = await store.get(`prepay:${room}`);
-    if (isNextBill && canUse(late, tenant)) {
+    if (isNextBill && await usableIn(late, room, tenant)) {
       const cur = await store.get(`bill:${billPeriod}:${room}`);
       if (cur && cur.status === "unpaid" && cur.issuedAt === bill.issuedAt) {
         // The same attach /api/slip does (copy, save, clear); the card goes out with the bill push below.
@@ -208,7 +208,7 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl, base) {
       }
     }
   } else {
-    await clearPrepay(room, usable); // the first attach was saved with the bill above
+    await clearPrepay(room, usablePrepay); // the first attach was saved with the bill above
   }
 
   // The card goes out only after the bill is stored, so its button never opens a missing bill.

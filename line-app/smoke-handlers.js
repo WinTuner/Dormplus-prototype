@@ -1224,7 +1224,7 @@ const { saveBill } = require("./api/_bills");
     try { r = await call(slip, { user: "Ujo", body: { image: png } }); } finally { store.get = g2; }
     assert.strictEqual(r.status, 200);
     assert.ok(!files.has(own), "the replaced photo is deleted");
-    assert.ok(reads <= 7, `a replaced photo scans no bills — 7 reads is the slip + the compact state index + the dorm's auto-confirm switch (${reads})`);
+    assert.ok(reads <= 8, `a replaced photo scans no bills — 8 reads is the slip + the second look at the bill + the compact state index + the dorm's auto-confirm switch (${reads})`);
 
     global.fetch = realFetch;
   }
@@ -1511,6 +1511,7 @@ const { saveBill } = require("./api/_bills");
 
   r = await call(rooms, { method: "GET", user: "Uowner" });
   assert.strictEqual(r.body.rooms.find((x) => x.room === "202").config.rent, 3000, "a room without its own price follows the dorm");
+  assert.strictEqual(r.body.dueDay, 5, "the owner screen prefills the round's due date from here, not from a hardcoded 16");
 
   await call(rooms, { body: { room: "202", rent: 4200 }, user: "Uowner" });
   r = await call(rooms, { method: "GET", user: "Uowner" });
@@ -1651,7 +1652,92 @@ const { saveBill } = require("./api/_bills");
   data.delete("owner-invite:VIEW123");
   data.delete("owner:Unewbie");
 
-  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings, PromptPay QR, slip rejection, meter photo");
+  // ---------------------------------------------------------------- audit fixes
+  // A roommate's advance slip attaches like the primary's. Members bind through the add-member QR,
+  // so `room-user:<room>` is not them; the sender's own `user-room` decides.
+  data.set("room-user:207", "Uprim");
+  data.set("room-users:207", [{ id: "Umate", name: "Roomie", at: new Date().toISOString() }]);
+  data.set("user-room:Umate", "207");
+  data.set("prepay:207", { room: "207", slipPath: "slips/207-adv.jpg", slipAt: new Date().toISOString(), slipCount: 1, by: "Umate", slipVerify: { ok: true } });
+  r = await call(run, { user: "Uowner", body: { period: "2027-01", readings: [{ room: "207", water: 2, elec: 3 }] } });
+  assert.deepStrictEqual(
+    [r.status, data.get("bill:2027-01:207").status, data.get("bill:2027-01:207").prepaid],
+    [200, "pending", true],
+    "a roommate's advance slip reaches the bill"
+  );
+  assert.strictEqual(data.get("prepay:207"), null, "and is consumed");
+
+  // A record left by someone who no longer lives there is neither applied nor advertised as handled.
+  data.set("prepay:207", { room: "207", slipPath: "slips/207-old.jpg", slipAt: new Date().toISOString(), by: "Ugohome" });
+  data.set("user-room:Ugohome", "208"); // they moved on to another room
+  r = await call(bill, { method: "GET", query: { room: "207" }, user: "Uowner" });
+  assert.deepStrictEqual([r.status, r.body.advance], [200, null], "a stale advance slip is not shown as handled");
+  data.delete("prepay:207");
+  data.delete("user-room:Ugohome");
+  for (const k of ["bill:207", "bill:2027-01:207", "meter:207", "bill-state:207", "bills:207", "room-user:207", "room-users:207", "user-room:Umate"]) data.delete(k);
+
+  // A slip must never pull a paid bill back to `pending` (the second look before the write).
+  const paidNov = { room: "208", period: "2027-01", total: 3500, rent: 3500, water: 0, elec: 0, due: "2027-01-05", status: "paid", paidAt: new Date().toISOString(), receiptNo: "R-208-1", issuedAt: new Date().toISOString() };
+  const openNov = { ...paidNov, status: "unpaid" };
+  delete openNov.paidAt; delete openNov.receiptNo;
+  data.set("bill:208", { ...openNov });
+  data.set("bill:2027-01:208", { ...openNov });
+  data.set("room-user:208", "Upaid");
+  data.set("user-room:Upaid", "208");
+  // The owner confirms while the slip is on its way (the photo upload is the last step before the
+  // write): the second look must see the paid bill, not the copy this request read at the start.
+  const realPut = store.putFile;
+  store.putFile = async (p, bytes, mime) => {
+    await realPut(p, bytes, mime);
+    data.set("bill:208", { ...paidNov });
+    data.set("bill:2027-01:208", { ...paidNov });
+  };
+  try {
+    r = await call(slip, { user: "Upaid", body: { image: png } });
+  } finally {
+    store.putFile = realPut;
+  }
+  assert.deepStrictEqual([r.status, r.body.error.code], [409, "INVALID_STATE"], "a bill paid mid-flight refuses the slip instead of regressing");
+  assert.deepStrictEqual([data.get("bill:2027-01:208").status, data.get("bill:2027-01:208").receiptNo], ["paid", "R-208-1"]);
+
+  // Cancelling a bill whose slip the provider verified means the dorm holds that money: it must land
+  // on the refund list. An unverified slip states no such thing.
+  const pendingNov = { ...paidNov, status: "pending", slipPath: "slips/208-x.jpg", slipAt: new Date().toISOString(), slipCount: 1, slipVerify: { ok: true, provider: "slipok", transRef: "T208" } };
+  delete pendingNov.paidAt; delete pendingNov.receiptNo;
+  data.set("bill:208", { ...pendingNov });
+  data.set("bill:2027-01:208", { ...pendingNov });
+  r = await call(bill, { body: { action: "void", room: "208", period: "2027-01", reason: "ออกบิลผิดรอบ" }, user: "Uowner" });
+  assert.deepStrictEqual([r.status, data.get("bill:2027-01:208").refundDue], [200, 3500], "a verified slip on a cancelled bill is money to refund");
+
+  data.set("bill:208", { ...pendingNov, slipVerify: { ok: null, provider: "slipok", reason: "ตรวจไม่ได้" } });
+  data.set("bill:2027-01:208", { ...pendingNov, slipVerify: { ok: null, provider: "slipok", reason: "ตรวจไม่ได้" } });
+  r = await call(bill, { body: { action: "void", room: "208", period: "2027-01", reason: "ออกบิลผิดรอบ" }, user: "Uowner" });
+  assert.strictEqual(data.get("bill:2027-01:208").refundDue, undefined, "an unchecked slip is not money owed");
+  for (const k of ["bill:208", "bill:2027-01:208", "bill-void:2027-01:208:1", "room-user:208", "user-room:Upaid"]) data.delete(k);
+
+  // A room with bills but no `bill-state:` starts its index from the real history, not from the new
+  // bill alone (otherwise the older unpaid period leaves reminders and `?overdue=1` for good).
+  const oldJun = { room: "209", period: "2026-06", total: 3500, rent: 3500, water: 0, elec: 0, due: "2026-06-05", status: "unpaid", rev: 1, issuedAt: "2026-06-01T00:00:00.000Z" };
+  data.delete("bill-state:209");
+  data.set("bills:209", ["2026-06"]);
+  data.set("bill:209", { ...oldJun });
+  data.set("bill:2026-06:209", { ...oldJun });
+  r = await call(run, { user: "Uowner", body: { period: "2027-02", readings: [{ room: "209", water: 0, elec: 0 }] } });
+  assert.deepStrictEqual(
+    (data.get("bill-state:209") || []).map((s) => s.period).sort(),
+    ["2026-06", "2027-02"],
+    "the first save of such a room seeds the index from its history"
+  );
+  for (const k of ["bill:209", "bill:2026-06:209", "bill:2027-02:209", "bill-state:209", "bills:209", "meter:209"]) data.delete(k);
+
+  // A group slip's extra follows a period that is really being closed: if the newest one was voided or
+  // re-issued, the older bill carries the refund instead of nobody.
+  const { overpaidOf } = require("./api/_bills");
+  const groupBill = (period) => ({ period, slipGroup: { periods: ["2026-09", "2026-10"], overpaid: 500 } });
+  assert.strictEqual(overpaidOf(groupBill("2026-09"), [groupBill("2026-09")]), 500, "the extra moves to the newest period still closing");
+  assert.strictEqual(overpaidOf(groupBill("2026-09"), [groupBill("2026-09"), groupBill("2026-10")]), 0, "and stays on the newest when both close");
+
+  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings, PromptPay QR, slip rejection, meter photo, audit fixes");
 })().catch((err) => {
   console.error(err);
   process.exit(1);

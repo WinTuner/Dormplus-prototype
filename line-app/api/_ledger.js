@@ -74,10 +74,17 @@ const stateOf = (b) => ({
   refundDue: b.refundDue || null, refundedAt: b.refundedAt || null,
 });
 
+// A room that already has bills but no `bill-state:` yet (written before the key existed) would
+// otherwise start the index with just the new bill, and the older unpaid/paid periods would vanish
+// from reminders, `?overdue=1` and `?income=`. That is why the first save of such a room rebuilds it.
+async function seedState(room) {
+  return (await recentBills(room)).map(stateOf);
+}
+
 async function indexState(bills) {
   if (!bills.length) return;
   const key = `bill-state:${bills[0].room}`;
-  const current = (await store.get(key)) || [];
+  const current = (await store.get(key)) || (await seedState(bills[0].room));
   const byPeriod = new Map(current.map((s) => [s.period, s]));
   for (const b of bills) byPeriod.set(b.period, stateOf(b));
   const next = [...byPeriod.values()].sort((a, b) => (a.period < b.period ? 1 : -1)).slice(0, STATE_MAX);
