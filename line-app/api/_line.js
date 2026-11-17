@@ -109,8 +109,8 @@ function thaiDateParts(value) {
 }
 
 // "label  17 พฤศจิกายน 2569" as one text line: day, month and year all at the same size (sm, not
-// xs), the day bold so the eye lands on it, the label in a quieter colour.
-const dateText = (label, value, { color = CARD.ink, labelColor = CARD.muted } = {}) => {
+// xs), the day bold so the eye lands on it, label and date in one colour.
+const dateText = (label, value, { color = CARD.ink, labelColor = color } = {}) => {
   const p = thaiDateParts(value);
   const spans = [{ type: "span", text: `${label}  `, color: labelColor }];
   if (p) {
@@ -209,7 +209,7 @@ function billBubble(bill, baseUrl) {
             type: "box",
             layout: "horizontal",
             contents: [
-              { type: "text", text: `ห้อง ${bill.room}`, weight: "bold", size: "lg", color: CARD.ink, flex: 1, gravity: "center" },
+              { type: "text", text: `ห้อง ${bill.room}`, weight: "bold", size: "xxl", color: "#000000", flex: 1, gravity: "center" },
               chip(bill.period),
             ],
           },
@@ -330,6 +330,9 @@ function confirmBubble(bill) {
   };
 }
 
+// The short notice the owner gets when the slip check closed the bill by itself: nothing to decide,
+// so no confirm or reject button. "ดูสลิป" opens the slip in the LIFF like the confirm card does.
+// `bills` is every bill the one slip closed (several for a multi-month slip).
 function autoPaidBubble(bills) {
   const money = (n) => Number(n || 0).toLocaleString("th-TH");
   const first = bills[0];
@@ -367,7 +370,9 @@ function autoPaidBubble(bills) {
   };
 }
 
-
+// The receipt the tenant gets when the owner confirms a payment. Its button opens the LIFF receipt
+// screen: the page routes by hash, but LIFF can drop a fragment on login, so the period also rides
+// in the query (`receipt=`) and the page rebuilds the route from it.
 function receiptBubble(bill, baseUrl) {
   const money = (n) => Number(n || 0).toLocaleString("th-TH");
   const tail = `room=${bill.room}&receipt=${bill.period}#receipt/${bill.period}`;
@@ -392,8 +397,9 @@ function receiptBubble(bill, baseUrl) {
         layout: "vertical",
         spacing: "md",
         contents: [
-          { type: "text", text: "ใบเสร็จรับเงิน", weight: "bold", size: "lg", color: CARD.ink },
-          ...(bill.receiptNo ? [{ type: "text", text: `เลขที่ ${bill.receiptNo}`, size: "xs", color: "#8B9AAB" }] : []),
+          { type: "text", text: "ใบเสร็จรับเงิน", weight: "bold", size: "xl", color: CARD.ink },
+          // Paid date right under the title: it is what the tenant checks first on a receipt.
+          dateText("ชำระเมื่อ", bill.paidAt, { color: CARD.muted }),
           { type: "text", text: `ห้อง ${bill.room} · รอบ ${bill.period}`, size: "sm" },
           { type: "separator" },
           {
@@ -407,7 +413,21 @@ function receiptBubble(bill, baseUrl) {
               line("รวม (บาท)", money(bill.total), true),
             ],
           },
-          dateText("ชำระเมื่อ", bill.paidAt),
+          // The receipt number is for looking a payment up later, not for reading now: last, small, grey,
+          // set off by a hairline, as a label/value row like the fees above.
+          ...(bill.receiptNo
+            ? [
+                rule(),
+                {
+                  type: "box",
+                  layout: "horizontal",
+                  contents: [
+                    { type: "text", text: "เลขที่ใบเสร็จ", size: "xs", color: CARD.muted, flex: 1 },
+                    { type: "text", text: bill.receiptNo, size: "xs", color: CARD.muted, align: "end", flex: 0 },
+                  ],
+                },
+              ]
+            : []),
         ],
       },
       footer: {
