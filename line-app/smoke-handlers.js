@@ -1107,9 +1107,14 @@ const { saveBill } = require("./api/_bills");
     const noDue = { room: "207", period: "2026-11", rent: 3500, water: 100, elec: 50, total: 3650, due: null, status: "unpaid" };
     const cardJson = JSON.stringify(billBubble(noDue, "https://x"));
     assert.ok(!cardJson.includes("ครบกำหนด") && !/null|undefined|NaN/.test(cardJson), "the card has no due line");
-    assert.ok(JSON.stringify(billBubble({ ...noDue, due: "2026-11-16" }, "https://x")).includes("ครบกำหนด 2026-11-16"), "and still has one with a due date");
+    assert.ok(JSON.stringify(billBubble({ ...noDue, due: "2026-11-16" }, "https://x")).includes("ครบกำหนด 16 พฤศจิกายน 2569"), "and still has one with a due date, in Thai with the Buddhist year");
+    // A due that is already text (the chat command accepts one) is printed as-is, not re-parsed.
+    assert.ok(JSON.stringify(billBubble({ ...noDue, due: "16 พ.ย. 2569" }, "https://x")).includes("ครบกำหนด 16 พ.ย. 2569"), "a Thai due string passes through");
     const rj = JSON.stringify(receiptBubble({ ...noDue, status: "paid" }, "https://x"));
     assert.ok(!/null|undefined|NaN/.test(rj), "a receipt with no number or paidAt prints neither null nor undefined");
+    // 17:30Z is already the next day in Bangkok — the receipt must say 16, not 15.
+    const paidText = JSON.stringify(receiptBubble({ ...noDue, status: "paid", paidAt: "2026-11-15T17:30:00.000Z", receiptNo: "R202611-207" }, "https://x"));
+    assert.ok(paidText.includes("ชำระเมื่อ 16 พฤศจิกายน 2569"), "paidAt is rendered in Bangkok time");
     data.set("room-user:207", "Uivy");
     data.set("user-room:Uivy", "207");
     const mark = pushed.length;
