@@ -33,10 +33,13 @@ def attach_property(engine: Engine, property_id: str) -> Engine:
 def get_engine() -> Engine:
     """One pooled engine per process. Routes take it through Depends(get_engine) so tests can swap it.
 
-    No `pool_pre_ping`: it costs an extra round trip on every checkout. `pool_recycle` keeps old
-    connections from living long enough to be dropped by the server or pooler (idle timeouts,
-    Neon scale-to-zero), which is what the ping was guarding against.
+    `pool_pre_ping` stays on: `pool_recycle` only retires connections by age, and the ones this app
+    loses are killed by the server or the pooler while idle (Neon scale-to-zero, PgBouncer idle
+    timeout, failover). Without the ping the first request after a quiet spell gets
+    `OperationalError: server closed the connection unexpectedly`. One cheap round trip on checkout
+    is the better trade for an app that is idle most of the day; `pool_recycle` still trims the
+    connections that would otherwise need the ping.
     """
     settings = get_settings()
-    engine = create_engine(settings.database_url, pool_recycle=300)
+    engine = create_engine(settings.database_url, pool_pre_ping=True, pool_recycle=300)
     return attach_property(engine, settings.property_id)
