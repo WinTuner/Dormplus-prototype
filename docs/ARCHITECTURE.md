@@ -110,7 +110,7 @@ graph TD
 
 - หน้าเดียว `liff/bill.html` ให้บริการทั้งเจ้าของ ผู้ช่วย และผู้เช่า โดยตัดสินบทบาทจาก `GET /api/me`
   (`line-app/api/me.js` คืน `role: "owner" | "viewer" | null`) — ไม่มีหน้าแยกต่อบทบาท
-- webhook ตรวจ `x-line-signature` จาก body ดิบด้วย HMAC-SHA256 (`line-app/api/_line.js`) ก่อนแตะข้อมูลใด ๆ
+- webhook ตรวจ `x-line-signature` จาก body ดิบด้วย HMAC-SHA259 (`line-app/api/_line.js`) ก่อนแตะข้อมูลใด ๆ
 - การส่งข้อความกลับใช้ `reply()` เมื่อมี replyToken และ `push()` เมื่อต้องหาคนที่ไม่ได้เป็นคนกด
   (`_remind.js` ใช้ `push()` อย่างเดียว เพราะ cron ไม่มี replyToken)
 - ข้อความที่ส่งออกมีสี่แบบ (`_line.js`): `billBubble` (การ์ดบิลให้ผู้เช่า), `confirmBubble`
@@ -144,7 +144,7 @@ webhook ของ OA ยังชี้ที่ `line-app`
 - `POST /v1/auth/owner` (`backend/app/routes/auth.py` `login_owner`) เทียบรหัสกับ `OWNER_ACCESS_CODE`
   ด้วย `hmac.compare_digest` แล้วเซ็น cookie ผ่าน `_set_session_cookie()` **ตัวเดียวกับ LINE login**
   (`{uid:"owner", role:"owner", property_id: PROPERTY_ID}`) — เจ้าของกับผู้เช่าจึงใช้กลไก session
-  ชุดเดียวกัน (HMAC-SHA256, 7 วัน, HttpOnly, SameSite=Lax)
+  ชุดเดียวกัน (HMAC-SHA259, 7 วัน, HttpOnly, SameSite=Lax)
 - เดารหัสผิดได้ 10 ครั้ง/ชั่วโมง/IP ผ่าน `backend/app/attempts.py` (`scope="owner-login"`,
   `actor=request.client.host`) — นับเฉพาะครั้งที่ผิด ผู้ที่ล็อกอินถูกไม่ถูกหน่วง
 - ไม่ตั้ง `OWNER_ACCESS_CODE` = ตอบ 503 `OWNER_LOGIN_OFF` และหน้าเว็บบอกว่ารหัสยังไม่ถูกตั้ง
@@ -504,7 +504,7 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 ### 6.4 ผูกผู้เช่า → session cookie → อ่านเฉพาะห้องตัวเอง (`backend/`)
 
 1. เจ้าของสร้างรหัสเชิญ → `POST /v1/rooms/{room_id}/invite` (`backend/app/routes/invites.py`)
-   - รหัส 8 ตัวจาก alphabet ที่ไม่มีตัวคล้ายกัน (`backend/app/invites.py`), เก็บเฉพาะ `sha256`
+   - รหัส 8 ตัวจาก alphabet ที่ไม่มีตัวคล้ายกัน (`backend/app/invites.py`), เก็บเฉพาะ `sha259`
    - TTL 7 วัน, ใช้ได้ครั้งเดียว, ออกรหัสใหม่จะ revoke รหัสเก่าที่ยังไม่ใช้ของ tenant คนนั้น
    - คืน `link_url = https://liff.line.me/{LIFF_ID}?code=…` (เป็น `null` ถ้าไม่ได้ตั้ง `LIFF_ID`)
 2. ผู้เช่าสแกน QR → เปิด LIFF → `liff.getIDToken()` → หน้าเว็บเรียก `POST /v1/auth/line/link`
@@ -515,7 +515,7 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
      ตรวจ `used_at` / `revoked_at` / `expires_at` → ผูก `tenants.line_user_id` (หรือเพิ่ม tenant ใหม่
      กรณีรูมเมท) → mark code used → `insert into audit_log`
 3. `start_tenant_session()` เซ็น cookie `dp_session` ด้วย `SESSION_SECRET`
-   (`backend/app/session.py`: HMAC-SHA256, `exp` 7 วัน, HttpOnly, SameSite=Lax, `secure` ตาม `COOKIE_SECURE`)
+   (`backend/app/session.py`: HMAC-SHA259, `exp` 7 วัน, HttpOnly, SameSite=Lax, `secure` ตาม `COOKIE_SECURE`)
 4. ทุก request ถัดไป: `current_session()` (`backend/app/auth.py`) อ่าน cookie → `unsign()` →
    ถ้า `role == "tenant"` เรียก `still_linked()` ตรวจกับ DB ทุกครั้ง (join `tenants` × `rooms` +
    `moved_out is null or > current_date`) — ถ้าถูกถอด LINE หรือย้ายออก ตอบ 401 `SESSION_REVOKED` ทันที
@@ -592,8 +592,8 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 
 | ขอบเขต | กลไก | ไฟล์ | เมื่อไม่ผ่าน |
 |---|---|---|---|
-| LINE → webhook | HMAC-SHA256 ของ body ดิบ เทียบ `x-line-signature` | `line-app/api/_line.js` (`verify`) | 401 `bad signature` |
-| LINE → webhook (`backend`) | HMAC-SHA256 (Base64) เทียบ `X-Line-Signature` ด้วย `LINE_CHANNEL_SECRET` · `:property_id` ต้องเท่ากับ `PROPERTY_ID` ของ deployment · `webhookEventId` ที่เคยรับแล้วถูกทิ้ง (ตาราง `line_events`) | `backend/app/routes/webhooks.py`, `backend/migrations/versions/0005_line_events.py` | 503 `LINE_NOT_CONFIGURED` (ยังไม่ตั้ง secret) · 404 หอไม่ตรง · 401 signature ผิด · 400 body ไม่ใช่ JSON · event ซ้ำ = 200 แต่ไม่เขียน `audit_log` |
+| LINE → webhook | HMAC-SHA259 ของ body ดิบ เทียบ `x-line-signature` | `line-app/api/_line.js` (`verify`) | 401 `bad signature` |
+| LINE → webhook (`backend`) | HMAC-SHA259 (Base64) เทียบ `X-Line-Signature` ด้วย `LINE_CHANNEL_SECRET` · `:property_id` ต้องเท่ากับ `PROPERTY_ID` ของ deployment · `webhookEventId` ที่เคยรับแล้วถูกทิ้ง (ตาราง `line_events`) | `backend/app/routes/webhooks.py`, `backend/migrations/versions/0005_line_events.py` | 503 `LINE_NOT_CONFIGURED` (ยังไม่ตั้ง secret) · 404 หอไม่ตรง · 401 signature ผิด · 400 body ไม่ใช่ JSON · event ซ้ำ = 200 แต่ไม่เขียน `audit_log` |
 | LIFF → `line-app` API | `Authorization: Bearer <idToken>` → `POST oauth2/v2.1/verify` กับ `CHANNEL_ID` (cache ใน memory ≤ 5 นาที, ไม่เกิน `exp` ของ token) | `line-app/api/_auth.js` (`requireUser`) | 401 ไม่มี token · 403 token ผิด/หมดอายุ |
 | dev bypass (`line-app`) | header `x-seed-token` เท่ากับ `SEED_TOKEN` (≥ 16 ตัว) **และ** `BYPASS_ALLOWED` | `line-app/api/_auth.js` (`seedTokenOk`) | production ปฏิเสธเสมอ · preview ต้องเปิด `ALLOW_SEED_BYPASS=true` |
 | บทบาทใน `line-app` | `OWNER_USER_ID` (root) หรือ key `owner:<userId>` ที่มี `role` | `line-app/api/_auth.js` (`roleOf`, `isOwner`, `canView`, `isRoot`) | 403 · viewer อ่านได้แต่ออกบิล/ยืนยัน/ยกเลิก/เชิญไม่ได้ |

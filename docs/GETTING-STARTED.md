@@ -95,7 +95,7 @@ node smoke-cron.js         # งานเตือนบิลค้างรา
 node smoke-usecases.js     # 177 use case ตั้งแต่ต้นจนจบ (UC-01 … UC-18) · UC-19 (webhook ฝั่ง backend) อยู่ใน pytest
 ```
 
-ชุด use case คือ subset อัตโนมัติของ [`TEST-CASES.md`](./TEST-CASES.md) ซึ่งแตกครบ **282 case ใน 19 UC** (256 ✅ automated · 25 🖐 ต้องกดมือกับ LINE จริง · 0 ⏳ ยังไม่มี test) — **177** ตัวที่รันในไฟล์นี้คือส่วนที่ `line-app` ทดสอบได้โดยไม่ต้องมี LINE จริง (อีก 6 เคสของ UC-19 เป็น webhook ฝั่ง backend จึงอยู่ใน pytest) ส่วนที่เหลืออยู่ในตารางพร้อมเหตุผลว่าทำไมยังอัตโนมัติไม่ได้
+ชุด use case คือ subset อัตโนมัติของ [`TEST-CASES.md`](./TEST-CASES.md) ซึ่งแตกครบ **285 case ใน 19 UC** (259 ✅ automated · 25 🖐 ต้องกดมือกับ LINE จริง · 0 ⏳ ยังไม่มี test) — **177** ตัวที่รันในไฟล์นี้คือส่วนที่ `line-app` ทดสอบได้โดยไม่ต้องมี LINE จริง (อีก 6 เคสของ UC-19 เป็น webhook ฝั่ง backend จึงอยู่ใน pytest) ส่วนที่เหลืออยู่ในตารางพร้อมเหตุผลว่าทำไมยังอัตโนมัติไม่ได้
 
 ผลที่ต้องเห็น (ยืนยันบน Node v26.13.0 หลัง `npm ci`) — ทุกชุดพิมพ์ `... OK` ของตัวเอง ปิดท้ายด้วย `177/177 use case tests passed` และ exit code 0:
 
@@ -127,10 +127,10 @@ cron OK — auth, 6 reminder windows, dedup, catch-up, skips, tenancy, retry, ow
 ```powershell
 cd backend
 .\.venv\Scripts\python.exe -m pytest -q
-# 34 passed, 133 skipped  (collect ได้ 167 test จาก 18 ไฟล์)
+# 38 passed, 136 skipped  (collect ได้ 174 test จาก 19 ไฟล์)
 ```
 
-test ที่ต้องใช้ฐานข้อมูลจะถูก **skip** เมื่อไม่ได้ตั้ง `TEST_DATABASE_URL` (ดู `tests/conftest.py`) ถ้าอยากรันครบ 150 ตัว:
+test ที่ต้องใช้ฐานข้อมูลจะถูก **skip** เมื่อไม่ได้ตั้ง `TEST_DATABASE_URL` (ดู `tests/conftest.py`) ถ้าอยากรันครบ 174 ตัว:
 
 > `backend/.env.example` มี `TEST_DATABASE_URL` อยู่แล้ว แต่ `tests/conftest.py` อ่านจาก **environment variable เท่านั้น** (`os.environ`) — ใส่ใน `.env` แล้วยัง skip เหมือนเดิม ต้อง `export`/`$env:` ก่อนเรียก pytest
 
@@ -209,7 +209,7 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 | [`API.md`](./API.md) | ต้องยิง endpoint ของ backend เอง (auth, error code, ตัวอย่าง request) |
 | [`HANDOFF.md`](./HANDOFF.md) | จะรับงานต่อ — มีกับดักที่เจอมาแล้วและงานที่ยังเหลือ |
 | [`TESTING.md`](./TESTING.md) | อยากรู้ว่า smoke ทั้งห้าชุดและ pytest แต่ละชุดครอบอะไร |
-| [`TEST-CASES.md`](./TEST-CASES.md) | อยากเห็นว่า use case แต่ละข้อถูกตรวจด้วย test ตัวไหน หรือยังต้องกดมือ (282 case / 19 UC · 256 automate · 26 manual) |
+| [`TEST-CASES.md`](./TEST-CASES.md) | อยากเห็นว่า use case แต่ละข้อถูกตรวจด้วย test ตัวไหน หรือยังต้องกดมือ (285 case / 19 UC · 259 automate · 26 manual) |
 | [`backend/README.md`](../backend/README.md) | endpoint ทั้งหมด, dev headers, deploy Vercel + Neon, Procrastinate/cron |
 | [`line-app/docs/GETTING-STARTED.md`](../line-app/docs/GETTING-STARTED.md) | ต้องพา LINE app ขึ้น Vercel จริงตั้งแต่ต้น |
 | [`line-app/docs/TESTING.md`](../line-app/docs/TESTING.md) | อยากรู้ว่า smoke แต่ละตัวครอบอะไร และอะไรต้องทดสอบมือ |

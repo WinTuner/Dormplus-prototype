@@ -21,7 +21,11 @@ class Settings(BaseSettings):
     # Messaging API token: the backend pushes reminders itself (app/line_push.py).
     line_channel_access_token: str = ""
     # Messaging API channel secret: verifies X-Line-Signature on /v1/webhooks/line/:property_id.
+    # Used when `properties.line_secret_enc` is empty (one dorm per deployment).
     line_channel_secret: str = ""
+    # Key for the encrypted per-dorm credentials in `properties.line_*_enc` (app/secrets.py).
+    # Fernet key: urlsafe base64, 32 bytes — `python -c "from cryptography.fernet import Fernet;print(Fernet.generate_key().decode())"`.
+    secret_enc_key: str = ""
 
     # Shared secret for the daily cron. Vercel puts it in `Authorization: Bearer <CRON_SECRET>`
     # by itself; DUNNING_TOKEN is the old name and still works.

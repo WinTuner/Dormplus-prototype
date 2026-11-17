@@ -257,8 +257,9 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
 ### `POST /webhooks/line/:property_id`
 `api` ฝั่ง backend รับ event ของ Messaging API แล้ว — **endpoint ทำงานได้ แต่ช่องทางของ OA ยังชี้ที่ `line-app`** (สลับเมื่อไหร่บอทที่ใช้งานจริงจะดับ) จึงยังไม่มี handler ที่ตอบผู้ใช้: งานของ endpoint นี้คือพิสูจน์ signature และบันทึก event
 
-- **Auth:** `X-Line-Signature` = Base64(HMAC-SHA256 ของ **raw body** ด้วย `LINE_CHANNEL_SECRET`) เทียบแบบ constant-time · ไม่ใช้ session
-- **Error:** `503 LINE_NOT_CONFIGURED` (ไม่ได้ตั้ง `LINE_CHANNEL_SECRET`) → `404 NOT_FOUND` (`:property_id` ไม่ใช่หอของ deployment — signature ผูกกับ channel เดียว) → `401 UNAUTHORIZED` (signature ไม่ตรง) → `400 VALIDATION` (body ไม่ใช่ JSON)
+- **Auth:** `X-Line-Signature` = Base64(HMAC-SHA256 ของ **raw body** ด้วย channel secret) เทียบแบบ constant-time · ไม่ใช้ session
+- **channel secret มาจากไหน:** ถ้า `properties.line_secret_enc` ของหอนั้นมีค่า → ถอดรหัสด้วย `SECRET_ENC_KEY` (Fernet) แล้วใช้ค่านั้น (หอมี OA ของตัวเอง) · ถ้าว่าง → ใช้ env `LINE_CHANNEL_SECRET` (1 deploy = 1 หอ) · บันทึกค่าด้วย `python scripts/set_line_secret.py` (อ่านจาก stdin) และล้างด้วย `--clear`
+- **Error:** `503 LINE_NOT_CONFIGURED` (ไม่มีทั้ง column และ env) → `404 NOT_FOUND` (`:property_id` ไม่ใช่หอของ deployment — signature ผูกกับ channel เดียว) → `503 LINE_SECRET_UNREADABLE` (มีค่าใน column แต่ถอดรหัสไม่ได้ เช่น `SECRET_ENC_KEY` ถูกหมุน/หาย — **ตั้งใจให้เป็น 503 ไม่ใช่ 401** เพราะ LINE retry 5xx ให้แก้กุญแจได้ ส่วน secret ผิดจะ 401 ตลอดกาล) → `401 UNAUTHORIZED` (signature ไม่ตรง) → `400 VALIDATION` (body ไม่ใช่ JSON)
 - **200:** `{ "ok": true }` — รวมกรณี event ซ้ำ: `webhookEventId` ถูกเก็บในตาราง `line_events` (migration `0005`) ถ้า LINE ส่ง event เดิมซ้ำจะไม่เขียน `audit_log` เพิ่ม
 - **Side effect:** เขียน `audit_log` 1 แถว action `webhook.line` payload `{ "count": <จำนวน event>, "types": ["follow", ...] }` — เฉพาะเมื่อมี event ใหม่
 - **ยังไม่มีคิวในเส้นทางนี้** — งานเดียวคือ insert ไม่กี่แถว; เมื่อมี handler ที่ต้องเรียก LINE กลับจริงค่อยเพิ่มคิวตอนนั้น

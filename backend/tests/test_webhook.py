@@ -103,3 +103,61 @@ def test_a_redelivered_event_is_ignored(seeded, client_for, line_secret):
     other = json.dumps({"events": [{"type": "follow", "webhookEventId": "01HOTHER"}]}).encode()
     assert post(client, other, sign(other)).status_code == 200
     assert len(audit_rows(seeded)) == 2, "a different event is still recorded"
+
+
+# ------------------------------------------------------- the dorm's own secret (properties.line_secret_enc)
+STORED = "stored-secret-for-p_1"
+
+
+@pytest.fixture
+def enc_key(monkeypatch):
+    """A throwaway SECRET_ENC_KEY for one test; settings are cached, so clear them both ways."""
+    from cryptography.fernet import Fernet
+
+    monkeypatch.setenv("SECRET_ENC_KEY", Fernet.generate_key().decode())
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def store_secret(engine, value: str = STORED) -> None:
+    from app import secrets
+
+    with engine.begin() as conn:
+        conn.execute(text("update properties set line_secret_enc = :blob where id = 'p_1'"),
+                     {"blob": secrets.encrypt(value)})
+
+
+def test_a_stored_secret_wins_over_the_env(seeded, client_for, line_secret, enc_key):
+    store_secret(seeded)
+    client = client_for(seeded)
+    body = b'{"events":[{"type":"follow"}]}'
+    assert post(client, body, sign(body, STORED)).status_code == 200
+    assert post(client, body, sign(body, SECRET)).status_code == 401, "the env value is only a fallback"
+
+
+def test_a_stored_secret_works_without_the_env(seeded, client_for, monkeypatch, enc_key):
+    monkeypatch.setenv("LINE_CHANNEL_SECRET", "")
+    get_settings.cache_clear()
+    try:
+        store_secret(seeded)
+        body = b'{"events":[]}'
+        assert post(client_for(seeded), body, sign(body, STORED)).status_code == 200
+    finally:
+        get_settings.cache_clear()
+
+
+def test_an_unreadable_stored_secret_is_503_not_401(seeded, client_for, line_secret, enc_key, monkeypatch):
+    """A rotated or lost key must pause delivery (5xx retries), not reject every signature forever."""
+    from cryptography.fernet import Fernet
+
+    store_secret(seeded)
+    monkeypatch.setenv("SECRET_ENC_KEY", Fernet.generate_key().decode())
+    get_settings.cache_clear()
+
+    body = b'{"events":[{"type":"follow"}]}'
+    r = post(client_for(seeded), body, sign(body, STORED))
+    assert r.status_code == 503
+    assert r.json()["error"]["code"] == "LINE_SECRET_UNREADABLE"
+    assert audit_rows(seeded) == []
+
