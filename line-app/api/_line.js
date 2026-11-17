@@ -205,7 +205,6 @@ function billBubble(bill, baseUrl) {
             type: "button",
             style: "primary",
             color: CARD.ink,
-            cornerRadius: "md",
             action: { type: "uri", label: "ดูบิล / แนบสลิป", uri: liff },
           },
         ],
@@ -270,7 +269,6 @@ function confirmBubble(bill) {
             type: "button",
             style: "primary",
             color: CARD.ink,
-            cornerRadius: "md",
             action: {
               type: "postback",
               label: "ยืนยันการชำระ",
