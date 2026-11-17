@@ -490,7 +490,7 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
     assert.ok(noDue.includes("3,532"), "it is the bill card");
     assert.ok(!noDue.includes("null") && !noDue.includes("ครบกำหนด"), "no due line at all");
     await issue([{ room: "201", water: 1, elec: 1 }]); // unpaid: re-issued with the date
-    assert.ok(JSON.stringify(lastTo("Utenant").messages[0]).includes("ครบกำหนด 2026-11-16"));
+    assert.ok(JSON.stringify(lastTo("Utenant").messages[0]).includes("ครบกำหนด 16 พฤศจิกายน 2569"));
   });
 
   // ================================================================ UC-04 ยืนยันการชำระ
@@ -618,7 +618,7 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
     const card = pushed.filter((p) => p.to === "Utenant").pop().messages[0];
     assert.strictEqual(card.type, "flex");
     const s = JSON.stringify(card);
-    assert.ok(s.includes("เลขที่ R202611-205") && s.includes("4,450") && s.includes("ดูใบเสร็จ"));
+    assert.ok(s.includes("เลขที่ใบเสร็จ") && s.includes("R202611-205") && s.includes("4,450") && s.includes("ดูใบเสร็จ"));
     assert.ok(!s.includes("ชำระเงินแล้ว ✅"));
     // confirming again keeps the number and sends nothing more
     const pushes = pushed.length;
@@ -2488,7 +2488,7 @@ const mkBill = (room, period, status = "unpaid", extra = {}) => ({
     assert.strictEqual(card.type, "flex");
     assert.strictEqual(card.altText, "ใบเสร็จรับเงิน ห้อง 203 · 4,450 บาท");
     const s = JSON.stringify(card);
-    for (const part of ["เลขที่ R202611-203-2", "ห้อง 203 · รอบ 2026-11", "ค่าเช่า", "3,500", "250", "700", "รวม (บาท)", "4,450", "ชำระเมื่อ", "ดูใบเสร็จ"]) {
+    for (const part of ["เลขที่ใบเสร็จ", "R202611-203-2", "ห้อง 203 · รอบ 2026-11", "ค่าเช่า", "3,500", "250", "700", "รวม (บาท)", "4,450", "ชำระเมื่อ", "ดูใบเสร็จ"]) {
       assert.ok(s.includes(part), part);
     }
     const uri = card.contents.footer.contents[0].action.uri;

@@ -91,6 +91,46 @@ const CARD = {
   bad: "#B91C1C",
 };
 
+// A date split into day / full month name / Buddhist year, in Bangkok time. The full month name
+// replaces abbreviations like "พ.ย.", which shrink to a smudge between the day and year on a phone.
+// Returns null when the value is not a date, so the caller can print it as-is.
+function thaiDateParts(value) {
+  if (value == null || value === "") return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  const parts = new Intl.DateTimeFormat("th-TH", {
+    timeZone: "Asia/Bangkok",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).formatToParts(d);
+  const get = (type) => parts.find((p) => p.type === type)?.value || "";
+  return { day: get("day"), month: get("month"), year: get("year") };
+}
+
+// "label 17 พฤศจิกายน 2569" as one text line: day, month and year all at the same size (sm, not
+// xs), the day bold so the eye lands on it, label and date in one colour.
+const dateText = (label, value, { color = CARD.ink, labelColor = color } = {}) => {
+  const p = thaiDateParts(value);
+  const spans = [{ type: "span", text: `${label} `, color: labelColor }];
+  if (p) {
+    spans.push(
+      { type: "span", text: p.day, weight: "bold", color },
+      { type: "span", text: ` ${p.month} `, color },
+      { type: "span", text: p.year, color },
+    );
+  } else {
+    spans.push({ type: "span", text: value ? String(value) : "-", weight: "bold", color });
+  }
+  return {
+    type: "text",
+    text: spans.map((s) => s.text).join(""),
+    size: "sm",
+    wrap: true,
+    contents: spans,
+  };
+};
+
 // A small period / count chip. Teal carries the brand without ever being the text colour.
 const chip = (text) => ({
   type: "box",
@@ -169,7 +209,7 @@ function billBubble(bill, baseUrl) {
             type: "box",
             layout: "horizontal",
             contents: [
-              { type: "text", text: `ห้อง ${bill.room}`, weight: "bold", size: "md", color: CARD.ink, flex: 1 },
+              { type: "text", text: `ห้อง ${bill.room}`, weight: "bold", size: "xxl", color: CARD.ink, flex: 1, gravity: "center" },
               chip(bill.period),
             ],
           },
@@ -190,9 +230,7 @@ function billBubble(bill, baseUrl) {
                 paddingTop: "8px",
                 paddingBottom: "8px",
                 backgroundColor: CARD.warnBg,
-                contents: [
-                  { type: "text", text: `ครบกำหนด ${bill.due}`, size: "xs", weight: "bold", color: CARD.warn },
-                ],
+                contents: [dateText("ครบกำหนด", bill.due, { color: CARD.warn, labelColor: CARD.warn })],
               }]
             : []),
         ],
@@ -339,9 +377,6 @@ function receiptBubble(bill, baseUrl) {
   const money = (n) => Number(n || 0).toLocaleString("th-TH");
   const tail = `room=${bill.room}&receipt=${bill.period}#receipt/${bill.period}`;
   const uri = LIFF_ID ? `https://liff.line.me/${LIFF_ID}?${tail}` : `${baseUrl}/liff/bill.html?${tail}`;
-  const paidOn = bill.paidAt
-    ? new Date(bill.paidAt).toLocaleDateString("th-TH", { timeZone: "Asia/Bangkok", day: "numeric", month: "short", year: "numeric" })
-    : "-";
   const line = (label, value, bold) => ({
     type: "box",
     layout: "horizontal",
@@ -362,8 +397,9 @@ function receiptBubble(bill, baseUrl) {
         layout: "vertical",
         spacing: "md",
         contents: [
-          { type: "text", text: "ใบเสร็จรับเงิน", weight: "bold", size: "md" },
-          ...(bill.receiptNo ? [{ type: "text", text: `เลขที่ ${bill.receiptNo}`, size: "xs", color: "#8B9AAB" }] : []),
+          { type: "text", text: "ใบเสร็จรับเงิน", weight: "bold", size: "xl", color: CARD.ink },
+          // Paid date right under the title: it is what the tenant checks first on a receipt.
+          dateText("ชำระเมื่อ", bill.paidAt, { color: CARD.muted }),
           { type: "text", text: `ห้อง ${bill.room} · รอบ ${bill.period}`, size: "sm" },
           { type: "separator" },
           {
@@ -377,14 +413,28 @@ function receiptBubble(bill, baseUrl) {
               line("รวม (บาท)", money(bill.total), true),
             ],
           },
-          { type: "text", text: `ชำระเมื่อ ${paidOn}`, size: "xs", color: "#8B9AAB" },
+          // The receipt number is for looking a payment up later, not for reading now: last, small, grey,
+          // set off by a hairline, as a label/value row like the fees above.
+          ...(bill.receiptNo
+            ? [
+                rule(),
+                {
+                  type: "box",
+                  layout: "horizontal",
+                  contents: [
+                    { type: "text", text: "เลขที่ใบเสร็จ", size: "xs", color: CARD.muted, flex: 1 },
+                    { type: "text", text: bill.receiptNo, size: "xs", color: CARD.muted, align: "end", flex: 0 },
+                  ],
+                },
+              ]
+            : []),
         ],
       },
       footer: {
         type: "box",
         layout: "vertical",
         contents: [
-          { type: "button", style: "primary", color: "#4FD8D2", action: { type: "uri", label: "ดูใบเสร็จ", uri } },
+          { type: "button", style: "primary", color: CARD.ink, action: { type: "uri", label: "ดูใบเสร็จ", uri } },
         ],
       },
     },
