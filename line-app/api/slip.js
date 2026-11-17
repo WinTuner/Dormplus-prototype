@@ -91,6 +91,7 @@ module.exports = async (req, res) => {
   const oldSlip = prev?.slipPath || null;
   let slipPath = oldSlip;
   let shot = null;
+  let autoOn = null;
   if (image) {
     const m = /^data:(image\/(jpeg|png|webp));base64,(.+)$/.exec(image);
     if (!m) return fail(res, 400, "VALIDATION", "รูปต้องเป็น JPEG/PNG/WEBP");
@@ -101,6 +102,7 @@ module.exports = async (req, res) => {
     // The provider call and the upload do not depend on each other; running them together saves the
     // tenant about a second on every slip (the verify round trip).
     shot = { pending: verifySlip({ bytes, mime: m[1], amount: bill?.total ?? prev?.total }) };
+    autoOn = autoConfirmOn(); // the dorm read runs alongside the provider call, not after it
     await store.putFile(slipPath, bytes, m[1]);
   }
 
@@ -133,7 +135,7 @@ module.exports = async (req, res) => {
 
   // Auto-confirm, see autoConfirms(). The bill is written once, already paid, so there is no
   // moment where it is `pending` with no owner card.
-  if (autoConfirms({ fresh: !!shot, verify })) {
+  if (await autoConfirms({ fresh: !!shot, verify, autoOn })) {
     const paid = await closeBills(room, [next], { latest, auto: true });
     await Promise.all([
       dropIfUnused(room, oldSlip, slipPath, [bill]),
@@ -168,13 +170,14 @@ module.exports = async (req, res) => {
 // - the final verify result is exactly `ok === true`: the dorm's account, the exact amount, not
 //   reused, not older than 30 days, not transferred before the bill was issued. null (could not
 //   check), false, over, short, stale, early and reused all stay `pending` for the owner,
-// - the owner has not switched it off with SLIP_AUTO_CONFIRM=0|off|false (unset = on).
+// - the dorm turned it on (`dorm.autoConfirm === true`, default off) and the deployment's kill switch
+//   SLIP_AUTO_CONFIRM=0|off|false is not set: see autoConfirmOn() in _pay.js.
 //
 // Advance slips (saveAdvance) are left out on purpose: when they were sent no bill amount existed,
 // so there was nothing to check the transfer against, and the owner decided they stay manual. For
 // the same reason a prepay that /api/run or the second look attaches to a bill still goes to the
 // owner's confirm card, even when its check says ok.
-const autoConfirms = ({ fresh, verify }) => fresh === true && verify?.ok === true && autoConfirmOn();
+const autoConfirms = async ({ fresh, verify, autoOn }) => fresh === true && verify?.ok === true && (await autoOn) === true;
 
 const baseUrlOf = (req) => process.env.PUBLIC_BASE_URL || `https://${req.headers.host}`;
 
@@ -313,6 +316,7 @@ async function saveGroup({ res, req, room, owner, userId, note, image, periods }
   let slipPath = [...found].reverse().find((b) => b.slipPath)?.slipPath || null;
   const total = found.reduce((sum, b) => sum + Number(b.total || 0), 0);
   let shot = null;
+  let autoOn = null;
   if (image) {
     const m = /^data:(image\/(jpeg|png|webp));base64,(.+)$/.exec(image);
     if (!m) return fail(res, 400, "VALIDATION", "รูปต้องเป็น JPEG/PNG/WEBP");
@@ -322,6 +326,7 @@ async function saveGroup({ res, req, room, owner, userId, note, image, periods }
     slipPath = `slips/${room}-${Date.now()}.${ext}`;
     // Upload and provider check in flight together; one round trip less for the tenant.
     shot = { pending: verifySlip({ bytes, mime: m[1], amount: total }) };
+    autoOn = autoConfirmOn();
     await store.putFile(slipPath, bytes, m[1]);
   }
 
@@ -344,7 +349,7 @@ async function saveGroup({ res, req, room, owner, userId, note, image, periods }
   }, checked));
   // A verified slip for the exact sum closes every period at once (see autoConfirms): one write,
   // one notice for the owner, one receipt per period for the tenant.
-  if (autoConfirms({ fresh: !!shot, verify })) {
+  if (await autoConfirms({ fresh: !!shot, verify, autoOn })) {
     const paid = await closeBills(room, next, { latest, auto: true });
     await Promise.all([
       ...oldSlips.map((old) => dropIfUnused(room, old, slipPath, found.filter((b) => b.slipPath === old))),

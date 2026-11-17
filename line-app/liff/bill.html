@@ -876,13 +876,18 @@ async function ownerSettings() {
       <div class="err" id="dormErr" style="margin-top:8px" hidden></div>
     </div>
     <div class="card">
+      <label class="opt"><input type="checkbox" id="sAuto" ${dorm.autoConfirm === true ? "checked" : ""}>
+        <span class="grow">ปิดบิลอัตโนมัติเมื่อสลิปตรวจผ่าน</span></label>
+      <div class="hint">ระบบจะปิดบิลและออกใบเสร็จทันทีโดยเจ้าของไม่เห็นสลิป · ถ้าไม่ใช่ ให้ยกเลิกบิล</div>
+    </div>
+    <div class="card">
       <button class="btn" id="saveDorm">บันทึก</button>
       <div class="hint" style="margin-top:8px">ค่าเช่า/ค่าน้ำ/ค่าไฟ ใช้กับบิลที่ออกหลังจากนี้ · QR พร้อมเพย์ขึ้นกับบิลที่ยังไม่ชำระทันที</div>
     </div>`;
 
   $("saveDorm").onclick = async () => {
     const num = (id) => ($(id).value.trim() === "" ? null : Number($(id).value));
-    const body = { dorm: { name: $("sName").value.trim() || null, rent: num("sRent"), waterRate: num("sWater"), elecRate: num("sElec"), dueDay: num("sDue"), promptpay: $("sPay").value.trim() || null } };
+    const body = { dorm: { name: $("sName").value.trim() || null, rent: num("sRent"), waterRate: num("sWater"), elecRate: num("sElec"), dueDay: num("sDue"), promptpay: $("sPay").value.trim() || null, autoConfirm: $("sAuto").checked } };
     const box = $("dormErr");
     box.hidden = true;
     try {

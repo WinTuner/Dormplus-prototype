@@ -223,6 +223,7 @@ function autoPaidBubble(bills) {
         contents: [
           { type: "text", text, weight: "bold", size: "md", wrap: true },
           { type: "text", text: `รอบ ${periods}`, size: "xs", color: "#8B9AAB", wrap: true },
+          { type: "text", text: "ถ้าไม่ใช่ ให้ยกเลิกบิล", size: "xs", color: "#8B9AAB", wrap: true },
         ],
       },
       ...(LIFF_ID && first.slipPath

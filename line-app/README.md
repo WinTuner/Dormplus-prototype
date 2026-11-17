@@ -159,7 +159,7 @@ LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js
 | GET | `/api/config` | LIFF ID ให้หน้าเว็บ init (public) |
 | GET | `/api/me` | userId / ห้องที่ผูก / `role` (owner · viewer) + `root` (เจ้าของคนแรก) |
 | GET | `/api/bill?room=203` | ดึงบิล (ต้องมี idToken; ผู้เช่าเห็นเฉพาะห้องตัวเอง) · `&period=2026-10` เลือกรอบ · `&history=1` ดูทุกรอบ |
-| POST | `/api/slip` | แนบสลิป (รูปได้) → `pending` + push การ์ดหาเจ้าของ (สลิปบิลรายเดือนที่ตรวจผ่านครบ `ok:true` ปิดเป็น `paid` เอง + แจ้งเจ้าของสั้น ๆ; ปิดได้ด้วย `SLIP_AUTO_CONFIRM=off`) · ผู้เช่า 5 ครั้ง/บิล ห่าง ≥ 30 วิ → `429 SLIP_LIMIT` / `SLIP_TOO_SOON` |
+| POST | `/api/slip` | แนบสลิป (รูปได้) → `pending` + push การ์ดหาเจ้าของ (สลิปบิลรายเดือนที่ตรวจผ่านครบ `ok:true` ปิดเป็น `paid` เอง + แจ้งเจ้าของสั้น ๆ เฉพาะหอที่เปิดสวิตช์ `dorm.autoConfirm` (ค่าเริ่มต้น = ปิด); `SLIP_AUTO_CONFIRM=off` = kill switch ทั้ง deployment) · ผู้เช่า 5 ครั้ง/บิล ห่าง ≥ 30 วิ → `429 SLIP_LIMIT` / `SLIP_TOO_SOON` |
 | GET | `/api/slip-image?room=203` | ดูรูปสลิป (เฉพาะเจ้าของ/ผู้เช่าห้องนั้น) |
 | GET | `/api/rooms` | ทุกห้อง + มิเตอร์ล่าสุด (เจ้าของ/ผู้ช่วย) |
 | POST | `/api/run` | ออกรอบบิลจากหน่วยมิเตอร์ + ส่งการ์ด (เจ้าของเท่านั้น) |
@@ -176,7 +176,7 @@ LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js
 - **แจ้งเตือนอัตโนมัติมีแล้ว แต่ยังไม่มีหน้าจอทวงหนี้** — `GET /api/cron` (Vercel Cron วันละครั้ง) เตือนก่อนครบกำหนด/วันครบกำหนด/เลย 1-5-10 วัน · หน้าจอเป็นรายงานรายรับ + ยอดค้าง
 - **ประวัติเริ่มนับจากรอบที่ออกหลังฟีเจอร์นี้** — บิลเก่าก่อนหน้ามีแค่ `bill:<room>` (รอบล่าสุด) ไม่มี key ต่อรอบ
 - **1 deploy = 1 หอ** — รายชื่อห้องมาจาก env `ROOMS` · เจ้าของหลายคนได้ (owner/viewer) · เจ้าของหอคนแรก (`OWNER_USER_ID`) คนเดียวที่เชิญเจ้าของเพิ่มและถอนสิทธิ์ใครได้ (หน้า "เจ้าของและผู้ช่วย")
-- **ตรวจสลิปกับธนาคาร: ต่อ SlipOK แล้ว แต่ปิดอยู่จนกว่าจะตั้งค่า** — ตั้ง `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` และผูกบัญชีรับเงินของหอใน branch ก่อน; ไม่ตั้ง = ทำงานเหมือนเดิม (`verify.ok = null`) · ระบบตรวจยอด/บัญชีผู้รับ/สลิปซ้ำให้ และ **ปิดบิลรายเดือนเอง** เมื่อรูปใหม่ตรวจผ่านครบ (`ok === true`: บัญชีหอ ยอดตรงเป๊ะ ไม่ซ้ำ ไม่เก่า ไม่ก่อนบิลออก) — ปิดได้ด้วย `SLIP_AUTO_CONFIRM=off`; ผลอื่นทุกแบบ สลิปโอนก่อนบิลออก และ prepay เจ้าของยังกดยืนยันเอง
+- **ตรวจสลิปกับธนาคาร: ต่อ SlipOK แล้ว แต่ปิดอยู่จนกว่าจะตั้งค่า** — ตั้ง `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` และผูกบัญชีรับเงินของหอใน branch ก่อน; ไม่ตั้ง = ทำงานเหมือนเดิม (`verify.ok = null`) · ระบบตรวจยอด/บัญชีผู้รับ/สลิปซ้ำให้ และ **ปิดบิลรายเดือนเอง** เมื่อรูปใหม่ตรวจผ่านครบ (`ok === true`: บัญชีหอ ยอดตรงเป๊ะ ไม่ซ้ำ ไม่เก่า ไม่ก่อนบิลออก) **เฉพาะหอที่เจ้าของเปิดสวิตช์ "ปิดบิลอัตโนมัติ" ในหน้าตั้งค่าหอ (ค่าเริ่มต้น = ปิด)** — `SLIP_AUTO_CONFIRM=0|off|false` เป็น kill switch ทั้ง deployment (Preview ใช้ Blob store เดียวกับ production ให้ตั้ง `=0` ตอนทดสอบ); ผลอื่นทุกแบบ สลิปโอนก่อนบิลออก และ prepay เจ้าของยังกดยืนยันเอง
 - **เพดาน Vercel Hobby 12 ฟังก์ชัน** — ตอนนี้ใช้ **12 ครบพอดี** (`api/*.js` ที่ไม่ขึ้นต้นด้วย `_`) ฟีเจอร์ใหม่ต้องรวมเข้าไฟล์เดิม
 - ข้อมูลอยู่ใน Vercel Blob แบบ key-value ไม่ใช่ Postgres (backend จริงอยู่ใน `backend/`)
 
@@ -201,7 +201,7 @@ LINE_CHANNEL_ACCESS_TOKEN=... LIFF_ID=... node scripts/setup-richmenu.js
 วงจรฝั่งแชท: LINE ส่ง event → `/api/webhook` ตรวจ `x-line-signature` (HMAC-SHA256 ของ raw body) → อ่าน/เขียน Blob → ตอบด้วย reply หรือ push การ์ด Flex
 วงจรฝั่งผู้เช่า: เปิด `/liff/bill.html` → `liff.init()` → เอา `liff.getIDToken()` แนบเป็น `Authorization: Bearer …` ทุก request → API เอาไปตรวจกับ `https://api.line.me/oauth2/v2.1/verify` แล้วได้ LINE userId กลับมา
 
-สถานะบิล: `unpaid` → `pending` (แนบสลิปแล้ว) → `paid` (เจ้าของกดยืนยัน หรือปิดเองเมื่อ SlipOK ตรวจสลิปบิลรายเดือนผ่าน `ok: true`)
+สถานะบิล: `unpaid` → `pending` (แนบสลิปแล้ว) → `paid` (เจ้าของกดยืนยัน หรือปิดเองเมื่อหอเปิดสวิตช์และ SlipOK ตรวจสลิปบิลรายเดือนผ่าน `ok: true`)
 
 > รัน/ทดสอบในเครื่องต้องใช้ **Node.js >= 20** (ตาม `engines` ใน `package.json`) — dependency มี 2 ตัว: `@vercel/blob` (เก็บ state) และ `qrcode-svg` (สร้าง QR ฝั่ง server)
 

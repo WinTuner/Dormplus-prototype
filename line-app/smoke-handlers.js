@@ -1168,7 +1168,7 @@ const { saveBill } = require("./api/_bills");
     try { r = await call(slip, { user: "Ujo", body: { image: png } }); } finally { store.get = g2; }
     assert.strictEqual(r.status, 200);
     assert.ok(!files.has(own), "the replaced photo is deleted");
-    assert.ok(reads <= 6, `a replaced photo scans no bills — 6 reads is the slip + the compact state index (${reads})`);
+    assert.ok(reads <= 7, `a replaced photo scans no bills — 7 reads is the slip + the compact state index + the dorm's auto-confirm switch (${reads})`);
 
     global.fetch = realFetch;
   }
@@ -1224,13 +1224,37 @@ const { saveBill } = require("./api/_bills");
     [verifyOf().ok, verifyOf().amount, verifyOf().transRef, verifyOf().provider],
     [true, 3500, "REF-OK", "slipok"],
   );
-  // A new photo that is verified end to end (ok === true) closes the monthly bill with no owner tap.
+  assert.strictEqual(data.get("bill:210").status, "pending", "verification never pays the bill on its own");
+  assert.ok(data.get("slip-ref:REF-OK"), "the transaction reference is remembered for the next slip");
+  assert.ok(pushed.slice(-1).some((p) => p.to === "Uowner"), "with the switch unset the owner still gets the confirm card");
+
+  // The dorm's switch: only dorm.autoConfirm === true lets a fully verified slip close the bill.
+  data.set("dorm", { autoConfirm: false });
+  resetV();
+  r = await call(slip, { body: { image: png }, user: "Udave" });
+  assert.deepStrictEqual([r.body.status, r.body.autoConfirmed, data.get("bill:210").status], ["pending", undefined, "pending"], "autoConfirm false = owner decides");
+
+  data.set("dorm", { autoConfirm: "true" });
+  resetV();
+  r = await call(slip, { body: { image: png }, user: "Udave" });
+  assert.strictEqual(data.get("bill:210").status, "pending", "only a real boolean true turns it on");
+
+  data.set("dorm", { autoConfirm: true });
+  resetV();
+  r = await call(slip, { body: { image: png }, user: "Udave" });
   assert.deepStrictEqual(
     [r.body.status, r.body.autoConfirmed, data.get("bill:210").status, data.get("bill:210").autoConfirmed, data.get("bill:210").confirmedBy, data.get("bill:210").confirmedVia],
     ["paid", true, "paid", true, null, "slipok"],
-    "a fully verified slip pays the bill on its own",
+    "dorm.autoConfirm true: a fully verified slip pays the bill on its own",
   );
-  assert.ok(data.get("slip-ref:REF-OK"), "the transaction reference is remembered for the next slip");
+
+  // The deployment kill switch wins over the dorm (Preview shares the production store).
+  process.env.SLIP_AUTO_CONFIRM = "0";
+  resetV();
+  r = await call(slip, { body: { image: png }, user: "Udave" });
+  assert.deepStrictEqual([r.body.status, data.get("bill:210").status], ["pending", "pending"], "SLIP_AUTO_CONFIRM=0 beats dorm.autoConfirm true");
+  delete process.env.SLIP_AUTO_CONFIRM;
+  data.delete("dorm");
 
   // The same slip, second bill: our own key catches it even if SlipOK says it is fine.
   data.set("bill:211", { ...vBill, room: "211" });
@@ -1290,11 +1314,23 @@ const { saveBill } = require("./api/_bills");
     [true, true],
     "every period of the group carries the result",
   );
+  assert.strictEqual(data.get("bill:2026-11:210").status, "pending", "a verified group still waits for the owner");
+
+  // Same group slip with the dorm switch on: every period closes at once.
+  data.set("dorm", { autoConfirm: true });
+  resetV();
+  data.set("bill:210", { ...vBill, status: "unpaid" });
+  data.set("bill:2026-11:210", { ...vBill, status: "unpaid" });
+  data.set("bill:2026-10:210", { ...vBill, period: "2026-10", status: "unpaid" });
+  data.set("bills:210", ["2026-10", "2026-11"]);
+  data.delete("slip-ref:REF-GROUP");
+  r = await call(slip, { body: { image: png, periods: ["2026-10", "2026-11"] }, user: "Udave" });
   assert.deepStrictEqual(
     [r.body.status, r.body.autoConfirmed, data.get("bill:2026-10:210").status, data.get("bill:2026-11:210").status],
     ["paid", true, "paid", "paid"],
-    "a verified group slip pays every period on its own",
+    "dorm.autoConfirm true: a verified group slip pays every period on its own",
   );
+  data.delete("dorm");
 
   // An advance slip (no bill yet) keeps its verification, and the owner's room list shows it.
   resetV();
@@ -1439,8 +1475,27 @@ const { saveBill } = require("./api/_bills");
   r = await call(rooms, { body: { dorm: { rent: null } }, user: "Uowner" });
   assert.strictEqual(r.body.defaults.rent, 3500, "null clears the override and the env default is back");
 
+  // The auto-confirm switch: a real boolean, owner only, read back by the settings screen.
+  r = await call(rooms, { method: "GET", query: { settings: "1" }, user: "Uowner" });
+  assert.strictEqual(r.body.dorm.autoConfirm, undefined, "never set = off");
+  for (const bad of ["true", 1, 0, null, "", {}]) {
+    r = await call(rooms, { body: { dorm: { autoConfirm: bad } }, user: "Uowner" });
+    assert.strictEqual(r.status, 400, `autoConfirm ${JSON.stringify(bad)} is not a boolean`);
+  }
+  assert.notStrictEqual((data.get("dorm") || {}).autoConfirm, true, "a rejected value writes nothing");
+  assert.strictEqual((await call(rooms, { body: { dorm: { autoConfirm: true } }, user: "Uhelper" })).status, 403, "a viewer cannot turn it on");
+  assert.notStrictEqual((data.get("dorm") || {}).autoConfirm, true);
+  r = await call(rooms, { body: { dorm: { autoConfirm: true } }, user: "Uowner" });
+  assert.deepStrictEqual([r.status, r.body.dorm.autoConfirm, data.get("dorm").autoConfirm, data.get("dorm").name], [200, true, true, "หอทดสอบ"], "saved with the other fields kept");
+  r = await call(rooms, { method: "GET", query: { settings: "1" }, user: "Uowner" });
+  assert.strictEqual(r.body.dorm.autoConfirm, true, "the settings screen reads it back");
+  assert.strictEqual((await call(rooms, { method: "GET", query: { settings: "1" }, user: "Uhelper" })).body.dorm.autoConfirm, true, "a viewer can read it");
+  r = await call(rooms, { body: { dorm: { autoConfirm: false } }, user: "Uowner" });
+  assert.deepStrictEqual([r.status, data.get("dorm").autoConfirm], [200, false], "false turns it off");
+
   // Put the dorm back so a later run of this file starts clean.
-  await call(rooms, { body: { dorm: { name: null, dueDay: null } }, user: "Uowner" });
+  await call(rooms, { body: { dorm: { name: null, dueDay: null, autoConfirm: false } }, user: "Uowner" });
+  data.delete("dorm");
   data.delete("room:202"); data.delete("bill:203"); data.delete("bill:2026-12:203");
   data.delete("bills:203"); data.delete("meter:203");
 

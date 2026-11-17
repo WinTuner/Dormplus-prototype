@@ -109,7 +109,7 @@ curl.exe -s -H "x-seed-token: <SEED_TOKEN>" "$B/api/bill?room=203"
 | `kv/room-<room>.json` | `{ rent, waterRate, elecRate }` — ค่าเช่าเฉพาะห้อง (เขียนโดย `POST /api/rooms`) |
 | `slips/<room>-<ts>.jpg` | รูปสลิป (private) |
 
-`status`: `unpaid` → `pending` (แนบสลิป) → `paid` (เจ้าของยืนยัน — หรือปิดเองทันทีเมื่อ SlipOK ตรวจสลิปบิลรายเดือนผ่าน `ok: true`, `autoConfirmed: true`) · `void` = เจ้าของยกเลิกบิล (ออกใหม่ได้ด้วย `rev + 1`) · สลิปโอนก่อนบิลออก/prepay ยังรอเจ้าของยืนยันเสมอ
+`status`: `unpaid` → `pending` (แนบสลิป) → `paid` (เจ้าของยืนยัน — หรือปิดเองทันทีเมื่อหอเปิดสวิตช์ `dorm.autoConfirm` (ค่าเริ่มต้น = ปิด) และ SlipOK ตรวจสลิปบิลรายเดือนผ่าน `ok: true`, `autoConfirmed: true`; env `SLIP_AUTO_CONFIRM=0` ปิดทั้ง deployment — Preview ใช้ Blob store เดียวกับ production ให้ตั้ง `=0` ตอนทดสอบ) · `void` = เจ้าของยกเลิกบิล (ออกใหม่ได้ด้วย `rev + 1`) · สลิปโอนก่อนบิลออก/prepay ยังรอเจ้าของยืนยันเสมอ
 
 > ⚠️ **เพดาน Vercel Hobby: 12 serverless functions ต่อ deployment** — ตอนนี้ใช้ **12 ครบพอดี** (`api/*.js` ที่ไม่ขึ้นต้นด้วย `_`; helper ขึ้นต้นด้วย `_` ไม่นับ) ไม่เหลือที่ว่าง — endpoint ใหม่ต้องรวมเข้าไฟล์เดิม ไม่งั้น deploy ล้มด้วย `exceeded_serverless_functions_per_deployment`
 

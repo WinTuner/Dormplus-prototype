@@ -1,6 +1,7 @@
 // Closing a bill as paid. Shared by the owner's confirm tap (api/webhook.js) and by the automatic
 // confirm of a verified slip (api/slip.js), so the receipt is the same whoever closed the bill.
 const store = require("./_store");
+const { dormOf } = require("./_rooms");
 const { push, receiptBubble, autoPaidBubble } = require("./_line");
 const { saveBills, tenancyOf, visibleToTenant, receiptNoOf, tagOverpaid, overpaidOf } = require("./_bills");
 
@@ -87,7 +88,20 @@ async function notifyAutoPaid(paidBills) {
   }
 }
 
-// Auto-confirm is on unless the dorm switched it off with SLIP_AUTO_CONFIRM=0|off|false.
-const autoConfirmOn = () => !["0", "off", "false"].includes(String(process.env.SLIP_AUTO_CONFIRM ?? "").trim().toLowerCase());
+// Auto-confirm belongs to the dorm and is off until the owner turns it on in the settings
+// (`dorm.autoConfirm === true`). SLIP_AUTO_CONFIRM=0|off|false is a kill switch for the whole
+// deployment and wins over the dorm: Preview shares the production Blob store, so a Preview
+// deployment must be able to stay off even when the real dorm has it on.
+// Returns a promise so a caller can start it early, in parallel with the slip check. It never
+// rejects: if the dorm cannot be read the answer is "off", the safe side (the owner confirms).
+async function autoConfirmOn() {
+  if (["0", "off", "false"].includes(String(process.env.SLIP_AUTO_CONFIRM ?? "").trim().toLowerCase())) return false;
+  try {
+    return ((await dormOf()) || {}).autoConfirm === true;
+  } catch (err) {
+    console.error("auto-confirm switch unreadable, treating as off", err.message);
+    return false;
+  }
+}
 
 module.exports = { paidCopy, closeBills, sendReceipts, refundNote, notifyAutoPaid, autoConfirmOn };
