@@ -108,11 +108,11 @@ function thaiDateParts(value) {
   return { day: get("day"), month: get("month"), year: get("year") };
 }
 
-// "label  17 พฤศจิกายน 2569" as one text line: day, month and year all at the same size (sm, not
+// "label 17 พฤศจิกายน 2569" as one text line: day, month and year all at the same size (sm, not
 // xs), the day bold so the eye lands on it, label and date in one colour.
 const dateText = (label, value, { color = CARD.ink, labelColor = color } = {}) => {
   const p = thaiDateParts(value);
-  const spans = [{ type: "span", text: `${label}  `, color: labelColor }];
+  const spans = [{ type: "span", text: `${label} `, color: labelColor }];
   if (p) {
     spans.push(
       { type: "span", text: p.day, weight: "bold", color },
@@ -209,7 +209,7 @@ function billBubble(bill, baseUrl) {
             type: "box",
             layout: "horizontal",
             contents: [
-              { type: "text", text: `ห้อง ${bill.room}`, weight: "bold", size: "xxl", color: "#000000", flex: 1, gravity: "center" },
+              { type: "text", text: `ห้อง ${bill.room}`, weight: "bold", size: "xxl", color: CARD.ink, flex: 1, gravity: "center" },
               chip(bill.period),
             ],
           },
