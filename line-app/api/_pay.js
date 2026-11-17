@@ -13,8 +13,8 @@ const PUSH_MAX_MESSAGES = 5; // LINE accepts at most 5 messages in one push
 // refunded in POST /api/bill; see overpaidOf for which bill of a group slip carries it).
 // `userId` is the owner who tapped confirm. `auto` marks a bill the slip check closed by itself:
 // nobody tapped, so `confirmedBy` is null and `confirmedVia` says who decided.
-const paidCopy = (bill, userId, { auto = false } = {}) => {
-  const over = overpaidOf(bill);
+const paidCopy = (bill, userId, { auto = false, closing = null } = {}) => {
+  const over = overpaidOf(bill, closing);
   return {
     ...bill,
     status: "paid",
@@ -28,7 +28,7 @@ const paidCopy = (bill, userId, { auto = false } = {}) => {
 
 // Save the paid bills (one write per key) and tag any overpayment so the owner can find the refund.
 async function closeBills(room, bills, { latest, userId, auto } = {}) {
-  const paid = bills.map((b) => paidCopy(b, userId, { auto }));
+  const paid = bills.map((b) => paidCopy(b, userId, { auto, closing: bills }));
   await saveBills(paid, { latest });
   await tagOverpaid(room, paid.filter((b) => b.refundReason === "overpaid"));
   return paid;

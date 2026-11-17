@@ -207,6 +207,19 @@ async function bind(req, res, userId, code) {
   joined.push({ id: userId, name, at: new Date().toISOString() });
   await store.set(`room-users:${room}`, joined);
 
+  // Two people can scan the same sticker at the same moment (Blob has no compare-and-set): both read
+  // an empty room and both would think they are the first arrival. Whoever the room ended up with
+  // wins; the other must not keep a binding that would serve them the room's bills.
+  if (!holder) {
+    const [nowHolder, nowMembers] = await Promise.all([store.get(`room-user:${room}`), membersOf(room)]);
+    if (nowHolder !== userId && !nowMembers.some((m) => idOf(m) === userId)) {
+      await store.set(`user-room:${userId}`, null);
+      return res.status(409).json({
+        error: { code: "ROOM_TAKEN", message: `ห้อง ${room} เพิ่งมีผู้เช่าผูกไว้ก่อน — ให้เจ้าของหอออก QR “เพิ่มผู้เช่า”` },
+      });
+    }
+  }
+
   if (process.env.RICHMENU_TENANT_ID) {
     await linkRichMenu(userId, process.env.RICHMENU_TENANT_ID).catch((err) =>
       console.error("richmenu link failed", err.message)

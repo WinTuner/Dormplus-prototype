@@ -18,7 +18,7 @@ const { mapLimit } = require("./_async");
 const { push, confirmBubble } = require("./_line");
 const { requireUser, isOwner } = require("./_auth");
 const { verifySlip, markStale, markEarly, checkAmount, amountFields } = require("./_verify");
-const { usable, attachPrepay } = require("./_prepay");
+const { usableIn, attachPrepay } = require("./_prepay");
 const { closeBills, sendReceipts, notifyAutoPaid, autoConfirmOn } = require("./_pay");
 
 const MAX_BYTES = 3 * 1024 * 1024;
@@ -114,20 +114,32 @@ module.exports = async (req, res) => {
   let verify = prev?.slipVerify || null;
   let amounts = null;
   if (shot) {
-    amounts = advance ? { verify: await shot.pending } : checkAmount(await shot.pending, bill.total);
-    verify = markStale(await rememberRef(amounts.verify, room));
+    // Recorded before the amount comparison: SlipOK verified the transfer, so its reference must be
+    // claimed even when our own check then says the amount is wrong — otherwise the same slip could
+    // be resent against a bill whose total it happens to match.
+    const claimed = await rememberRef(await shot.pending, room);
+    amounts = advance ? { verify: claimed } : checkAmount(claimed, bill.total);
+    verify = markStale(amounts.verify);
     if (!advance) verify = markEarly(verify, bill.issuedAt);
   }
 
   if (advance) return saveAdvance({ res, room, userId, owner, latest, note, slipPath, sent, verify });
 
+  // The bill was read before the provider call; the owner may have confirmed or cancelled it since.
+  // Blob has no compare-and-set, so this second look is the only guard: a paid bill must never fall
+  // back to `pending` (its receipt would vanish from the ledger), and a void one must not come back.
+  const fresh = await store.get(`bill:${bill.period}:${room}`);
+  if (fresh && fresh.status !== "unpaid" && fresh.status !== "pending") {
+    return fail(res, 409, "INVALID_STATE", `บิลนี้${fresh.status === "paid" ? "ยืนยันการชำระ" : "ถูกยกเลิก"}ไปแล้ว — ไม่รับสลิป`);
+  }
+
   let next = {
-    ...bill,
+    ...(fresh || bill),
     status: "pending",
     slipPath,
     slipNote: note || null,
     slipAt: new Date().toISOString(),
-    slipCount: sent + 1,
+    slipCount: Math.max(sent, fresh?.slipCount || 0) + 1,
     slipVerify: verify,
   };
   if (amounts) next = withAmounts(next, amounts);
@@ -248,7 +260,7 @@ async function attachToNewBill({ room, owner, latest, prepay }) {
   // Same rules as /api/run: a tenant's slip is the current tenant's (an owner-recorded one is the
   // room's), and the previous tenant's bill is not open for it.
   const [tenant, tenancy] = await Promise.all([store.get(`room-user:${room}`), owner ? null : tenancyOf(room)]);
-  if (!usable(prepay, tenant) || (!owner && !visibleToTenant(fresh, tenancy))) return null;
+  if (!await usableIn(prepay, room, tenant) || (!owner && !visibleToTenant(fresh, tenancy))) return null;
 
   return attachPrepay({ bill: fresh, prepay, latest: fresh });
 }
@@ -302,11 +314,15 @@ async function saveGroup({ res, req, room, owner, userId, note, image, periods }
   }
 
   const newest = found[found.length - 1]; // periods are sorted
+  // The limit is counted on the newest bill of the group AND on the room's newest bill: a group whose
+  // only period is an old one must not dodge the 5-slip ceiling or the 30-second gap and push a fresh
+  // owner card each time.
+  const gates = [newest, latest].filter(Boolean);
   if (!owner) {
-    if ((newest.slipCount || 0) >= MAX_SLIPS_PER_BILL) {
+    if (gates.some((b) => (b.slipCount || 0) >= MAX_SLIPS_PER_BILL)) {
       return fail(res, 429, "SLIP_LIMIT", `ส่งสลิปของบิลนี้ครบ ${MAX_SLIPS_PER_BILL} ครั้งแล้ว — ติดต่อเจ้าของหอ`);
     }
-    if (newest.slipAt && Date.now() - new Date(newest.slipAt).getTime() < MIN_GAP_MS) {
+    if (gates.some((b) => b.slipAt && Date.now() - new Date(b.slipAt).getTime() < MIN_GAP_MS)) {
       return fail(res, 429, "SLIP_TOO_SOON", "เพิ่งส่งสลิปไปเมื่อสักครู่ — รอ 30 วินาทีแล้วลองใหม่");
     }
   }
@@ -333,9 +349,9 @@ async function saveGroup({ res, req, room, owner, userId, note, image, periods }
   // One transfer for several months: the slip must be for the sum, not for one month. The amount
   // facts live in `slipGroup` (the confirm finds them there) and are copied onto every bill. The
   // transfer-before-issue rule uses the NEWEST bill: a slip older than it cannot have paid it.
-  const checked = checkAmount(shot ? await shot.pending : found.map((b) => b.slipVerify).find(Boolean) || null, total);
+  const checked = checkAmount(shot ? await rememberRef(await shot.pending, room) : found.map((b) => b.slipVerify).find(Boolean) || null, total);
   let verify = checked.verify;
-  if (shot) verify = markEarly(markStale(await rememberRef(verify, room)), newest.issuedAt);
+  if (shot) verify = markEarly(markStale(verify), newest.issuedAt);
   const slipAt = new Date().toISOString();
   const next = found.map((b) => withAmounts({
     ...b,
@@ -347,6 +363,13 @@ async function saveGroup({ res, req, room, owner, userId, note, image, periods }
     slipGroup: { periods, total, ...amountFields(checked) },
     slipVerify: verify,
   }, checked));
+  // The same second look as the single-slip path: a period the owner confirmed or cancelled while
+  // the provider was checking must not be pulled back to `pending`.
+  const again = await Promise.all(periods.map((p) => store.get(`bill:${p}:${room}`)));
+  if (again.some((b) => b && b.status !== "unpaid" && b.status !== "pending")) {
+    return fail(res, 409, "INVALID_STATE", "มีงวดที่ถูกยืนยันหรือยกเลิกไปแล้ว — ส่งสลิปใหม่อีกครั้ง");
+  }
+
   // A verified slip for the exact sum closes every period at once (see autoConfirms): one write,
   // one notice for the owner, one receipt per period for the tenant.
   if (await autoConfirms({ fresh: !!shot, verify, autoOn })) {
