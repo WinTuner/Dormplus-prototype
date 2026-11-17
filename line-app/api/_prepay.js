@@ -11,6 +11,14 @@ const { push, confirmBubble } = require("./_line");
 // A slip the OWNER recorded (`byStaff`) is about the room, not a person: always usable.
 const usable = (prepay, tenant) => !!prepay && (!prepay.by || !!prepay.byStaff || prepay.by === tenant);
 
+// A roommate who bound through the add-member QR is a tenant of the same room, so their advance slip
+// must attach too. `user-room:<id>` still points at the room only while that account is a tenant, so
+// a previous tenant's leftover record is refused here exactly as `usable` refuses it.
+async function usableIn(prepay, room, tenant) {
+  if (usable(prepay, tenant)) return true;
+  return !!prepay && !prepay.byStaff && (await store.get(`user-room:${prepay.by}`)) === room;
+}
+
 // Clear only the record this bill consumed. A slip that arrived while the bill was being written
 // has a different slipAt and must survive for the next bill (Blob has no compare-and-set).
 async function clearPrepay(room, prepay) {
@@ -38,4 +46,4 @@ async function attachPrepay({ bill, prepay, latest, notify = true }) {
   return next;
 }
 
-module.exports = { usable, clearPrepay, notifyOwner, attachPrepay };
+module.exports = { usable, usableIn, clearPrepay, notifyOwner, attachPrepay };

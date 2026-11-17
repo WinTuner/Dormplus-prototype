@@ -59,7 +59,14 @@ module.exports = async (req, res) => {
     };
   });
 
-  return res.status(200).json({ period: process.env.BILL_PERIOD || null, dorm: (dorm && dorm.name) || null, rooms });
+  // `dueDay` rides along so the owner screen can prefill the round's due date from the dorm setting
+  // instead of its own hardcoded day (the setting was only ever read by run.js when the body left `due` out).
+  return res.status(200).json({
+    period: process.env.BILL_PERIOD || null,
+    dorm: (dorm && dorm.name) || null,
+    dueDay: (dorm && dorm.dueDay) || null,
+    rooms,
+  });
 };
 
 // A new price only reaches the bills issued after it: an existing bill keeps the total it was

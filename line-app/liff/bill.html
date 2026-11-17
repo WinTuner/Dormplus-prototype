@@ -336,17 +336,21 @@ function snapResult(dial, prev) {
 }
 
 
-// Slip images are private: fetch with the token and keep one object URL per room.
+// Slip images are private: fetch with the token. The cache is keyed by the slip's path, because a
+// rejected slip is replaced by a new one under the same room — a room-only key would keep showing the
+// old photo and the owner could confirm a slip they never saw.
 const slipUrls = {};
-async function slipUrl(room, advance) {
-  // An advance slip can be replaced by the tenant, so it is never cached.
-  if (!advance && slipUrls[room]) return slipUrls[room];
+async function slipUrl(room, advance, path) {
+  // An advance slip can be replaced by the tenant, so it is never cached; a slip with no path is a
+  // one-off view (the full-screen sheet) and is fetched fresh every time.
+  const key = `${room}:${path || ""}`;
+  if (!advance && path && slipUrls[key]) return slipUrls[key];
   const res = await fetch(`/api/slip-image?room=${encodeURIComponent(room)}${advance ? "&advance=1" : ""}`, {
     headers: { Authorization: `Bearer ${idToken}` },
   });
   if (!res.ok) throw new Error("โหลดสลิปไม่สำเร็จ");
   const url = URL.createObjectURL(await res.blob());
-  if (!advance) slipUrls[room] = url;
+  if (!advance && path) slipUrls[key] = url;
   return url;
 }
 
@@ -695,7 +699,7 @@ async function receiptScreen(room, period, back) {
 // ---------- owner ----------
 // O holds the owner's data; the round's typed units live in a local draft until "ออกบิล".
 let O = null;
-const DUE_DAY = 16;
+const DUE_DAY = 16; // used only when the dorm has no dueDay of its own
 const nextPeriod = (p) => {
   if (!p || !/^\d{4}-\d{2}$/.test(p)) return "";
   const y = Number(p.slice(0, 4));
@@ -775,9 +779,12 @@ async function loadOwner() {
     O.rooms = data.rooms;
     O.dormName = data.dorm || null;
     O.cfg = Object.fromEntries(data.rooms.map((r) => [r.room, r.config]));
+    O.dueDay = data.dueDay || null;
     if (!O.period) {
       O.period = currentRound(data.rooms, data.period);
-      O.due = O.period ? `${O.period}-${String(DUE_DAY).padStart(2, "0")}` : "";
+      // The dorm's own due day wins; the page's 16 is only the fallback for a dorm that never set one.
+      // Sending `due` at all means run.js never gets to look the setting up itself.
+      O.due = O.period ? `${O.period}-${String(O.dueDay || DUE_DAY).padStart(2, "0")}` : "";
     }
     O.draft = loadDraft();
   } catch (e) {
@@ -910,7 +917,7 @@ async function ownerSettings() {
       <div class="field"><label for="sDue">วันครบกำหนด (วันที่ของเดือนที่ออกบิล)</label>
         <div class="in"><input id="sDue" type="number" min="1" max="28" step="1" inputmode="numeric" value="${dorm.dueDay || ""}" placeholder="เช่น 5"></div>
       </div>
-      <div class="hint">เว้นว่าง = ไม่กำหนดวันครบกำหนด (บิลจะไม่มีกำหนด)</div>
+      <div class="hint">เว้นว่าง = ใช้วันที่ 16 ของเดือนที่ออกบิล (หน้าออกบิลแก้ไขเฉพาะรอบได้)</div>
     </div>
     <div class="card">
       <div class="field"><label for="sPay">พร้อมเพย์ (เบอร์มือถือ 10 หลัก / บัตรประชาชน 13 หลัก / e-Wallet 15 หลัก)</label>
@@ -1608,7 +1615,7 @@ function ownerReview(tab, loaded) {
     const room = el.dataset.slip;
     if (!O.rooms.find((r) => r.room === room)?.bill?.slipPath) return;
     el.onclick = () => showSlip(room);
-    try { el.innerHTML = `<img src="${await slipUrl(room)}" alt="สลิป">`; } catch { el.textContent = "โหลดไม่ได้"; }
+    try { el.innerHTML = `<img src="${await slipUrl(room, false, O.rooms.find((r) => r.room === room)?.bill?.slipPath)}" alt="สลิป">`; } catch { el.textContent = "โหลดไม่ได้"; }
   });
 }
 
