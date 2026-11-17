@@ -325,7 +325,7 @@ Vercel serverless ไม่รัน migration ตอน deploy และไม�
 ปกติ schema มาก่อนโค้ด แต่ `0004` กลับกัน เพราะมันเปิด `force row level security` ทุกตารางที่ผูกหอ:
 
 - policy เทียบ `property_id` กับ `current_setting('app.property_id', true)`
-- แอปตั้งค่านี้ต่อ connection ที่ `app/db.py` → `attach_property()` (`select set_config('app.property_id', …)`)
+- แอปตั้งค่านี้ต่อ transaction (`set_config(..., true)` ตอน `begin`) ที่ `app/db.py` → `attach_property()` (`select set_config('app.property_id', …)`)
   โดยอ่านจาก env `PROPERTY_ID` ของ deployment
 - **setting ที่ไม่ถูกตั้ง = `NULL` = predicate ไม่ match อะไรเลย → อ่านได้ 0 แถว (fail closed)**
   ไม่ใช่ "เห็นทุกหอ"

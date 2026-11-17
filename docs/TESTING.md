@@ -230,7 +230,7 @@ pytest -q
 
 | fixture | ทำอะไร |
 |---|---|
-| `engine` (session scope) | ถ้าไม่มี `TEST_DATABASE_URL` → `pytest.skip` ทั้งไฟล์ที่ขอ · downgrade ถึง `base` แล้ว upgrade ถึง `head` ครั้งเดียวต่อ session · ต่อ engine ผ่าน `attach_property(..., "p_1")` เพื่อตั้ง `app.property_id` เหมือนแอป |
+| `engine` (session scope) | ถ้าไม่มี `TEST_DATABASE_URL` → `pytest.skip` ทั้งไฟล์ที่ขอ · downgrade ถึง `base` แล้ว upgrade ถึง `head` ครั้งเดียวต่อ session · ต่อ engine ผ่าน `attach_property(..., "p_1")` เพื่อตั้ง `app.property_id` เหมือนแอป (ต่อ transaction) |
 | `seeded` | truncate 12 ตาราง (`... restart identity cascade`) แล้วรัน `seed()` ใหม่ทุก test |
 | `client_for` | สร้าง `TestClient` บน engine ที่ส่งมา และ override `get_engine` / `current_session` / `today` ได้ |
 | `owner`, `phone`, `line_ready`, `billed`, `second_dorm` | ตัวช่วยเฉพาะไฟล์ (สร้าง invite/ผู้เช่า, ตั้ง LINE ให้พร้อม, สร้างบิลก่อน test) |
@@ -244,7 +244,7 @@ pytest -q
 - ไม่มี worker ของ Procrastinate: `test_cron.py` แทน `due_for_reminder`, `queue_reminders`, `drain_queue` ด้วย stub ทั้งสามตัว · `test_dunning.py` stub แค่ `queue_reminders` แล้วทดสอบ `due_for_reminder` ตัวจริง
 - การ push LINE ถูก monkeypatch — ไม่มีข้อความจริงถูกส่ง
 - test ที่ต้อง DB ทั้งหมด **ไม่รัน** ถ้าไม่มี Postgres: เขียวทั้ง suite ทั้งที่ตัวที่รันจริงเหลือ 25 ตัว (ดูข้อ 10)
-- `test_rls.py` ตรวจ policy ในทรานแซกชันเดียวที่สลับ role — ไม่ได้พิสูจน์ว่า connection pool ของแอปตั้ง `app.property_id` ถูกทุกครั้ง (นั่นคือหน้าที่ของ `attach_property` ซึ่ง test ไม่ครอบ)
+- `test_rls.py` ตรวจ policy ในทรานแซกชันเดียวที่สลับ role — ไม่ได้พิสูจน์ว่า connection pool ของแอปตั้ง `app.property_id` ถูกทุกครั้ง (นั่นคือหน้าที่ของ `attach_property`; `tests/test_db.py` ตรวจว่าตั้งทุก transaction และไม่ค้างเป็น session setting)
 
 ---
 

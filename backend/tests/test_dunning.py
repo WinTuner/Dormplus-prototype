@@ -115,7 +115,8 @@ def test_due_for_reminder_uses_one_select(seeded):
     calls = []
 
     def capture(_conn, _cursor, statement, _parameters, _context, executemany):
-        if statement.lstrip().lower().startswith("select"):
+        # The per-transaction set_config from attach_property is not part of the query under test.
+        if statement.lstrip().lower().startswith("select") and "set_config" not in statement:
             calls.append((statement, executemany))
 
     event.listen(seeded, "before_cursor_execute", capture)
