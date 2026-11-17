@@ -37,8 +37,9 @@ async def drain_queue() -> None:
 
     The async app is deliberate: `run_worker` runs an event loop and needs the async connector.
     """
-    from app.queue import async_app
+    from app.queue import get_async_app
 
+    async_app = get_async_app()
     async with async_app.open_async():
         await async_app.run_worker_async(
             wait=False,

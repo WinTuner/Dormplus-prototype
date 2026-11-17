@@ -7,9 +7,13 @@
 `app/routes/cron.py` runs `run_worker(wait=False)`, so a serverless invocation can send the whole
 queue and return; nothing has to stay running between cron runs.
 """
-import procrastinate
+from functools import lru_cache
+from typing import TYPE_CHECKING
 
 from app.config import get_settings
+
+if TYPE_CHECKING:
+    import procrastinate
 
 
 def _conninfo() -> str:
@@ -17,11 +21,20 @@ def _conninfo() -> str:
     return get_settings().database_url.replace("postgresql+psycopg://", "postgresql://")
 
 
-app = procrastinate.App(
-    connector=procrastinate.SyncPsycopgConnector(conninfo=_conninfo()),
-    # The worker imports these to find the tasks.
-    import_paths=["app.tasks"],
-)
+# procrastinate costs ~200 ms to import and most requests never touch the queue, so the two App
+# objects are built on first use instead of at import time (cold starts on Vercel pay for every
+# import). `app.queue.app` and `app.queue.async_app` still work as attributes through the module
+# `__getattr__` below, which is what `procrastinate -a app.queue.app worker` resolves.
+@lru_cache
+def get_app() -> "procrastinate.App":
+    import procrastinate
+
+    return procrastinate.App(
+        connector=procrastinate.SyncPsycopgConnector(conninfo=_conninfo()),
+        # The worker imports these to find the tasks.
+        import_paths=["app.tasks"],
+    )
+
 
 # `App.run_worker` is only a thin wrapper around `asyncio.run(run_worker_async())`, and that path
 # requires an async connector; the sync one is what the request handlers use. The cron drain
@@ -29,10 +42,22 @@ app = procrastinate.App(
 #
 # Local note: psycopg's async mode refuses Windows' ProactorEventLoop, so a manual drain on Windows
 # needs asyncio.run(..., loop_factory=asyncio.SelectorEventLoop). Linux (Vercel) is unaffected.
-async_app = procrastinate.App(
-    connector=procrastinate.PsycopgConnector(conninfo=_conninfo()),
-    import_paths=["app.tasks"],
-)
+@lru_cache
+def get_async_app() -> "procrastinate.App":
+    import procrastinate
+
+    return procrastinate.App(
+        connector=procrastinate.PsycopgConnector(conninfo=_conninfo()),
+        import_paths=["app.tasks"],
+    )
+
+
+def __getattr__(name: str):
+    if name == "app":
+        return get_app()
+    if name == "async_app":
+        return get_async_app()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def apply_schema() -> None:
@@ -41,6 +66,7 @@ def apply_schema() -> None:
     `procrastinate schema --apply` refuses a sync connector, which is what a serverless function
     wants, so the same migration runs from here: `python -m app.queue`.
     """
+    app = get_app()
     with app.open():
         app.schema_manager.apply_schema()
 

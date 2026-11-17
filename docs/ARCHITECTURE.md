@@ -273,8 +273,8 @@ schema อยู่ที่ `db/schema.sql` (snapshot อ่านอย่า�
 
 RLS ทำงานจริงตั้งแต่ migration `0004`:
 
-- `backend/app/db.py` → `attach_property()` ผูก `app.property_id` ให้ทุก connection ตอน `connect`
-  (`select set_config('app.property_id', ..., false)`) ด้วยค่า `PROPERTY_ID` ของ deployment
+- `backend/app/db.py` → `attach_property()` ผูก `app.property_id` ให้ทุก transaction ตอน `begin`
+  (`select set_config('app.property_id', ..., true)` — local ต่อ transaction เพราะ PgBouncer แบบ transaction pooling อาจสลับ server connection ระหว่าง transaction) ด้วยค่า `PROPERTY_ID` ของ deployment
   (หนึ่ง deployment = หนึ่งหอ, `backend/app/config.py`)
 - policy ของแต่ละตารางเทียบ `property_id` กับ `current_setting('app.property_id', true)` และถูก
   `force row level security` เพราะ app ต่อด้วย user ที่เป็นเจ้าของตาราง (เจ้าของข้าม policy ได้ถ้าไม่ force)
@@ -656,7 +656,7 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 | `current_session` | `backend/app/auth.py` | แปลง cookie/DEV headers เป็น `Session(user_id, role, property_id, room_id)` |
 | `sign` / `unsign` | `backend/app/session.py` | session cookie แบบ signed-not-encrypted ด้วย stdlib HMAC |
 | `_set_session_cookie` / `start_tenant_session` | `backend/app/routes/auth.py` | ที่เดียวที่เซ็น cookie `dp_session` — LINE login กับ `login_owner` ใช้ร่วมกัน (เจ้าของได้ `uid:"owner"`, `role:"owner"`) จึงมีกลไก session ชุดเดียว |
-| `attach_property(engine, property_id)` | `backend/app/db.py` | ผูก `app.property_id` ให้ทุก connection ตอน connect (เงื่อนไขที่ RLS ทำงาน) |
+| `attach_property(engine, property_id)` | `backend/app/db.py` | ผูก `app.property_id` ให้ทุก transaction ตอน begin (เงื่อนไขที่ RLS ทำงาน) |
 | `ApiError` + `install(app)` | `backend/app/errors.py` | บังคับ error ทุกแบบให้เป็น `{"error":{"code","message"}}` ตาม `docs/API.md` |
 | `due_for_reminder` / `queue_reminders` | `backend/app/dunning.py` | แยก "เลือกบิล" (ทดสอบได้ ไม่แตะคิว) ออกจาก "ส่งเข้าคิว" |
 | `line.push_text` task | `backend/app/tasks.py` | task เดียวที่ส่งข้อความ และบันทึก `message_log` ทุกครั้ง |

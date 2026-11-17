@@ -62,28 +62,37 @@ def test_bills_the_rooms_that_have_this_months_reading(client_for, seeded):
     assert [tuple(i) for i in items] == [("ค่าเช่า", 1, 3220, 3220), ("ค่าน้ำ", 5, 25, 125), ("ค่าไฟ", 31, 7, 217)]
 
 
-def test_create_invoice_batches_line_item_execute(seeded):
-    calls = []
+def test_a_billing_run_is_a_handful_of_statements(client_for, seeded):
+    """The run must not loop per room: this is the guard against the N+1 coming back."""
+    read_all_rooms_for_november(seeded)
+    statements = []
 
-    def capture(_conn, _cursor, statement, _parameters, _context, executemany):
-        if "insert into invoice_items" in statement.lower():
-            calls.append(executemany)
+    def capture(_conn, _cursor, statement, _parameters, _context, _executemany):
+        statements.append(statement)
 
     event.listen(seeded, "before_cursor_execute", capture)
     try:
-        with seeded.begin() as conn:
-            invoice = billing.create_invoice(
-                conn, "r_201", "2026-12", 3220,
-                [("rent", 1, 3220), ("water", 5, 25), ("electric", 31, 7)],
-                date(2026, 12, 9),
-            )
+        res = run(client_for(seeded, OWNER_P1, BILL_DAY))
     finally:
         event.remove(seeded, "before_cursor_execute", capture)
 
-    assert invoice == "inv_201_2026-12"
-    # SQLAlchemy issued one executemany call; the driver may still execute one INSERT per row on wire.
-    assert calls == [True]
-    assert scalar(seeded, "select count(*) from invoice_items where invoice_id = 'inv_201_2026-12'") == 3
+    assert res.json()["rooms_to_bill"] == 42
+    # Per-transaction set_config x2, dorm lock, rooms select, readings update, invoices insert,
+    # items insert, audit insert, notify select = 9. The two set_config calls are intended: RLS is
+    # set at the start of every transaction (app/db.py) because a per-connection setting is lost
+    # behind Neon's PgBouncer pooler. Do not move it back to connect time to shave the count.
+    assert len(statements) <= 10, f"{len(statements)} statements: {statements}"
+    inserts = [s for s in statements if "insert into invoice" in s.lower()]
+    assert len(inserts) == 2, "one multi-row insert for invoices, one for their items"
+
+
+def test_items_keep_their_order_and_labels(client_for, seeded):
+    run(client_for(seeded, OWNER_P1, BILL_DAY))
+    with seeded.connect() as conn:
+        labels = conn.execute(text(
+            "select label from invoice_items where invoice_id = 'inv_202_2026-11' order by id"
+        )).scalars().all()
+    assert labels == ["ค่าเช่า", "ค่าน้ำ", "ค่าไฟ"]
 
 
 def test_all_42_rooms_in_one_request(client_for, seeded):
@@ -116,20 +125,22 @@ def test_running_again_bills_rooms_read_since(client_for, seeded):
     assert scalar(seeded, "select total from invoices where id = 'inv_301_2026-11'") == 3220 + 7 * 25 + 36 * 7
 
 
-def test_a_failure_halfway_rolls_back_the_whole_run(client_for, seeded, monkeypatch):
-    real = billing.create_invoice
-    calls = {"n": 0}
-
-    def fail_on_fifth(*args, **kwargs):
-        calls["n"] += 1
-        if calls["n"] == 5:
+def test_a_failure_halfway_rolls_back_the_whole_run(client_for, seeded):
+    # The invoices and items are already written when the audit row is inserted; failing there must
+    # undo all of it.
+    def fail_on_audit(_conn, _cursor, statement, _parameters, _context, _executemany):
+        if "insert into audit_log" in statement:
             raise RuntimeError("database went away")
-        return real(*args, **kwargs)
 
-    monkeypatch.setattr(billing, "create_invoice", fail_on_fifth)
-    with pytest.raises(RuntimeError):
-        run(client_for(seeded, OWNER_P1, BILL_DAY))
+    event.listen(seeded, "before_cursor_execute", fail_on_audit)
+    try:
+        with pytest.raises(RuntimeError):
+            run(client_for(seeded, OWNER_P1, BILL_DAY))
+    finally:
+        event.remove(seeded, "before_cursor_execute", fail_on_audit)
     assert scalar(seeded, "select count(*) from invoices where period = '2026-11'") == 0
+    assert scalar(seeded, "select count(*) from invoice_items") == scalar(
+        seeded, "select count(*) from invoice_items i join invoices v on v.id = i.invoice_id")
     assert scalar(seeded, "select count(*) from audit_log") == 0
 
 

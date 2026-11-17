@@ -10,9 +10,11 @@ from datetime import date
 
 from sqlalchemy import Engine, text
 
-from app.queue import app
-from app.tasks import reminder_text
 from app.ids import reminder_kind
+
+# Set only by tests (a fake queue). Left as None, the real one is imported on first use: procrastinate
+# is slow to import and must not be paid for by requests that never queue a message.
+app = None
 
 DUE_FOR_REMINDER_SQL = text("""
     select i.id, i.period, i.total, i.due_date, r.room_no, t.line_user_id,
@@ -73,9 +75,17 @@ def queue_reminders(rows: list[dict]) -> int:
     """Hand each row to the worker. Returns how many jobs were queued."""
     if not rows:
         return 0
-    with app.open():
+    from app.tasks import reminder_text
+
+    if app is None:
+        from app.queue import get_app
+
+        queue = get_app()
+    else:
+        queue = app
+    with queue.open():
         for row in rows:
-            push = app.configure_task("line.push_text")
+            push = queue.configure_task("line.push_text")
             push.defer(
                 to_user_id=row["line_user_id"],
                 body=reminder_text(row["room_no"], row["period"], row["total"], row["due_date"], row["days_late"]),

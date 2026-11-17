@@ -113,7 +113,7 @@ webhook ฝั่งนี้บันทึกทุก event ลงตาร�
 
 ### 1.6 `PROPERTY_ID` — ตัวคุม RLS และการเลือกบิล
 
-"1 deploy = 1 หอ" — `app/db.py` เรียก `attach_property()` ทุกครั้งที่สร้าง engine แล้วรัน `select set_config('app.property_id', <PROPERTY_ID>, false)` **บนทุก connection ที่ connect** (รวมถึง test) ทำให้ policy ของ migration `0004` (และ `line_events` ใน `0005`) กรองทุกตารางให้เห็นเฉพาะหอเดียว
+"1 deploy = 1 หอ" — `app/db.py` เรียก `attach_property()` ทุกครั้งที่สร้าง engine แล้วรัน `select set_config('app.property_id', <PROPERTY_ID>, true)` **ที่ต้นทุก transaction** (event `begin`; ตั้งแบบ local เพื่อให้ถูกต้องหลัง PgBouncer transaction pooling) (รวมถึง test) ทำให้ policy ของ migration `0004` (และ `line_events` ใน `0005`) กรองทุกตารางให้เห็นเฉพาะหอเดียว
 
 - ค่า setting ว่าง/NULL = **ไม่เห็นแถวใดเลย** ไม่ใช่เห็นทุกแถว — ถ้าตั้งผิดจะดูเหมือน "ข้อมูลหาย" ไม่ใช่ error
 - การกรอง `property_id` ในโค้ดยังอยู่ครบ — RLS เป็นชั้นกันพลาด ไม่ได้แทนที่

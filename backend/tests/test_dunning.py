@@ -115,7 +115,11 @@ def test_due_for_reminder_uses_one_select(seeded):
     calls = []
 
     def capture(_conn, _cursor, statement, _parameters, _context, executemany):
-        if statement.lstrip().lower().startswith("select"):
+        # The set_config from attach_property is not part of the query under test. It runs at the
+        # start of EVERY transaction on purpose (app/db.py: a per-connection setting is lost behind
+        # Neon's PgBouncer pooler and RLS then returns no rows), so do not "fix" it back to once
+        # per connection to make this count smaller.
+        if statement.lstrip().lower().startswith("select") and "set_config" not in statement:
             calls.append((statement, executemany))
 
     event.listen(seeded, "before_cursor_execute", capture)

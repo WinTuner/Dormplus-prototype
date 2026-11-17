@@ -5,8 +5,9 @@ from datetime import date, datetime, timedelta
 from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
-from sqlalchemy import Connection, Engine, text
+from sqlalchemy import Engine, text
 
 from app.auth import Session, current_session, owner_session, tenant_session
 from app.clock import PERIOD_PATTERN, period_of, today
@@ -154,6 +155,36 @@ NOTIFY_ROWS_SQL = text("""
 """)
 
 
+# The three bulk statements of a billing run. Arrays are unnested instead of looping so that a
+# 42-room dorm costs a handful of round trips (each one is a network hop to Neon while the dorm
+# row lock is held) instead of ~130.
+INSERT_INVOICES_SQL = text("""
+    insert into invoices (id, room_id, period, rent, total, due_date, status)
+    select v.id, v.room_id, :period, v.rent, v.total, :due, 'unpaid'
+    from unnest(cast(:ids as text[]), cast(:room_ids as text[]), cast(:rents as int[]),
+                cast(:totals as int[])) as v(id, room_id, rent, total)
+    on conflict do nothing
+    returning id
+""")
+
+# `with ordinality` + order by keeps the items in the order they were computed (rent, water, power).
+INSERT_ITEMS_SQL = text("""
+    insert into invoice_items (invoice_id, label, qty, unit_price, amount)
+    select v.invoice_id, v.label, v.qty, v.unit_price, v.amount
+    from unnest(cast(:invoice_ids as text[]), cast(:labels as text[]), cast(:qtys as int[]),
+                cast(:prices as int[]), cast(:amounts as int[])) with ordinality
+         as v(invoice_id, label, qty, unit_price, amount, n)
+    order by v.n
+""")
+
+UPDATE_READINGS_SQL = text("""
+    update readings r set water_prev = v.water_prev, elec_prev = v.elec_prev
+    from unnest(cast(:ids as text[]), cast(:water_prevs as int[]), cast(:elec_prevs as int[]))
+         as v(id, water_prev, elec_prev)
+    where r.id = v.id
+""")
+
+
 @router.post("/billing/run", status_code=202, response_model=BillingRunOut)
 async def run_billing(
     body: BillingRunIn,
@@ -166,6 +197,28 @@ async def run_billing(
     Meter rooms need this period's reading and an earlier one. Flat-rate rooms need no reading.
     Running it again bills only rooms that became ready since; with none left it answers 409.
     """
+    # The route stays `async` only for the final drain. All the database and queue work is
+    # synchronous (SQLAlchemy sync engine, procrastinate's sync connector), so it goes to a worker
+    # thread; run directly it would freeze the event loop for the whole run.
+    result = await run_in_threadpool(_bill_and_enqueue, engine, session, body.period, day)
+    created, no_reading, no_previous, queued, first = result
+
+    drained = False
+    if queued:  # draining an empty queue would only open a connection
+        try:
+            await drain_queue()
+            drained = True
+        except Exception:  # noqa: BLE001 - the jobs are queued; the next drain sends them
+            logger.exception("draining the invoice queue failed for %s", body.period)
+
+    return BillingRunOut(job_id=str(first) if first else None, period=body.period,
+                         rooms_to_bill=created, skipped_no_reading=no_reading,
+                         skipped_no_previous_reading=no_previous, queued=queued, drained=drained)
+
+
+def _bill_and_enqueue(engine: Engine, session: Session, period: str,
+                      day: date) -> tuple[int, int, int, int, str | None]:
+    """Synchronous part of a billing run. Returns (created, no_reading, no_previous, queued, first_job)."""
     with engine.begin() as conn:
         # Locking the dorm row makes two runs for the same dorm (a double click) wait for each other.
         prop = conn.execute(
@@ -175,11 +228,13 @@ async def run_billing(
         if prop is None:
             raise ApiError(404, "NOT_FOUND", "ไม่พบหอ")
 
-        rooms = conn.execute(ROOMS_TO_BILL_SQL, {"period": body.period, "property_id": session.property_id}).all()
+        rooms = conn.execute(ROOMS_TO_BILL_SQL, {"period": period, "property_id": session.property_id}).all()
         due = day + timedelta(days=prop.due_days)
-        created: list[str] = []
         no_reading = no_previous = 0
 
+        # The loop only computes; everything is written afterwards in a few bulk statements.
+        planned: list[tuple[str, int, int, list[tuple[str, int, int]]]] = []  # room, rent, total, items
+        reading_fixes: list[tuple[str, int, int]] = []  # reading id, water_prev, elec_prev
         for room in rooms:
             if room.billed:
                 continue
@@ -196,28 +251,54 @@ async def run_billing(
                     ("ค่าไฟ", max(0, room.elec_now - room.elec_prev), prop.elec_rate),
                 ]
                 # Keep the reading's stored "previous" in line with what was billed.
-                conn.execute(
-                    text("update readings set water_prev = :wp, elec_prev = :ep where id = :id"),
-                    {"wp": room.water_prev, "ep": room.elec_prev, "id": room.reading_id},
-                )
-            new_id = create_invoice(conn, room.id, body.period, room.rent, items, due)
-            if new_id:
-                created.append(new_id)
+                reading_fixes.append((room.reading_id, room.water_prev, room.elec_prev))
+            total = sum(qty * unit_price for _, qty, unit_price in items)
+            planned.append((room.id, room.rent, total, items))
+
+        if reading_fixes:
+            conn.execute(UPDATE_READINGS_SQL, {
+                "ids": [r[0] for r in reading_fixes],
+                "water_prevs": [r[1] for r in reading_fixes],
+                "elec_prevs": [r[2] for r in reading_fixes],
+            })
+
+        created: list[str] = []
+        if planned:
+            ids = [invoice_id(room_id, period) for room_id, _, _, _ in planned]
+            created = [row.id for row in conn.execute(INSERT_INVOICES_SQL, {
+                "period": period, "due": due, "ids": ids,
+                "room_ids": [p[0] for p in planned],
+                "rents": [p[1] for p in planned],
+                "totals": [p[2] for p in planned],
+            })]
+            # Items only for invoices that were really inserted (a conflict inserted nothing).
+            inserted = set(created)
+            lines = [(inv_id, label, qty, price)
+                     for inv_id, (_, _, _, items) in zip(ids, planned) if inv_id in inserted
+                     for label, qty, price in items]
+            if lines:
+                conn.execute(INSERT_ITEMS_SQL, {
+                    "invoice_ids": [ln[0] for ln in lines],
+                    "labels": [ln[1] for ln in lines],
+                    "qtys": [ln[2] for ln in lines],
+                    "prices": [ln[3] for ln in lines],
+                    "amounts": [ln[2] * ln[3] for ln in lines],
+                })
 
         if not created and any(room.billed for room in rooms):
-            raise ApiError(409, "CONFLICT", f"ออกบิลรอบ {body.period} ไปแล้ว ไม่มีห้องใหม่ให้ออกบิล")
+            raise ApiError(409, "CONFLICT", f"ออกบิลรอบ {period} ไปแล้ว ไม่มีห้องใหม่ให้ออกบิล")
 
         if created:
             conn.execute(
                 text("""insert into audit_log (property_id, actor, action, payload)
                         values (:pid, :actor, 'billing.run', cast(:payload as jsonb))"""),
                 {"pid": session.property_id, "actor": session.user_id,
-                 "payload": json.dumps({"period": body.period, "invoice_ids": created})},
+                 "payload": json.dumps({"period": period, "invoice_ids": created})},
             )
 
     # The bills are committed. Everything below is the message about them, and a queue that is not
     # set up must not turn a saved billing run into an error for the owner.
-    queued, first, drained = 0, None, False
+    queued, first = 0, None
     if created:
         try:
             with engine.connect() as conn:
@@ -227,43 +308,9 @@ async def run_billing(
                 ).mappings().all()
             queued, first = notify_invoices([dict(row) for row in rows])
         except Exception:  # noqa: BLE001 - logged, and the answer still explains the run
-            logger.exception("invoice notify failed for %s bills of %s", len(created), body.period)
+            logger.exception("invoice notify failed for %s bills of %s", len(created), period)
             queued, first = 0, None
-        if queued:  # draining an empty queue would only open a connection
-            try:
-                await drain_queue()
-                drained = True
-            except Exception:  # noqa: BLE001 - the jobs are queued; the next drain sends them
-                logger.exception("draining the invoice queue failed for %s", body.period)
-
-    return BillingRunOut(job_id=str(first) if first else None, period=body.period,
-                         rooms_to_bill=len(created), skipped_no_reading=no_reading,
-                         skipped_no_previous_reading=no_previous, queued=queued, drained=drained)
-
-def create_invoice(conn: Connection, room_id: str, period: str, rent: int,
-                   items: list[tuple[str, int, int]], due: date) -> str | None:
-    """Insert one invoice with its line items. Returns None if the room already has one for the period."""
-    total = sum(qty * unit_price for _, qty, unit_price in items)
-    row = conn.execute(
-        text("""insert into invoices (id, room_id, period, rent, total, due_date, status)
-                values (:id, :room, :period, :rent, :total, :due, 'unpaid')
-                on conflict do nothing returning id"""),
-        {"id": invoice_id(room_id, period), "room": room_id, "period": period,
-         "rent": rent, "total": total, "due": due},
-    ).first()
-    if row is None:
-        return None
-    if items:
-        conn.execute(
-            text("""insert into invoice_items (invoice_id, label, qty, unit_price, amount)
-                    values (:inv, :label, :qty, :price, :amount)"""),
-            [
-                {"inv": row.id, "label": label, "qty": qty, "price": unit_price,
-                 "amount": qty * unit_price}
-                for label, qty, unit_price in items
-            ],
-        )
-    return row.id
+    return len(created), no_reading, no_previous, queued, first
 
 
 @router.get("/invoices", response_model=InvoicesOut)
