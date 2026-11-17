@@ -645,6 +645,7 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 | `configFor(room)` | `line-app/api/_rooms.js` | ราคาที่ใช้จริง = `DEFAULTS` จาก env ทับด้วย `room:<room>` — จุดเดียวที่ตัดสินว่าราคาห้องคือเท่าไร |
 | `verifySlip({bytes, mime, amount})` | `line-app/api/_verify.js` | ตรวจสลิปกับ SlipOK แล้วคืน `{ ok: true\|false\|null, reason?, transRef?, amount? }` · ไม่ throw และไม่เคยปฏิเสธการแนบสลิป |
 | `markStale` / `markEarly` / `checkAmount` / `amountFields` | `line-app/api/_verify.js` | ลด `ok:true` เป็น `ok:null` เมื่อสลิปเก่ากว่า 30 วันหรือโอนก่อนบิลออก (มีเหตุผลภาษาไทย, ไม่บล็อก) · เทียบยอดสลิปกับบิลแล้วคืน `slipAmount`/`overpaid`/`shortBy` |
+| `readMeter({data, mime})` | `line-app/api/_gemini.js` | อ่านเลขหน้าปัดน้ำ/ไฟจากรูปด้วย Google Gemini (`GEMINI_API_KEY`, โมเดล `gemini-2.5-flash`) แล้วคืน `{ok:true, water, elec, confidence, note}` หรือ `{ok:null, reason}` · **ไม่เขียนอะไรลง store** — เจ้าของต้องกดยืนยันเลขเองก่อนบันทึก · `parse()` แยกออกมาให้เทสต์ได้โดยไม่ต้องยิงเน็ต |
 | `retryKeyOf(text)` + `push(…, {retryKey})` | `line-app/api/_line.js` | แปลง key ที่อ่านได้เป็น UUID ของ `X-Line-Retry-Key` · LINE ตอบ 409 = ส่งไปแล้ว คืน `{ duplicate: true }` ไม่ throw |
 | `payloadFor` / `qrSvg` | `line-app/api/_promptpay.js` · `line-app/api/_qr.js` | สร้าง PromptPay payload (EMVCo) ของบิลและ SVG QR ที่หน้า LIFF ใช้ได้โดยไม่มีไลบรารี |
 | `requireUser(req,res)` | `line-app/api/_auth.js` | คืน LINE userId หรือตอบ 401/403 เองแล้วคืน `null` |
@@ -670,9 +671,9 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 pakdee-prototype/
 ├─ line-app/               # stack ที่ใช้งานจริง: Node serverless + object store (Blob หรือ R2)
 │  ├─ api/                 # 1 ไฟล์ = 1 serverless function (ชื่อไฟล์คือ route) — 12 ไฟล์ = เต็มเพดาน
-│  │  ├─ _*.js             # helper ที่ require() กันตรง ๆ (ไม่ใช่ endpoint) — 14 ไฟล์
+│  │  ├─ _*.js             # helper ที่ require() กันตรง ๆ (ไม่ใช่ endpoint) — 15 ไฟล์
 │  │  │                    #   _store _store-r2 _bills _ledger _prepay _promptpay _verify _remind _auth _line
-│  │  │                    #   _rooms _async _limit _qr
+│  │  │                    #   _rooms _async _limit _qr _gemini
 │  │  └─ *.js              # endpoint: bill config cron dev me owner qr rooms run slip slip-image webhook
 │  ├─ liff/bill.html       # UI เดียวของ stack นี้ (ไม่มี build, inline JS/CSS)
 │  ├─ scripts/             # rich menu (setup-richmenu.js, set-richmenu-image.js) + migrate-blob-to-r2.js

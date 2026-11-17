@@ -55,8 +55,16 @@ let verifyCalls = 0;
 // SlipOK is the only outbound call these tests care about: `slipok` holds what it should answer.
 let slipok = null;
 const slipokCalls = [];
+// Gemini, the meter reader: `gemini` holds the answer it should give (null = the provider is down).
+let gemini = null;
+const geminiCalls = [];
 global.fetch = async (url, opts = {}) => {
   const ok = (body) => ({ ok: true, status: 200, json: async () => body, text: async () => JSON.stringify(body) });
+  if (String(url).includes("generativelanguage.googleapis.com")) {
+    geminiCalls.push({ url: String(url), init: opts });
+    if (!gemini) return { ok: false, status: 500, json: async () => ({ error: { message: "boom" } }) };
+    return { ok: gemini.status === 200, status: gemini.status, json: async () => gemini.body };
+  }
   if (String(url).includes("api.slipok.com")) {
     slipokCalls.push({ url: String(url), init: opts });
     if (!slipok) return { ok: false, status: 500, json: async () => ({}), text: async () => "{}" };
@@ -285,6 +293,54 @@ const { saveBill } = require("./api/_bills");
 
   r = await call(run, { user: "Uowner", body: { period: "2026-13", readings: [{ room: "209", water: 1, elec: 1 }] } });
   assert.strictEqual(r.status, 400, "a period that is not YYYY-MM is refused");
+
+  // ---------------------------------------------------------------- reading a meter from a photo
+  const img = "data:image/jpeg;base64," + Buffer.from("jpeg-bytes").toString("base64");
+  const geminiAnswer = (obj) => ({ status: 200, body: { candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] } }] } });
+
+  delete process.env.GEMINI_API_KEY;
+  r = await call(run, { user: "Uowner", body: { action: "read", image: img } });
+  assert.deepStrictEqual([r.status, r.body.error.code], [503, "METERS_OFF"], "no key: the owner is told the reader is off");
+
+  process.env.GEMINI_API_KEY = "test-gemini";
+  r = await call(run, { user: "Uowner", body: { action: "read", image: "not-a-data-url" } });
+  assert.deepStrictEqual([r.status, r.body.error.code], [400, "VALIDATION"], "only an image data URL is read");
+
+  r = await call(run, { user: "Ubob", body: { action: "read", image: img } });
+  assert.strictEqual(r.status, 403, "a tenant cannot spend the dorm's Gemini quota");
+
+  gemini = null; // the provider is down
+  r = await call(run, { user: "Uowner", body: { action: "read", image: img } });
+  assert.deepStrictEqual([r.status, r.body.error.code], [422, "UNREADABLE"], "a dead provider never invents a number");
+
+  gemini = geminiAnswer({ water: 1523.4, elec: 8450, confidence: "high", note: "หน้าปัดกลาง" });
+  r = await call(run, { user: "Uowner", body: { action: "read", image: img } });
+  assert.deepStrictEqual(
+    [r.status, r.body.reading.water, r.body.reading.elec, r.body.reading.confidence],
+    [200, 1523.4, 8450, "high"]
+  );
+  const sent = JSON.parse(geminiCalls.at(-1).init.body);
+  assert.strictEqual(geminiCalls.at(-1).init.headers["x-goog-api-key"], "test-gemini", "the key goes in a header, not the URL");
+  assert.strictEqual(sent.contents[0].parts[1].inline_data.data, img.split(",")[1], "the photo reaches the model");
+  assert.strictEqual(sent.generationConfig.responseMimeType, "application/json", "the answer is forced to JSON");
+
+  gemini = geminiAnswer({ water: null, elec: null, confidence: "low", note: "เบลอ" });
+  r = await call(run, { user: "Uowner", body: { action: "read", image: img } });
+  assert.deepStrictEqual([r.status, r.body.error.code], [422, "UNREADABLE"], "no readable digits is not a reading");
+
+  // The owner confirms the dial with the save: it is kept so next month can subtract it.
+  gemini = null;
+  r = await call(run, { user: "Uowner", body: { period: "2026-11", readings: [{ room: "211", water: 23, elec: 120, dial: { water: 1523, elec: 8450 } }] } });
+  assert.strictEqual(r.status, 200);
+  assert.deepStrictEqual(data.get("meter:211").dial, { water: 1523, elec: 8450 }, "the dial is stored with the reading");
+
+  r = await call(run, { user: "Uowner", body: { period: "2026-11", readings: [{ room: "211", water: 2, elec: 3, dial: { water: "x", elec: -1 } }] } });
+  assert.strictEqual(data.get("meter:211").dial, undefined, "a dial that is not a number is dropped, not stored");
+
+  delete process.env.GEMINI_API_KEY;
+  data.delete("bill:2026-11:211");
+  data.delete("bill:211");
+  data.delete("meter:211");
 
   // ---------------------------------------------------------------- idToken checks are remembered
   verifyCalls = 0;
@@ -1595,7 +1651,7 @@ const { saveBill } = require("./api/_bills");
   data.delete("owner-invite:VIEW123");
   data.delete("owner:Unewbie");
 
-  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings, PromptPay QR, slip rejection");
+  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings, PromptPay QR, slip rejection, meter photo");
 })().catch((err) => {
   console.error(err);
   process.exit(1);

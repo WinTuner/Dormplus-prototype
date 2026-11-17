@@ -92,12 +92,12 @@ node smoke.js              # signature + Flex card + auth guards + QR (ต้อ
 node smoke-handlers.js     # dev gate, QR binding, rate limit, payment, bill issuing, roles
 node smoke-reads.js        # bounded concurrency, ordering, legacy history
 node smoke-cron.js         # งานเตือนบิลค้างรายวัน (api/cron.js + api/_remind.js)
-node smoke-usecases.js     # 168 use case ตั้งแต่ต้นจนจบ (UC-01 … UC-18) · UC-19 (webhook ฝั่ง backend) อยู่ใน pytest
+node smoke-usecases.js     # 177 use case ตั้งแต่ต้นจนจบ (UC-01 … UC-18) · UC-19 (webhook ฝั่ง backend) อยู่ใน pytest
 ```
 
-ชุด use case คือ subset อัตโนมัติของ [`TEST-CASES.md`](./TEST-CASES.md) ซึ่งแตกครบ **269 case ใน 19 UC** (244 ✅ automated · 25 🖐 ต้องกดมือกับ LINE จริง · 0 ⏳ ยังไม่มี test) — **168** ตัวที่รันในไฟล์นี้คือส่วนที่ `line-app` ทดสอบได้โดยไม่ต้องมี LINE จริง (อีก 6 เคสของ UC-19 เป็น webhook ฝั่ง backend จึงอยู่ใน pytest) ส่วนที่เหลืออยู่ในตารางพร้อมเหตุผลว่าทำไมยังอัตโนมัติไม่ได้
+ชุด use case คือ subset อัตโนมัติของ [`TEST-CASES.md`](./TEST-CASES.md) ซึ่งแตกครบ **282 case ใน 19 UC** (256 ✅ automated · 25 🖐 ต้องกดมือกับ LINE จริง · 0 ⏳ ยังไม่มี test) — **177** ตัวที่รันในไฟล์นี้คือส่วนที่ `line-app` ทดสอบได้โดยไม่ต้องมี LINE จริง (อีก 6 เคสของ UC-19 เป็น webhook ฝั่ง backend จึงอยู่ใน pytest) ส่วนที่เหลืออยู่ในตารางพร้อมเหตุผลว่าทำไมยังอัตโนมัติไม่ได้
 
-ผลที่ต้องเห็น (ยืนยันบน Node v26.13.0 หลัง `npm ci`) — ทุกชุดพิมพ์ `... OK` ของตัวเอง ปิดท้ายด้วย `168/168 use case tests passed` และ exit code 0:
+ผลที่ต้องเห็น (ยืนยันบน Node v26.13.0 หลัง `npm ci`) — ทุกชุดพิมพ์ `... OK` ของตัวเอง ปิดท้ายด้วย `177/177 use case tests passed` และ exit code 0:
 
 ```text
 smoke OK — QR renders and scales
@@ -105,7 +105,7 @@ smoke OK — signature + flex card + confirm card + auth guards
 handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings, PromptPay QR, slip rejection
 reads OK — bounded concurrency, ordering, legacy history, binding, auth, overdue and income
 cron OK — auth, 6 reminder windows, dedup, catch-up, skips, tenancy, retry, owner summary, one push per room
-168/168 use case tests passed
+177/177 use case tests passed
 ```
 
 `npm test` (`package.json` → `scripts.test`) รันแค่ **สามชุดแรก** (`smoke.js && smoke-handlers.js && smoke-reads.js`) — `smoke-cron.js` และ `smoke-usecases.js` ต้องสั่งเองหรือพึ่ง CI · `smoke-usecases.js` เป็นชุดใหญ่ที่สุดแต่ยังรันจบในราวหนึ่งวินาทีในเครื่องนี้ (ทุกชุด offline ล้วน ไม่แตะเน็ต/DB — มีแค่ `setTimeout` 1–5 ms ในเทสต์ไม่กี่จุดเพื่อจำลองลำดับเวลา) และพิมพ์สรุปเป็น `<passed>/<total> use case tests passed` โดย exit code 0 เมื่อผ่านครบ
@@ -209,7 +209,7 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 | [`API.md`](./API.md) | ต้องยิง endpoint ของ backend เอง (auth, error code, ตัวอย่าง request) |
 | [`HANDOFF.md`](./HANDOFF.md) | จะรับงานต่อ — มีกับดักที่เจอมาแล้วและงานที่ยังเหลือ |
 | [`TESTING.md`](./TESTING.md) | อยากรู้ว่า smoke ทั้งห้าชุดและ pytest แต่ละชุดครอบอะไร |
-| [`TEST-CASES.md`](./TEST-CASES.md) | อยากเห็นว่า use case แต่ละข้อถูกตรวจด้วย test ตัวไหน หรือยังต้องกดมือ (269 case / 19 UC · 244 automate · 25 manual) |
+| [`TEST-CASES.md`](./TEST-CASES.md) | อยากเห็นว่า use case แต่ละข้อถูกตรวจด้วย test ตัวไหน หรือยังต้องกดมือ (282 case / 19 UC · 256 automate · 26 manual) |
 | [`backend/README.md`](../backend/README.md) | endpoint ทั้งหมด, dev headers, deploy Vercel + Neon, Procrastinate/cron |
 | [`line-app/docs/GETTING-STARTED.md`](../line-app/docs/GETTING-STARTED.md) | ต้องพา LINE app ขึ้น Vercel จริงตั้งแต่ต้น |
 | [`line-app/docs/TESTING.md`](../line-app/docs/TESTING.md) | อยากรู้ว่า smoke แต่ละตัวครอบอะไร และอะไรต้องทดสอบมือ |

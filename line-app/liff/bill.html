@@ -308,6 +308,34 @@ async function shrink(file) {
   return c.toDataURL("image/jpeg", 0.8);
 }
 
+// ---------- meter photo ----------
+// The dial is a running total; the bill wants this month's use. Nothing here writes a reading: the
+// owner checks the numbers and taps the normal save, because one misread digit is a wrong bill.
+const usedFrom = (dial, prev) => {
+  const one = (now, before) =>
+    typeof now === "number" && typeof before === "number" && now >= before ? Math.round(now - before) : null;
+  return { water: one(dial && dial.water, prev && prev.water), elec: one(dial && dial.elec, prev && prev.elec) };
+};
+
+function snapResult(dial, prev) {
+  const used = usedFrom(dial, prev);
+  const canUse = used.water !== null || used.elec !== null;
+  const line = (label, value) =>
+    value == null ? "" : `<div class="row"><span class="m">${label}</span><span>${fmt(value)}</span></div>`;
+  return `<div class="card" style="margin-top:12px">
+    <div class="row"><span class="m">อ่านจากรูป</span><span class="pill ${dial.confidence === "high" ? "ok" : "bad"}">${dial.confidence === "high" ? "ชัดเจน" : "ไม่ชัด"}</span></div>
+    ${line("เลขมิเตอร์น้ำ", dial.water)}
+    ${line("เลขมิเตอร์ไฟ", dial.elec)}
+    ${canUse
+      ? `<div class="hint" style="margin-top:8px">ใช้ไป (หักเลขเดือนก่อน) — น้ำ ${used.water == null ? "—" : fmt(used.water)} · ไฟ ${used.elec == null ? "—" : fmt(used.elec)} หน่วย</div>
+         <button class="btn" id="useDial" style="margin-top:12px">ใช้ค่านี้</button>`
+      : `<div class="hint" style="margin-top:8px">ยังไม่มีเลขมิเตอร์เดือนก่อนให้หัก — พิมพ์หน่วยที่ใช้เอง แล้วเก็บเลขนี้ไว้เป็นจุดเริ่มต้นของเดือนหน้า</div>
+         <button class="btn" id="useDial" style="margin-top:12px">เก็บเลขนี้ไว้</button>`}
+    ${dial.note ? `<div class="hint">${esc(dial.note)}</div>` : ""}
+  </div>`;
+}
+
+
 // Slip images are private: fetch with the token and keep one object URL per room.
 const slipUrls = {};
 async function slipUrl(room, advance) {
@@ -1270,6 +1298,13 @@ function ownerEntry(roomNo) {
       <label for="inE">ไฟเดือนนี้ (หน่วยที่ใช้)</label>
       <div class="in"><input id="inE" type="number" min="0" step="1" inputmode="numeric" value="${esc(val("elec"))}" placeholder="0" ${locked ? "disabled" : ""}><span class="unit">หน่วย</span></div>
     </div>
+    ${!locked && MYROLE !== "viewer" ? `<div class="card">
+      <div class="m">ถ่ายรูปมิเตอร์</div>
+      <div class="hint" style="margin-top:8px">ถ่ายเลขบนหน้าปัด แล้วให้ AI อ่าน — ตรวจเลขก่อนบันทึกทุกครั้ง</div>
+      <button class="btn" id="snapBtn" style="margin-top:12px">ถ่ายรูป / เลือกรูป</button>
+      <input type="file" id="snapFile" accept="image/*" capture="environment" hidden>
+      <div id="snapOut"></div>
+    </div>` : ""}
     ${r.advance ? `<div class="card"><div class="m">ผู้เช่าโอนล่วงหน้าแล้ว ${esc(timeTh(r.advance.slipAt))} — จะติดไปกับบิลที่ออกรอบนี้</div>
       ${verifyLine(r.advance.verify)}
       ${r.advance.hasSlip ? `<button class="btn" id="advSlip" style="margin-top:12px">ดูสลิป</button>` : ""}</div>` : ""}
@@ -1352,6 +1387,43 @@ function ownerEntry(roomNo) {
   if (!locked) view.oninput = calc;
   calc();
 
+  // The photo is a suggestion: the fields are filled for the owner to check, and the dial rides
+  // along with the save so next month's difference can be worked out.
+  let dial = (draft && draft.dial) || null;
+  const prevDial = (r.meter && r.meter.dial) || null;
+  if ($("snapBtn")) {
+    $("snapBtn").onclick = () => $("snapFile").click();
+    $("snapFile").onchange = async () => {
+      const file = $("snapFile").files[0];
+      if (!file) return;
+      const btn = $("snapBtn");
+      const out = $("snapOut");
+      btn.disabled = true;
+      out.innerHTML = `<div class="hint" style="margin-top:12px">กำลังอ่านรูป…</div>`;
+      try {
+        const image = await shrink(file);
+        const res = await api("/api/run", { method: "POST", body: JSON.stringify({ action: "read", image }) });
+        const snap = res.reading;
+        out.innerHTML = snapResult(snap, prevDial);
+        if ($("useDial")) $("useDial").onclick = () => {
+          const used = usedFrom(snap, prevDial);
+          const filled = used.water !== null || used.elec !== null;
+          if (used.water !== null) $("inW").value = used.water;
+          if (used.elec !== null) $("inE").value = used.elec;
+          dial = snap; // only a reading the owner accepted is kept for next month
+          if (filled) { calc(); toast("ใส่หน่วยแล้ว — ตรวจอีกครั้งก่อนบันทึก"); }
+          else toast("เก็บเลขหน้าปัดไว้แล้ว — พิมพ์หน่วยที่ใช้เอง");
+        };
+      } catch (e) {
+        out.innerHTML = `<div class="card" style="margin-top:12px"><div class="err">${esc(e.message)}</div>
+          <div class="hint">พิมพ์หน่วยเองได้ตามปกติ</div></div>`;
+      } finally {
+        btn.disabled = false;
+        $("snapFile").value = "";
+      }
+    };
+  }
+
   const next = nextTodo(r.room);
   if (locked) {
     bottom(next
@@ -1371,7 +1443,7 @@ function ownerEntry(roomNo) {
     const u = units();
     if (u.water < 0 || u.elec < 0) return toast("หน่วยติดลบไม่ได้", true);
     if (!Number.isInteger(u.water) || !Number.isInteger(u.elec)) return toast("หน่วยต้องเป็นจำนวนเต็ม", true);
-    O.draft[r.room] = u;
+    O.draft[r.room] = dial ? { ...u, dial } : u;
     O.skipped.delete(r.room);
     saveDraft();
     const n = nextTodo(r.room);
