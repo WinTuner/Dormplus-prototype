@@ -341,6 +341,14 @@ function snapResult(dial, prev) {
 // old photo and the owner could confirm a slip they never saw.
 const slipUrls = {};
 let previewUrl = null; // the tenant's chosen photo, one at a time (see $("file").onchange)
+
+// Object URLs live until they are revoked; dropping them when the room data is replaced keeps a
+// long session (many reloads after each meter entry) from holding every slip photo it ever showed.
+function clearSlipUrls() {
+  for (const url of Object.values(slipUrls)) URL.revokeObjectURL(url);
+  for (const key of Object.keys(slipUrls)) delete slipUrls[key];
+}
+
 async function slipUrl(room, advance, path, period) {
   // An advance slip can be replaced by the tenant, so it is never cached; a slip with no path is a
   // one-off view (the full-screen sheet) and is fetched fresh every time. `period` names one round of
@@ -789,10 +797,11 @@ async function startOwner(initial) {
 
 async function loadOwner() {
   header("DormPlus · เจ้าของหอ", "กำลังโหลด…");
+  clearSlipUrls(); // the slip photos below are about to be re-fetched for the new room data
   try {
     const data = await api("/api/rooms");
     O.overdueData = null; // the bills may have changed; the overdue screens fetch it again
-  O.pendingData = null;
+    O.pendingData = null;
     O.rooms = data.rooms;
     O.dormName = data.dorm || null;
     O.cfg = Object.fromEntries(data.rooms.map((r) => [r.room, r.config]));
