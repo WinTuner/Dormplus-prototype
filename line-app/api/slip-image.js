@@ -34,7 +34,12 @@ module.exports = async (req, res) => {
   const bill = req.query.archived
     ? await archivedSlip(room)
     : period && !req.query.advance
-      ? await store.get(`bill:${period}:${room}`)
+      // Same legacy fallback as elsewhere: a bill written before `bill:<period>:<room>` existed is
+      // only reachable through `bill:<room>`.
+      ? await (async () => {
+          const latest = await store.get(`bill:${room}`);
+          return (await store.get(`bill:${period}:${room}`)) || (latest && latest.period === period ? latest : null);
+        })()
       : await store.get(req.query.advance ? `prepay:${room}` : `bill:${room}`);
   // The previous tenant's bill (and its slip) is not the new tenant's to see. An advance slip needs
   // no check: the previous tenant's one is archived when they leave.

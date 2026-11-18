@@ -1588,7 +1588,9 @@ function ownerReview(tab, loaded) {
   // server's count takes over because it covers every period.
   const pd = O.pendingData;
   const pendingCount = pd ? pd.count : O.rooms.filter((r) => r.bill?.status === "pending").length;
-  if (O.reviewTab === "pending" && !loaded && !pd) {
+  // Refetch on every entry, like the overdue tab: the confirm happens in the LINE chat, so the list
+  // this screen is holding is out of date the moment the owner comes back to it.
+  if (O.reviewTab === "pending" && !loaded) {
     loadPending().then(() => {
       if (route().startsWith("review") && O.reviewTab === "pending") ownerReview("pending", true);
     });

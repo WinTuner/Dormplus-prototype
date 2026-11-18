@@ -93,10 +93,12 @@ async function saveSettings(req, res, userId) {
   const given = Object.entries(fields).filter(([, value]) => value !== undefined);
   if (!given.length) return fail(res, 400, "VALIDATION", "ต้องระบุ rent, waterRate หรือ elecRate อย่างน้อยหนึ่งค่า");
 
-  const current = await configFor(room);
-  const config = { ...current, ...Object.fromEntries(given) };
+  // Only this room's own overrides are stored: writing the resolved numbers would freeze every
+  // field at today's dorm defaults, so a later dorm change (water 25 → 22) would never reach it.
+  const overrides = (await store.get(`room:${room}`)) || {};
+  const config = { ...overrides, ...Object.fromEntries(given) };
   await store.set(`room:${room}`, config);
-  return res.status(200).json({ room, config });
+  return res.status(200).json({ room, config: await configFor(room) });
 }
 
 // The dorm's own settings. A field that is left out keeps its old value; null clears it.

@@ -38,7 +38,7 @@ const store = {
       .filter((k) => pathOf(k).startsWith(pathPrefix))
       .map((k) => prefix + pathOf(k).slice(pathPrefix.length).replace(/\.json$/, ""));
   },
-  getFile: async (p) => (files.has(p) ? { blob: { contentType: "image/jpeg" } } : null),
+  getFile: async (p) => (files.has(p) ? { blob: { contentType: "image/jpeg" }, stream: new Blob([files.get(p)]).stream() } : null),
   putFile: async (p, bytes) => files.set(p, bytes),
   delFile: async (p) => files.delete(p),
 };
@@ -297,6 +297,26 @@ const { saveBill } = require("./api/_bills");
   assert.ok(r.body.rooms[0].error, "a legacy paid bill is not reopened");
   assert.strictEqual(data.get("bill:210").status, "paid");
   assert.strictEqual(data.get("bill:2026-11:210") ?? null, null, "and is not rewritten under the per-period key");
+
+  // A bill can be paid in the moment between the guard's read and the write (the owner's screen was
+  // already open). The re-read just before the write must see it and refuse instead of reopening it.
+  data.set("bill:2027-06:212", { room: "212", period: "2027-06", total: 4450, status: "unpaid", rev: 1 });
+  const readBill = store.get;
+  let reads = 0;
+  store.get = async (k) => {
+    if (k !== "bill:2027-06:212") return readBill(k);
+    reads += 1;
+    if (reads === 1) return { room: "212", period: "2027-06", total: 4450, status: "unpaid", rev: 1 };
+    // The tenant paid in this instant: the store now holds the paid bill.
+    const paid = { room: "212", period: "2027-06", total: 4450, status: "paid", rev: 1, receiptNo: "R202706-212" };
+    data.set(k, paid);
+    return paid;
+  };
+  r = await call(run, { user: "Uowner", body: { period: "2027-06", readings: [{ room: "212", water: 1, elec: 1 }] } });
+  store.get = readBill;
+  assert.ok(r.body.rooms[0].error, "a bill paid mid-flight is not reopened");
+  assert.deepStrictEqual([data.get("bill:2027-06:212").status, data.get("bill:2027-06:212").receiptNo], ["paid", "R202706-212"], "the receipt survives");
+  data.delete("bill:2027-06:212");
 
   r = await call(run, { user: "Ubob", body: { period: "2026-11", readings: [{ room: "209", water: 1, elec: 1 }] } });
   assert.strictEqual(r.status, 403, "only the owner issues bills");
@@ -1442,6 +1462,16 @@ const { saveBill } = require("./api/_bills");
   r = await setRoom({ room: "211", waterRate: 9 });
   assert.deepStrictEqual([r.body.config.rent, r.body.config.waterRate, r.body.config.elecRate], [1, 9, 0]);
 
+  // A room that overrode only its rent still follows the dorm for everything else: the override
+  // stores just what was set, never a frozen copy of today's defaults.
+  const dormBefore = data.get("dorm");
+  data.set("dorm", { ...(dormBefore || {}), rent: 3500, waterRate: 22, elecRate: 7 });
+  await setRoom({ room: "202", rent: 4000 });
+  r = await call(rooms, { method: "GET", user: "Uowner" });
+  const room202 = r.body.rooms.find((x) => x.room === "202");
+  assert.deepStrictEqual([room202.config.rent, room202.config.waterRate], [4000, 22], "the dorm's water rate still reaches a room that only set rent");
+  if (dormBefore === undefined) data.delete("dorm"); else data.set("dorm", dormBefore);
+  data.delete("room:202");
   assert.strictEqual((await setRoom({ room: "211", rent: 1 }, "Uhelper")).status, 403, "a viewer cannot change prices");
   assert.strictEqual((await setRoom({ room: "211", rent: 1 }, "Ucarol")).status, 403, "a tenant cannot change prices");
   assert.strictEqual((await setRoom({ room: "999", rent: 1 })).status, 404, "unknown room");
@@ -1775,7 +1805,47 @@ const { saveBill } = require("./api/_bills");
   );
   for (const k of ["bill:210", "bill:2027-03:210", "bill:2027-04:210", "bill-state:210"]) data.delete(k);
 
-  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings, PromptPay QR, slip rejection, meter photo, audit fixes");
+  // A bill that only exists as `bill:<room>` (written before the per-period key) still lists its
+  // pending slip and opens its photo: every other reader has this fallback, the review screen too.
+  const legacyPending = { room: "210", period: "2027-05", total: 900, rent: 900, water: 0, elec: 0, due: "2027-05-05", status: "pending", rev: 1, issuedAt: "2027-05-01T00:00:00.000Z", slipPath: "slips/210-legacy.jpg", slipAt: "2027-05-02T00:00:00.000Z", slipCount: 1, slipVerify: { ok: true } };
+  data.set("bill:210", { ...legacyPending });
+  files.set("slips/210-legacy.jpg", Buffer.from([1]));
+  r = await call(bill, { method: "GET", query: { pending: "1" }, user: "Uowner" });
+  assert.ok(r.body.items.some((i) => i.room === "210" && i.period === "2027-05"), "a legacy pending bill is listed");
+  assert.strictEqual((await call(slipImage, { method: "GET", query: { room: "210", period: "2027-05" }, user: "Uowner" })).status, 200, "and its slip opens");
+  data.delete("bill:210"); files.delete("slips/210-legacy.jpg");
+
+  // Saving an older period never puts the newest-bill mirror back (a slip for an old period can land
+  // while the owner issues the new month).
+  const { saveBills } = require("./api/_bills");
+  data.set("bill:211", { room: "211", period: "2027-08", status: "unpaid", total: 100, rev: 1 });
+  data.set("bill:2027-08:211", { room: "211", period: "2027-08", status: "unpaid", total: 100, rev: 1 });
+  await saveBills([{ room: "211", period: "2027-07", status: "pending", total: 200, rev: 1 }]);
+  assert.strictEqual(data.get("bill:211").period, "2027-08", "an older period does not replace the mirror");
+  for (const k of ["bill:211", "bill:2027-07:211", "bill:2027-08:211", "bill-state:211", "bills:211"]) data.delete(k);
+
+  // The status changed between the read and the write (the owner confirmed the slip in chat): the
+  // void must abort instead of erasing paidAt/receiptNo.
+  data.set("bill:2027-08:211", { room: "211", period: "2027-08", status: "unpaid", total: 100, rev: 1 });
+  const realUpdate = store.update;
+  store.update = async () => {}; // the conditional write lost: nothing applied
+  r = await call(bill, { body: { action: "void", room: "211", period: "2027-08", reason: "ทดสอบ" }, user: "Uowner" });
+  store.update = realUpdate;
+  assert.deepStrictEqual([r.status, r.body.error.code], [409, "INVALID_STATE"], "a void that lost the race does not overwrite the bill");
+  assert.strictEqual(data.get("bill:2027-08:211").status, "unpaid", "and leaves the bill alone");
+  data.delete("bill:2027-08:211");
+
+  // Only one advance slip can wait per room: a second one from another account is refused, not
+  // silently swapped in (its money would exist only in the owner's chat).
+  data.set("user-room:UtenantB", "212");
+  data.set("room-user:212", "UtenantB");
+  data.set("prepay:212", { room: "212", by: "UtenantA", slipPath: "slips/212-a.jpg", slipAt: new Date(Date.now() - 120000).toISOString(), slipCount: 1, slipVerify: null });
+  r = await call(slip, { body: { room: "212", note: "ของฉัน" }, user: "UtenantB" });
+  assert.deepStrictEqual([r.status, r.body.error.code], [409, "INVALID_STATE"], "a waiting advance slip cannot be replaced by another account");
+  assert.strictEqual(data.get("prepay:212").by, "UtenantA", "the first slip is still the one waiting");
+  for (const k of ["prepay:212", "user-room:UtenantB", "room-user:212"]) data.delete(k);
+
+  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings, PromptPay QR, slip rejection, meter photo, audit fixes, races");
 })().catch((err) => {
   console.error(err);
   process.exit(1);

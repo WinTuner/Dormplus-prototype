@@ -28,17 +28,17 @@ async function saveBills(bills, { latest } = {}) {
   if (!bills.length) return;
   const room = bills[0].room;
   const newest = bills.reduce((a, b) => (b.period > a.period ? b : a));
-  const [seen] = await Promise.all([
-    latest === undefined ? store.get(`bill:${room}`) : latest,
+  await Promise.all([
     ...bills.map((b) => store.set(`bill:${b.period}:${room}`, b)),
     indexBills(room, bills.map((b) => b.period)),
     // The compact state other paths read instead of one key per period (see `_ledger.stateBills`).
     ledger.indexState(bills),
   ]);
-  // Never let an older period replace the newest bill.
-  if (!seen || !seen.period || newest.period >= seen.period) {
-    await store.set(`bill:${room}`, newest);
-  }
+  // Written last on purpose: `bill:<room>` is the pointer the chat and the slips follow, so it must
+  // never name a bill whose own key is not there yet. The conditional write re-checks the stored
+  // period, because `latest` (what the caller read) can be a second behind a bill another request
+  // issued in the meantime: a late slip for an older period must not put the pointer back.
+  await store.update(`bill:${room}`, (cur) => (!cur || !cur.period || newest.period >= cur.period ? newest : undefined));
 }
 
 const saveBill = (bill, opts) => saveBills([bill], opts);
@@ -53,10 +53,12 @@ async function archiveVoid(bill) {
   const indexKey = `bill-voids:${bill.room}`;
   await Promise.all([
     store.set(`bill-void:${bill.period}:${bill.room}:${rev}`, bill),
-    (async () => {
-      const tags = (await store.get(indexKey)) || [];
-      if (!tags.includes(tag)) await store.set(indexKey, [...tags, tag].slice(-VOID_INDEX_MAX));
-    })(),
+    // Merged conditionally: two voids at once (two owners, or a re-issue racing a void) must not
+    // overwrite each other's tag, or the record exists but `?voided=1` and the refund list never list it.
+    store.update(indexKey, (tags) => {
+      const list = tags || [];
+      return list.includes(tag) ? undefined : [...list, tag].slice(-VOID_INDEX_MAX);
+    }),
   ]);
 }
 
@@ -121,9 +123,11 @@ async function tagOverpaid(room, bills) {
   const fresh = bills.map((b) => `${b.period}:${b.rev || 1}`);
   if (!fresh.length) return;
   const key = `overpaid:${room}`;
-  const tags = (await store.get(key)) || [];
-  const add = fresh.filter((t) => !tags.includes(t));
-  if (add.length) await store.set(key, [...tags, ...add].slice(-OVERPAID_INDEX_MAX));
+  await store.update(key, (tags) => {
+    const list = tags || [];
+    const add = fresh.filter((t) => !list.includes(t));
+    return add.length ? [...list, ...add].slice(-OVERPAID_INDEX_MAX) : undefined;
+  });
 }
 
 // The overpayment this bill must carry once it is paid. A group slip is one transfer, so its extra
