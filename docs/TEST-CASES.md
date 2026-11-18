@@ -593,7 +593,7 @@ UC-07 และ UC-08 เพิ่มเข้ามาหลังแผนภ�
 
 ## UC-19 รับ event จาก LINE (webhook ฝั่ง backend)
 
-endpoint พร้อมและตรวจ signature จริง แต่ **ยังไม่ผูกกับ OA** (webhook ของช่องทางยังชี้ที่ `line-app`) — เทสต์ทั้งหมดยิงที่ `backend/tests/test_webhook.py`
+endpoint พร้อม ตรวจ signature จริง และ **ตอบ event ด้วยข้อความแล้ว** (`follow` → ทักทาย, พิมพ์ "บิล" → บิลล่าสุดของผู้เช่า) แต่ **ยังไม่ผูกกับ OA** — webhook ของช่องทางยังชี้ที่ `line-app` เพราะบิลที่ผู้เช่าเห็นอยู่จริงอยู่ใน Blob/R2 ของ `line-app` ไม่ใช่ Postgres ของ backend (ดู docs/DEPLOYMENT.md)
 
 | # | เคส | เงื่อนไขตั้งต้น | ขั้นตอน | ผลที่ต้องเห็น | สถานะ |
 |---|---|---|---|---|---|
@@ -607,6 +607,9 @@ endpoint พร้อมและตรวจ signature จริง แต่ *
 | TC-19-8 | ถอด secret รายหอไม่ได้ → 503 ไม่ใช่ 401 | เก็บ secret ด้วยกุญแจ A แล้วสลับ `SECRET_ENC_KEY` เป็นกุญแจ B | POST ด้วย signature ที่ถูกของ secret เดิม | 503 `LINE_SECRET_UNREADABLE` · ไม่เขียน `audit_log` · LINE จะ retry (5xx) ให้แก้กุญแจ | ✅ `backend/tests/test_webhook.py::test_an_unreadable_stored_secret_is_503_not_401` |
 | TC-19-9 | มี secret รายหอแล้วไม่ต้องตั้ง env | `LINE_CHANNEL_SECRET` ว่าง + เก็บ secret รายหอไว้ | POST ด้วย signature ของ secret ที่เก็บไว้ | 200 (ไม่ใช่ 503 `LINE_NOT_CONFIGURED`) | ✅ `backend/tests/test_webhook.py::test_a_stored_secret_works_without_the_env` |
 | TC-19-10 | webhook ที่ LINE ส่งมาหลาย event ในครั้งเดียว (มี `webhookEventId` 2 ตัวขึ้นไป) | — | POST body ที่มี 2 event id | **200** และบันทึกทั้ง 2 id (ไม่ใช่ 500 จาก `ResourceClosedError`: `execute` หลายชุด parameter กลายเป็น `executemany` ที่ทิ้ง `RETURNING`) · ส่งซ้ำทั้งชุด → 200 และไม่มี audit ใหม่ · audit 1 แถวต่อการส่งครั้งแรก | ✅ `backend/tests/test_webhook.py::test_two_event_ids_in_one_delivery_are_both_recorded` |
+| TC-19-11 | ผู้ใช้เพิ่มเพื่อน (`follow`) → backend ทักทายกลับ | ตั้ง secret + มี reply token | POST event `follow` (มี `webhookEventId`) | ส่ง reply ข้อความต้อนรับ 1 ครั้ง · ส่ง event เดิมซ้ำ → ไม่ตอบซ้ำ | ✅ `backend/tests/test_line_handlers.py::test_a_follow_gets_the_welcome` · `::test_a_redelivery_does_not_answer_twice` |
+| TC-19-12 | ผู้เช่าพิมพ์ "บิล" → ตอบบิลล่าสุดเป็นข้อความ | ผู้เช่าผูก LINE กับห้อง 203 (มีบิลค้าง 2026-10) | POST event `message` text `บิล` | ตอบ "ห้อง 203 · รอบ 2026-10 · ยอด … บาท · ครบกำหนด … · สถานะ: รอชำระ" · ยังไม่ผูกห้อง → "ยังไม่ได้ผูกห้อง…" · ข้อความอื่น → ไม่ตอบ | ✅ `backend/tests/test_line_handlers.py::test_bill_answers_with_the_tenants_newest_bill` · `::test_bill_from_someone_not_bound_says_so` · `::test_other_text_is_not_answered` |
+| TC-19-13 | handler พัง (LINE ล่ม) → webhook ยังตอบ LINE 200 | ทำให้ `reply_text` โยน exception | POST event `follow` | 200 `{"ok": true}` · event ถูกบันทึกใน `line_events` แล้ว · error อยู่ใน log ไม่ทำให้ LINE ส่งซ้ำทั้งชุด | ✅ `backend/tests/test_line_handlers.py::test_a_broken_handler_still_answers_line_200` |
 
 ## สรุป
 
@@ -630,8 +633,8 @@ endpoint พร้อมและตรวจ signature จริง แต่ *
 | UC-16 | ทวงอัตโนมัติ (เลยกำหนด 1 / 5 / 10 วัน) | 25 | 23 | 2 | 0 |
 | UC-17 | แจ้งชำระก่อนบิลออก (โอนก่อน) | 26 | 22 | 4 | 0 |
 | UC-18 | ยกเลิกบิล (void) และออกบิลใหม่ | 13 | 12 | 1 | 0 |
-| UC-19 | รับ event จาก LINE (webhook ฝั่ง backend) | 10 | 10 | 0 | 0 |
-| **รวม** | | **292** | **266** | **26** | **0** |
+| UC-19 | รับ event จาก LINE (webhook ฝั่ง backend) | 13 | 13 | 0 | 0 |
+| **รวม** | | **295** | **269** | **26** | **0** |
 
 หมายเหตุ: คอลัมน์ ✅ รวมทั้ง test ใน `line-app/smoke-usecases.js` (177 ข้อ) และ test ที่มีอยู่แล้วใน `backend/tests/` ที่ผูกกับกรณีนั้น (บางแถวอ้างหลายฟังก์ชัน นับเป็น 1 TC) แถว ✅ ที่อ้าง pytest ไม่ได้ถูกรันโดยชุดนี้ — รันด้วย `cd backend && pytest -q`
 

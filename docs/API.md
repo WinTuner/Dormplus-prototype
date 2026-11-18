@@ -23,7 +23,7 @@
 | `GET /properties/:id` | ✅ |
 | `GET /invoices/:id` (รายละเอียด + items) | ✅ |
 | `GET /v1/reports/summary` | ✅ |
-| `POST /webhooks/line/:property_id` | ✅ (endpoint + signature; **ยังไม่ผูก OA**) |
+| `POST /webhooks/line/:property_id` | ✅ (endpoint + signature + ตอบ follow/"บิล" เป็นข้อความ; **ยังไม่ผูก OA**) |
 
 ## กติกากลาง
 
@@ -263,14 +263,16 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
 ## Webhook (LINE → server)
 
 ### `POST /webhooks/line/:property_id`
-`api` ฝั่ง backend รับ event ของ Messaging API แล้ว — **endpoint ทำงานได้ แต่ช่องทางของ OA ยังชี้ที่ `line-app`** (สลับเมื่อไหร่บอทที่ใช้งานจริงจะดับ) จึงยังไม่มี handler ที่ตอบผู้ใช้: งานของ endpoint นี้คือพิสูจน์ signature และบันทึก event
+`api` ฝั่ง backend รับ event ของ Messaging API และ **ตอบด้วยข้อความแล้ว** (ดู "สิ่งที่ตอบ" ด้านล่าง) — แต่ **ช่องทางของ OA ยังชี้ที่ `line-app`** เพราะบิลที่ผู้เช่าเห็นอยู่จริงอยู่ใน Blob/R2 ของ `line-app` ไม่ใช่ Postgres ของ backend; การสลับต้องทำตาม `docs/DEPLOYMENT.md` § "สลับ webhook มาที่ backend"
 
 - **Auth:** `X-Line-Signature` = Base64(HMAC-SHA256 ของ **raw body** ด้วย channel secret) เทียบแบบ constant-time · ไม่ใช้ session
 - **channel secret มาจากไหน:** ถ้า `properties.line_secret_enc` ของหอนั้นมีค่า → ถอดรหัสด้วย `SECRET_ENC_KEY` (Fernet) แล้วใช้ค่านั้น (หอมี OA ของตัวเอง) · ถ้าว่าง → ใช้ env `LINE_CHANNEL_SECRET` (1 deploy = 1 หอ) · บันทึกค่าด้วย `python scripts/set_line_secret.py` (อ่านจาก stdin) และล้างด้วย `--clear`
 - **Error:** `503 LINE_NOT_CONFIGURED` (ไม่มีทั้ง column และ env) → `404 NOT_FOUND` (`:property_id` ไม่ใช่หอของ deployment — signature ผูกกับ channel เดียว) → `503 LINE_SECRET_UNREADABLE` (มีค่าใน column แต่ถอดรหัสไม่ได้ เช่น `SECRET_ENC_KEY` ถูกหมุน/หาย — **ตั้งใจให้เป็น 503 ไม่ใช่ 401** เพราะ LINE retry 5xx ให้แก้กุญแจได้ ส่วน secret ผิดจะ 401 ตลอดกาล) → `401 UNAUTHORIZED` (signature ไม่ตรง) → `400 VALIDATION` (body ไม่ใช่ JSON)
 - **200:** `{ "ok": true }` — รวมกรณี event ซ้ำ: `webhookEventId` ถูกเก็บในตาราง `line_events` (migration `0005`) ถ้า LINE ส่ง event เดิมซ้ำจะไม่เขียน `audit_log` เพิ่ม
 - **Side effect:** เขียน `audit_log` 1 แถว action `webhook.line` payload `{ "count": <จำนวน event>, "types": ["follow", ...] }` — เฉพาะเมื่อมี event ใหม่
-- **ยังไม่มีคิวในเส้นทางนี้** — งานเดียวคือ insert ไม่กี่แถว; เมื่อมี handler ที่ต้องเรียก LINE กลับจริงค่อยเพิ่มคิวตอนนั้น
+- **สิ่งที่ตอบ (ข้อความล้วน — อยู่ใน `app/line_handlers.py`):** `follow` → ข้อความต้อนรับ · `message` ที่ข้อความเป็น `บิล` / `bill` / `ใบเสร็จ` / `invoice` → บิลล่าสุดของผู้ใช้คนนั้น (ห้อง · รอบ · ยอด · ครบกำหนด · สถานะ) · ยังไม่ผูกห้อง → "ยังไม่ได้ผูกห้อง…" · ข้อความอื่นและ `postback` → ไม่ตอบ (บันทึกไว้เฉย ๆ) — ตอบผ่าน `replyToken` จึงไม่กินโควตา push และไม่ต้องมีคิว (การ์ด Flex ยังสร้างที่ `line-app` เท่านั้น เพื่อไม่ให้มีตัวสร้างการ์ดสองชุดที่เพี้ยนจากกัน)
+- **ตอบเฉพาะ event ใหม่:** LINE ส่งซ้ำ → ไม่ตอบซ้ำ · handler พัง (LINE ล่ม) → เขียน log แล้วยังตอบ `200` เพื่อไม่ให้ LINE ส่งทั้งชุดซ้ำ · `answer_events()` ทำงานหลัง commit และนอก event loop (`run_in_threadpool`)
+- **ยังไม่มีคิวในเส้นทางนี้** — handler ตอบด้วย `replyToken` แบบ sync (เร็วและไม่กินโควตา) และไม่แตะเงิน; คิว (Procrastinate) จะได้ใช้เมื่อมี handler ที่ต้อง push หลายข้อความหรือทำรายการเงินหลังตอบ 200
 
 ---
 

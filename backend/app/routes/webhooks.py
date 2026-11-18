@@ -13,8 +13,9 @@ import logging
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import Connection, Engine, text
+from starlette.concurrency import run_in_threadpool
 
-from app import secrets
+from app import line_handlers, secrets
 from app.config import get_settings
 from app.db import get_engine
 from app.errors import ApiError
@@ -68,16 +69,33 @@ def channel_secret(conn: Connection, property_id: str) -> str:
     return secret
 
 
+def answer_events(engine: Engine, events: list[dict], fresh: set[str]) -> None:
+    """Answer the events this delivery just recorded.
+
+    Only fresh ids: a redelivery must not say "ยินดีต้อนรับ" twice. One event that throws must not
+    silence the rest — LINE already got its 200 either way.
+    """
+    for event in events:
+        if event.get("webhookEventId") not in fresh:
+            continue
+        try:
+            with engine.connect() as conn:
+                line_handlers.handle(event, conn)
+        except Exception:  # noqa: BLE001 — a handler bug must not take the endpoint down
+            logger.exception("line event not answered: %s", event.get("webhookEventId"))
+
+
 @router.post("/webhooks/line/{property_id}")
 async def line_webhook(
     property_id: str,
     request: Request,
     engine: Engine = Depends(get_engine),
 ) -> dict:
-    """Verify `X-Line-Signature` over the raw body, then record what arrived.
+    """Verify `X-Line-Signature` over the raw body, record each event once, then answer it.
 
-    Nothing here answers the user yet: the chatbot lives in `line-app`. What this proves is the
-    signature check and the wiring, so a later handler has a verified event to work from.
+    The answer is plain text (`app/line_handlers.py`): a welcome on `follow`, the tenant's newest
+    bill on "บิล". The LINE console still points at `line-app`; this endpoint is ready for the
+    switch, see docs/DEPLOYMENT.md.
     """
     settings = get_settings()
 
@@ -111,4 +129,8 @@ async def line_webhook(
                                      "payload": json.dumps({"count": len(types), "types": types})})
         else:
             logger.info("line webhook redelivery ignored: %s", ", ".join(i for i in ids))
+
+    # After the commit, and after LINE has its answer on the way: a handler talks to LINE and reads
+    # the database, neither of which belongs inside the transaction that records the delivery.
+    await run_in_threadpool(answer_events, engine, events, set(fresh))
     return {"ok": True}

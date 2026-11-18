@@ -40,7 +40,7 @@ git clone https://github.com/WinTuner/Dormplus-prototype.git
 cd Dormplus-prototype/line-app
 npm install                    # ให้ @vercel/blob, aws4fetch, qrcode-svg
 npm test                       # = node smoke.js && node smoke-handlers.js && node smoke-reads.js
-node smoke-usecases.js         # 177 use case (docs/TEST-CASES.md มี 292 แถว: ✅ 266 · 🖐 26 · ⏳ 0)
+node smoke-usecases.js         # 177 use case (docs/TEST-CASES.md มี 295 แถว: ✅ 269 · 🖐 26 · ⏳ 0)
 node smoke-cron.js             # /api/cron + ตัวเตือนรายวัน + cron-lock
 ```
 
