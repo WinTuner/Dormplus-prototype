@@ -5,6 +5,10 @@ on:
     branches: [master]
   pull_request:
 
+# Nothing here publishes, comments or pushes, so the token gets read-only access.
+permissions:
+  contents: read
+
 jobs:
   # The deployed LINE app (line-app/): plain Node, no dependencies, no network.
   line-app:

@@ -298,7 +298,7 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 
 ```json
 { "ok": true, "status": "pending", "total": 3796, "hasSlip": true,
-  "verify": { "provider": "slipok", "ok": true, "amount": 3796, "transRef": "010092101507665143",
+  "verify": { "provider": "slipok", "ok": true, "amount": 3796, "transRef": "010090000000000001",
               "paidAt": "2026-11-10T03:15:07.000Z", "bank": "006" } }
 ```
 

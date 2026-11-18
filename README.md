@@ -300,4 +300,12 @@ LINE ไม่อนุญาตให้แอปเพิ่มเพื่อ
 
 ## สิทธิ์การใช้งาน
 
-โปรเจกต์นี้ไม่ใช่ open source และไม่มีไฟล์ `LICENSE` ในรีโป — สิทธิ์เป็นของเจ้าของโครงการ
+โปรเจกต์นี้ **ไม่ใช่ open source** — เผยแพร่โค้ดให้อ่าน/ตรวจสอบเท่านั้น สิทธิ์ทั้งหมดเป็นของเจ้าของโครงการ
+รายละเอียดอยู่ใน [`LICENSE`](LICENSE) · ขออนุญาตใช้งานผ่าน issue
+
+## ความปลอดภัย
+
+- รายงานช่องโหว่แบบส่วนตัวตาม [`SECURITY.md`](SECURITY.md) (ห้ามเปิด issue สาธารณะ)
+- ไม่มี credential ใน git — ค่าจริงอยู่ใน Vercel Environment Variables
+- เปิด Dependabot (npm / pip / GitHub Actions) และ secret scanning ของ GitHub ไว้
+
