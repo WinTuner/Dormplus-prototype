@@ -210,7 +210,8 @@ env ครั้งเดียว)
 `bill-state:<room>` คือ **index ที่ย่อบิลเหลือเฉพาะฟิลด์ที่เส้นทาง "อ่านเงินตามเวลา" ใช้**:
 `_ledger.stateOf()` เก็บ `{ room, period, status, total, due, rev, issuedAt, paidAt, receiptNo, refundDue,
 refundedAt }` · `indexState()` (ถูกเรียกจาก `saveBills()` ทุกครั้ง จึงไม่มีทางที่ index กับบิลจริงจะไม่ตรงกัน)
-merge รอบที่เขียนลง key เดียวแล้วเก็บ 24 รอบล่าสุด · `stateBills(room)` อ่าน key นี้ครั้งเดียว —
+merge รอบที่เขียนลง key เดียวแล้วเก็บ 24 รอบล่าสุด **ผ่าน `store.update()` ที่เขียนแบบ `If-Match`** (สองคำขอที่เขียนห้องเดียวกัน
+พร้อมกันจะไม่ทิ้งงวดของกันและกัน · บน Blob ถอยเป็นเขียนครั้งเดียว) · `stateBills(room)` อ่าน key นี้ครั้งเดียว —
 `_remind.js`, `GET /api/bill?overdue=1` และ `?income=` จึงจ่าย **หนึ่ง read ต่อห้อง** แทนหนึ่ง read
 ต่อรอบต่อห้อง ซึ่งเป็นการอ่านที่กินโควตา Blob มากที่สุด · ห้องที่เขียนไว้ก่อนมี key นี้: `stateBills()` จะ
 fallback ไป `recentBills()` (อ่านบิลจริง) **โดยไม่เขียนอะไรเลย** เพราะ read ต้องไม่ freeze รายการที่เก่าแล้ว
@@ -413,10 +414,12 @@ backend ใช้ **Procrastinate** เป็นคิวที่เก็บ�
      (`amount`, `transRef`, `paidAt`, `bank`), `ok: false` คือ 1012 สลิปซ้ำ / 1013 ยอดไม่ตรง / 1014
      บัญชีผู้รับไม่ใช่ของหอ, และ `ok: null` คือ 1006/1007/1009/1010/1011 (อ่านรูปไม่ได้, ไม่มี QR, ธนาคารขัดข้อง,
      สลิปใหม่เกินไป, QR หมดอายุ) รวมถึงผู้ให้บริการล่ม — "ตรวจไม่ได้" ไม่ถูกแสดงเป็น "ปลอม"
-   - **กันสลิปซ้ำด้วย key ของเราเอง:** `rememberRef()` เขียน `slip-ref:<transRef>` ก่อนบันทึกบิล ถ้า
-     `transRef` นั้นเคยถูกใช้แล้วจะตอบ `ok: false` พร้อมบอกห้องที่ใช้ไป — เป็นชั้นที่สองถัดจากที่ SlipOK
-     จำสลิป (ซึ่งจำได้เฉพาะเท่าที่ branch เก็บไว้) · เขียน ref ก่อนบิลจึงปิดช่องจ่ายสองบิลด้วยสลิปใบเดียว
-     ได้ แต่ถ้าเขียนบิลล้มหลังเขียน ref สลิปนั้นจะถูกมองว่าซ้ำ (แลกมาด้วยการกันการจ่ายซ้ำ)
+   - **กันสลิปซ้ำด้วย key ของเราเอง:** `rememberRef()` จอง `slip-ref:<transRef>` ก่อนบันทึกบิล ด้วย `store.create()`
+     (เขียนแบบ `If-None-Match: *` บน R2) — คนแรกที่สร้าง key ชนะ ถ้า `transRef` นั้นเคยถูกใช้แล้วจะตอบ
+     `ok: false` พร้อมบอกห้องที่ใช้ไป — เป็นชั้นที่สองถัดจากที่ SlipOK จำสลิป (ซึ่งจำได้เฉพาะเท่าที่ branch
+     เก็บไว้) · เขียน ref ก่อนบิลจึงปิดช่องจ่ายสองบิลด้วยสลิปใบเดียวได้ แต่ถ้าเขียนบิลล้มหลังเขียน ref
+     สลิปนั้นจะถูกมองว่าซ้ำ (แลกมาด้วยการกันการจ่ายซ้ำ) · บน Vercel Blob ไม่มี conditional write จึงถอย
+     เป็นอ่านแล้วเขียน (ช่องที่ยอมรับ)
    - **เทียบยอด (`checkAmount`):** ผลตรวจ + ยอดบิล → `{ verify, slipAmount, overpaid, shortBy }` แล้วเขียน
      `slipAmount`/`overpaid`/`shortBy` ลงบิล (และ `slipGroup` ของสลิปหลายรอบ) ผ่าน `withAmounts()` ·
      ยอดไม่เท่า = `ok: false` พร้อมเหตุผลภาษาไทย "เกินบิล X บาท" / "ขาด X บาท" **ไม่บล็อก** เจ้าของยังตัดสินเอง
@@ -518,10 +521,12 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
    (`backend/app/session.py`: HMAC-SHA256, `exp` 7 วัน, HttpOnly, SameSite=Lax, `secure` ตาม `COOKIE_SECURE`)
 4. ทุก request ถัดไป: `current_session()` (`backend/app/auth.py`) อ่าน cookie → `unsign()` →
    ถ้า `role == "tenant"` เรียก `still_linked()` ตรวจกับ DB ทุกครั้ง (join `tenants` × `rooms` +
-   `moved_out is null or > current_date`) — ถ้าถูกถอด LINE หรือย้ายออก ตอบ 401 `SESSION_REVOKED` ทันที
+   `moved_out is null or > (now() at time zone 'Asia/Bangkok')::date`) — ถ้าถูกถอด LINE หรือย้ายออก ตอบ 401 `SESSION_REVOKED` ทันที
+   · คำสั่งเดียวกันนี้คืน `since = to_char(tenants.moved_in, 'YYYY-MM')` ที่ session พกไว้ (**หนี้เป็นของคน ไม่ใช่ของห้อง**)
 5. อ่านข้อมูล: `GET /v1/me/invoices` ใช้ `tenant_session` และเอา `room_id` จาก session เท่านั้น
    (`backend/app/routes/me.py`) · การแนบสลิป `POST /v1/invoices/{id}/slip` ใช้ `OWN_INVOICE_SQL`
-   ที่บังคับ `room_id = session.room_id` (`backend/app/routes/billing.py`)
+   ที่บังคับ `room_id = session.room_id` (`backend/app/routes/billing.py`) · ทั้งสองที่กรอง `period >= since`
+   ด้วย ผู้เช่าจึงไม่เห็นและแนบสลิปให้บิลของคนที่อยู่ก่อนหน้าไม่ได้ (ใบนั้นตอบ `404`)
 6. ฝั่งเจ้าของ: เปิด `/owner` → `POST /v1/auth/owner` ด้วย `OWNER_ACCESS_CODE` (§3) ได้ cookie
    `role:"owner"` ที่ผูก `property_id` จาก `PROPERTY_ID` ของ deployment แล้วหน้าเว็บเรียก
    `GET /v1/rooms`, `PUT /v1/rooms/{id}/reading`, `POST /v1/billing/run`, `GET /v1/invoices`,

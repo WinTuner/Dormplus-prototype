@@ -73,6 +73,8 @@ const owners = new Map([
 const storeStub = {
   get: async (k) => (owners.has(k) ? owners.get(k) : null),
   set: async (k, v) => owners.set(k, v),
+  update: async (k, apply) => { const next = await apply(owners.has(k) ? owners.get(k) : null); if (next !== undefined) owners.set(k, next); },
+  create: async (k, v) => { if (owners.has(k)) return false; owners.set(k, v); return true; },
 };
 const storePath = require.resolve("./api/_store");
 require.cache[storePath] = { id: storePath, filename: storePath, loaded: true, exports: storeStub };
@@ -122,7 +124,10 @@ try {
   const fakeFetch = async (req) => {
     // aws4fetch hands over a signed Request, so body and method come from it, not from init.
     const body = req.method === "GET" ? undefined : await req.text();
-    calls.push({ url: req.url, method: req.method, body });
+    calls.push({
+      url: req.url, method: req.method, body,
+      ifMatch: req.headers.get("if-match"), ifNoneMatch: req.headers.get("if-none-match"),
+    });
     const next = replies.shift() || {};
     return new Response(next.body ?? "", { status: next.status || 200, headers: next.headers || {} });
   };
@@ -148,7 +153,22 @@ try {
   replies.push({ body: "<IsTruncated>true</IsTruncated><NextContinuationToken>t1</NextContinuationToken><Key>kv/a.json</Key>" });
   replies.push({ body: "<IsTruncated>false</IsTruncated><Key>kv/b.json</Key>" });
   assert.deepStrictEqual(await store.listPaths("kv/"), ["kv/a.json", "kv/b.json"], "list follows the continuation token");
-  console.log("smoke OK — R2 adapter: get/404, put, delete, list pagination");
+
+  // Conditional writes: an ETag read plus If-Match / If-None-Match on the PUT is what stops two
+  // requests from overwriting each other's merge of bills:<room> / bill-state:<room> / slip-ref:.
+  replies.push({ body: '{"c":3}', headers: { etag: '"v1"' } });
+  assert.deepStrictEqual(await store.getVersioned("kv/c.json"), { text: '{"c":3}', etag: '"v1"' });
+  replies.push({ status: 412 });
+  assert.strictEqual(await store.putVersioned("kv/c.json", '{"c":4}', { ifMatch: '"v1"' }), null,
+    "the loser of a race gets null instead of overwriting");
+  assert.strictEqual(calls.at(-1).ifMatch, '"v1"', "and it really sent If-Match");
+  replies.push({ headers: { etag: '"v2"' } });
+  assert.deepStrictEqual(await store.putVersioned("kv/c.json", '{"c":5}', { ifMatch: '"v1"' }), { etag: '"v2"' });
+  replies.push({ status: 409 });
+  assert.strictEqual(await store.putVersioned("kv/new.json", "{}", { ifNoneMatch: true }), null,
+    "create-only also treats 409 as taken");
+  assert.strictEqual(calls.at(-1).ifNoneMatch, "*", "and it really sent If-None-Match: *");
+  console.log("smoke OK — R2 adapter: get/404, put, delete, list pagination, conditional put");
 })().catch((err) => {
   console.error(err);
   process.exit(1);

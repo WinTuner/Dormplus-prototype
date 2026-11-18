@@ -32,6 +32,26 @@ function createStore(env = process.env, fetchImpl = undefined) {
       return res.text();
     },
 
+    // The ETag is what makes a read-modify-write safe: a second writer's PUT then fails instead of
+    // overwriting the first one's merge (R2 honours If-Match / If-None-Match on PUT).
+    async getVersioned(path) {
+      const res = await send(objectUrl(path));
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`R2 GET ${path} -> ${res.status}`);
+      return { text: await res.text(), etag: res.headers.get("etag") };
+    },
+
+    // null when the precondition failed: someone else wrote the key first.
+    async putVersioned(path, body, { ifMatch, ifNoneMatch } = {}) {
+      const headers = { "Content-Type": "application/json" };
+      if (ifMatch) headers["If-Match"] = ifMatch;
+      if (ifNoneMatch) headers["If-None-Match"] = "*";
+      const res = await send(objectUrl(path), { method: "PUT", body, headers });
+      if (res.status === 412 || res.status === 409) return null;
+      if (!res.ok) throw new Error(`R2 PUT ${path} -> ${res.status}`);
+      return { etag: res.headers.get("etag") };
+    },
+
     async putText(path, body) {
       const res = await send(objectUrl(path), {
         method: "PUT",

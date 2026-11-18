@@ -373,6 +373,7 @@ INVOICE_DETAIL_SQL = text("""
     ) pay on true
     where i.id = :id and r.property_id = :property_id
       and (cast(:room_id as text) is null or i.room_id = :room_id)
+      and (cast(:since as text) is null or i.period >= :since)
 """)
 
 
@@ -395,7 +396,8 @@ def get_invoice(
     with engine.connect() as conn:
         row = conn.execute(
             INVOICE_DETAIL_SQL,
-            {"id": invoice_id, "property_id": session.property_id, "room_id": room_id},
+            {"id": invoice_id, "property_id": session.property_id, "room_id": room_id,
+             "since": session.since},
         ).first()
         if row is None:
             raise ApiError(404, "NOT_FOUND", "ไม่พบบิลนี้")
@@ -417,6 +419,7 @@ OWN_INVOICE_SQL = text("""
     select i.id, i.total, i.status
     from invoices i
     where i.id = :id and i.room_id = :room_id
+      and (cast(:since as text) is null or i.period >= :since)
     for update
 """)
 
@@ -438,7 +441,10 @@ def attach_slip(
     """Tenant says "I paid, here is the slip" -> pending. Uploading the photo itself is not built yet,
     so slip_url is stored as given (null is fine for a walk-in slip)."""
     with engine.begin() as conn:
-        row = conn.execute(OWN_INVOICE_SQL, {"id": invoice_id, "room_id": session.room_id}).first()
+        row = conn.execute(
+            OWN_INVOICE_SQL,
+            {"id": invoice_id, "room_id": session.room_id, "since": session.since},
+        ).first()
         if row is None:
             raise ApiError(404, "NOT_FOUND", "ไม่พบบิลนี้ในห้องของคุณ")
         if row.status != "unpaid":

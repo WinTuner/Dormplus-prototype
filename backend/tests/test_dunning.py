@@ -198,6 +198,10 @@ def test_other_dorms_are_not_touched(seeded):
 
 
 def test_queue_reminders_hands_each_row_to_the_worker(seeded, monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "test-token")
+    get_settings.cache_clear()
     calls = []
     batches = []
 
@@ -244,6 +248,24 @@ def test_queue_reminders_hands_each_row_to_the_worker(seeded, monkeypatch):
     assert [c["to_user_id"] for c in calls] == ["U_201", "U_202"]
     assert [c["invoice_id"] for c in calls] == ["inv_1", "inv_2"]
     assert [c["kind"] for c in calls] == ["reminder_1", "reminder_5"]
+
+
+def test_without_a_line_token_nothing_is_queued_or_logged(seeded, monkeypatch):
+    """No token means no send: the step waits for the token instead of re-queueing every day."""
+    from app.config import get_settings
+
+    monkeypatch.delenv("LINE_CHANNEL_ACCESS_TOKEN", raising=False)
+    get_settings.cache_clear()
+
+    class Boom:
+        def open(self):
+            raise AssertionError("nothing may be queued without a token")
+
+    monkeypatch.setattr(dunning, "app", Boom())
+    rows = [{"id": "inv_1", "period": "2026-11", "total": 3930, "due_date": date(2026, 11, 19),
+             "room_no": "201", "line_user_id": "U_201", "days_late": 1, "kind": "reminder_1"}]
+    assert dunning.queue_reminders(rows) == 0
+    get_settings.cache_clear()
 
 
 def test_a_tenant_who_moved_out_is_not_reminded(seeded):

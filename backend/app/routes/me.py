@@ -11,6 +11,7 @@ MY_INVOICES_SQL = text("""
     select i.id, i.period, i.total, i.status, i.due_date
     from invoices i
     where i.room_id = :room_id
+      and (cast(:since as text) is null or i.period >= :since)
     order by i.period desc
     limit 12
 """)
@@ -23,7 +24,9 @@ def my_invoices(
 ) -> dict:
     """The room comes from the session cookie, never from the request."""
     with engine.connect() as conn:
-        rows = conn.execute(MY_INVOICES_SQL, {"room_id": session.room_id}).all()
+        rows = conn.execute(
+            MY_INVOICES_SQL, {"room_id": session.room_id, "since": session.since}
+        ).all()
 
     return {
         "items": [

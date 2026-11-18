@@ -105,13 +105,13 @@
 |---|---|---|
 | `LINE_CHANNEL_ID` | `app/routes/auth.py` | LINE Login channel ที่ออก idToken; ว่าง → 503 |
 | `LIFF_ID` | `app/main.py` | `GET /v1/liff-config` คืนให้หน้า LIFF (public โดยตั้งใจ) |
-| `LINE_CHANNEL_ACCESS_TOKEN` | `app/line_push.py` | Messaging API push; ว่าง → คืน `skipped:` ไม่ throw |
+| `LINE_CHANNEL_ACCESS_TOKEN` | `app/line_push.py`, `app/dunning.py` | Messaging API push; ว่าง → คืน `skipped:` ไม่ throw · `queue_reminders` เช็กก่อน: ไม่มี token = คืน 0 ไม่เขียนคิว/`message_log` (เดิมเขียน `skipped` ทุกใบทุกวัน) |
 | `LINE_CHANNEL_SECRET` | `app/routes/webhooks.py` | ตรวจ `X-Line-Signature` (HMAC-SHA256 ของ raw body แบบ base64) **เมื่อ `properties.line_secret_enc` ว่าง**; ไม่มีทั้งสองที่ → `503 LINE_NOT_CONFIGURED` · `property_id` ใน path ต้องเท่ากับ `PROPERTY_ID` ไม่งั้น `404 NOT_FOUND` · signature ผิด → `401 UNAUTHORIZED` |
 | `SECRET_ENC_KEY` | `app/secrets.py` | กุญแจ Fernet (urlsafe base64 32 ไบต์) สำหรับถอด `properties.line_secret_enc` / `line_token_enc` · ไม่ตั้งหรือผิดรูป → เขียน/อ่านไม่ได้ · ถอดค่าเดิมไม่ได้ → webhook ตอบ `503 LINE_SECRET_UNREADABLE` (ไม่ใช่ 401 เพื่อให้ LINE retry) · หมุนกุญแจแล้วต้องรัน `scripts/set_line_secret.py` ใหม่ |
 
 webhook ฝั่งนี้บันทึกทุก event ลงตาราง `line_events` (migration `0005`) ด้วย `webhookEventId` เป็น PK — LINE ส่งซ้ำจะไม่เพิ่ม `audit_log` แถวที่สอง และยังตอบ 200 เพื่อให้ LINE หยุด retry · **endpoint นี้ยังไม่ได้ผูกกับ OA จริง** (LINE Console ยังชี้ไปที่ `line-app`)
 
-> `LINE_CHANNEL_ACCESS_TOKEN` ถูกอ่านโดย `Settings` แต่ **ไม่ปรากฏใน `backend/.env.example`** — ถ้าคัดลอก example ไปใช้ ต้องเพิ่มเองไม่งั้นการทวงหนี้จะ log `skipped` เงียบ ๆ (ตอนนี้การทวงจริงอยู่ที่ `line-app` จึงกระทบเฉพาะตอนเปิด cron ฝั่งนี้)
+> `LINE_CHANNEL_ACCESS_TOKEN` มีอยู่ใน `backend/.env.example` แล้ว · ถ้าไม่ตั้ง การทวงหนี้จะไม่ทำอะไรเลย (คืน 0 ไม่เขียน `skipped` ทิ้งวันละแถวต่อบิล) และกลับมาทำงานเองเมื่อใส่ token
 
 ### 1.6 `PROPERTY_ID` — ตัวคุม RLS และการเลือกบิล
 

@@ -17,14 +17,14 @@ repo นี้แยกเป็นสองครึ่งที่ deploy แ�
 | `line-app` โครงสร้าง/handler | `smoke.js`, `smoke-handlers.js`, `smoke-reads.js` | `node` (หรือ `npm test`) | Node ≥ 20 · ไม่ต้องมีเน็ต · **`smoke.js` ต้องมี `npm ci` ก่อน** (บล็อก R2 ใช้ `aws4fetch`) · `smoke-handlers.js`/`smoke-reads.js` ไม่ต้องมี `node_modules` | signature ของ webhook, Flex card, QR binding + move-confirm, rate limit, ยืนยันการชำระ + ใบเสร็จ, ยกเลิก/ออกบิลใหม่, สลิปหนึ่งใบหลายงวด, roles/invite, slip limits, **ตรวจสลิปผ่าน SlipOK (stub)**, **แก้ราคาห้อง**, สมาชิกห้อง/รูมเมท, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป, concurrency ของ read, **adapter R2 เทียบ S3 ปลอม (get/404/put/delete/list paging)** และ `/api/bill?overdue=` / `?income=` / `?refunds=1` |
 | `line-app` use case | `smoke-usecases.js` | `node smoke-usecases.js` | Node ≥ 20 · ไม่ต้องมีเน็ต · ไม่ต้องมี `node_modules` | **177 เคส** ที่ id ตรงกับ `docs/TEST-CASES.md` (TC-xx-n) ไล่ตาม UC-01 … UC-18 (ไม่มี UC-19 ซึ่งเป็น pytest) |
 | `line-app` cron เตือนรายวัน | `smoke-cron.js` | `node smoke-cron.js` | Node ≥ 20 · ไม่ต้องมีเน็ต · ไม่ต้องมี `node_modules` | auth ของ `/api/cron`, lock กันรอบซ้อน, 6 หน้าต่างเตือน, dedup, catch-up, ข้ามบิลที่ไม่ควรเตือน, retry, สรุปถึงเจ้าของ |
-| `backend` API | `backend/tests/*.py` (19 ไฟล์ · 176 ฟังก์ชัน `def test_` · 178 test node) | `pytest` | Python ≥ 3.11 · **Postgres** สำหรับ test ที่แตะ DB | สัญญา error, session cookie, LINE idToken, owner login + หน้า `/owner`, ห้อง/มิเตอร์, ออกบิล + ส่งบิลเข้า LINE, สลิป/ยืนยัน/ตีกลับ, ผูก LINE, dunning, cron, **RLS**, webhook signature + dedupe + secret รายหอ, รายงานสรุป |
+| `backend` API | `backend/tests/*.py` (20 ไฟล์ · 178 ฟังก์ชัน `def test_` · 180 test node) | `pytest` | Python ≥ 3.11 · **Postgres** สำหรับ test ที่แตะ DB | สัญญา error, session cookie, LINE idToken, owner login + หน้า `/owner`, ห้อง/มิเตอร์, ออกบิล + ส่งบิลเข้า LINE, สลิป/ยืนยัน/ตีกลับ, ผูก LINE, dunning, cron, **RLS**, webhook signature + dedupe + secret รายหอ, รายงานสรุป |
 | LIFF UI | `line-app/liff/bill.html` | `cd line-app/e2e && npm test` (Playwright) | Node ≥ 20 · `npm ci` + `npx playwright install chromium` ใน `line-app/e2e` | หน้าผู้เช่า/เจ้าของจริงบน handler จริง (stub LINE/LIFF) |
 | LIFF inline script | `line-app/liff/bill.html` | `node --check` (ใน CI) | Node | แค่ **parse ได้** ไม่ได้รัน logic |
 | production หลัง deploy | `scripts/prod-smoke.mjs` | `node scripts/prod-smoke.mjs` | เน็ต + URL จริง | **14 ข้อ**: build ปัจจุบัน, security header, endpoint ที่ต้อง auth ตอบ 401, dev endpoint ปิด, cron ป้องกัน secret |
 
 > ไม่มี Jest/Vitest และไม่มี coverage tool ใน repo นี้ · UI test ของหน้า LIFF ใช้ Playwright แยกเป็นแพ็กเกจของตัวเองที่ `line-app/e2e/` (ดูหัวข้อ 2.1)
 
-**catalogue ของเคสคือ [`docs/TEST-CASES.md`](TEST-CASES.md)**: **288 เคสใน 19 use case** โดยแบ่งเป็น ✅ 262 เคสที่ automation แตะ, 🖐 26 เคสที่ต้องทำมือกับ LINE/LIFF จริง และ **⏳ 0 เคส** (ทุกแถวในเอกสารมีคนตรวจแล้ว) — ใน 262 เคสนั้น **177 เคสมี id ของตัวเองใน `smoke-usecases.js`**, 51 เคสชี้ไปที่ backend pytest, 8 เคสชี้ไปเคสที่ automate ไว้แล้วใน UC อื่น (`TC-10-12`→`TC-08-6`, `TC-11-16`→`TC-08-8`, `TC-14-3`→`TC-10-5`, `TC-15-1`→`TC-04-1`, `TC-17-24`→`TC-08-11`, `TC-17-25`→`TC-18-5`, `TC-17-26`→`TC-18-9`, `TC-18-12`→`TC-13-10`), 1 เคสชี้ไป `smoke-cron.js` และ 19 เคสอ้าง `smoke-handlers.js` (ตรวจสลิป, สมาชิกห้อง, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป, อ่านมิเตอร์จากรูป, guard เล็ก ๆ) — id ใน `smoke-usecases.js` กับแถวในเอกสารตรงกัน 1:1 ทั้ง 177 ตัว
+**catalogue ของเคสคือ [`docs/TEST-CASES.md`](TEST-CASES.md)**: **292 เคสใน 19 use case** โดยแบ่งเป็น ✅ 266 เคสที่ automation แตะ, 🖐 26 เคสที่ต้องทำมือกับ LINE/LIFF จริง และ **⏳ 0 เคส** (ทุกแถวในเอกสารมีคนตรวจแล้ว) — ใน 266 เคสนั้น **177 เคสมี id ของตัวเองใน `smoke-usecases.js`**, 59 เคสชี้ไปที่ backend pytest, 8 เคสชี้ไปเคสที่ automate ไว้แล้วใน UC อื่น (`TC-10-12`→`TC-08-6`, `TC-11-16`→`TC-08-8`, `TC-14-3`→`TC-10-5`, `TC-15-1`→`TC-04-1`, `TC-17-24`→`TC-08-11`, `TC-17-25`→`TC-18-5`, `TC-17-26`→`TC-18-9`, `TC-18-12`→`TC-13-10`), 1 เคสชี้ไป `smoke-cron.js` และ 20 เคสอ้าง `smoke-handlers.js` (ตรวจสลิป, สมาชิกห้อง, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป, สลิปค้างทุกงวด, อ่านมิเตอร์จากรูป, guard เล็ก ๆ) — id ใน `smoke-usecases.js` กับแถวในเอกสารตรงกัน 1:1 ทั้ง 177 ตัว
 
 ---
 
@@ -317,20 +317,21 @@ cd ..\backend; $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@lo
 
 **ไม่มีการตั้ง coverage threshold ที่ไหนเลย** — ไม่มี `.coveragerc`, `.nycrc`, `pytest-cov`, หรือ `--cov` ใน CI และ `line-app` ไม่มี coverage tool (ทดสอบด้วย `assert` ตรง ๆ) ดังนั้นตัวเลข coverage ที่ "ควรมี" ไม่มีอยู่ใน repo นี้
 
-สิ่งที่พอวัดได้คือ **ความครอบของ use case** จาก [`docs/TEST-CASES.md`](TEST-CASES.md) (288 เคส / 19 UC) — นับจากแถว `| TC-xx-n |` ในเอกสารและคอลัมน์ "ทดสอบโดย" ของแต่ละแถว:
+สิ่งที่พอวัดได้คือ **ความครอบของ use case** จาก [`docs/TEST-CASES.md`](TEST-CASES.md) (292 เคส / 19 UC) — นับจากแถว `| TC-xx-n |` ในเอกสารและคอลัมน์ "ทดสอบโดย" ของแต่ละแถว:
 
 | สถานะในเอกสาร | จำนวน | ใครตรวจ |
 |---|---|---|
 | ✅ automated — id ของตัวเองใน `smoke-usecases.js` | 177 | `line-app/smoke-usecases.js` |
-| ✅ automated — ชี้ไป backend pytest | 51 | `backend/tests/*.py` |
+| ✅ automated — ชี้ไป backend pytest | 59 | `backend/tests/*.py` |
 | ✅ automated — ชี้ไปเคสที่ automate แล้วใน UC อื่น | 8 | `smoke-usecases.js` (`TC-10-12`→`TC-08-6`, `TC-11-16`→`TC-08-8`, `TC-14-3`→`TC-10-5`, `TC-15-1`→`TC-04-1`, `TC-17-24`→`TC-08-11`, `TC-17-25`→`TC-18-5`, `TC-17-26`→`TC-18-9`, `TC-18-12`→`TC-13-10`) |
 | ✅ automated — ชี้ไป `smoke-cron.js` | 1 | `line-app/smoke-cron.js` |
-| ✅ automated — ตรวจสลิป, สมาชิกห้อง, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป, อ่านมิเตอร์จากรูป (`smoke-handlers.js`) | 19 | `line-app/smoke-handlers.js` |
+| ✅ automated — ตรวจสลิป, สมาชิกห้อง, ตั้งค่าหอ, QR พร้อมเพย์, ตีกลับสลิป, สลิปค้างทุกงวด, อ่านมิเตอร์จากรูป (`smoke-handlers.js`) | 20 | `line-app/smoke-handlers.js` |
+| ✅ automated — conditional put ของ R2 (`smoke.js`) | 1 | `line-app/smoke.js` |
 | 🖐 manual | 26 | คนกดกับ LINE OA + LIFF จริง (ข้อ 7) |
 | ⏳ ยังไม่สร้าง | 0 | — (ทุกแถวมีคนตรวจแล้ว) |
-| **รวม** | **288** | |
+| **รวม** | **292** | |
 
-ตัวเลข 262 ไม่ได้แปลว่าโค้ดทุกบรรทัดถูกตรวจ — เคสหนึ่งอาจ assert หลายอย่างหรือแค่ทางเดียวของ handler
+ตัวเลข 266 ไม่ได้แปลว่าโค้ดทุกบรรทัดถูกตรวจ — เคสหนึ่งอาจ assert หลายอย่างหรือแค่ทางเดียวของ handler
 
 ---
 
@@ -469,7 +470,7 @@ test อัตโนมัติที่ครอบส่วนนี้: `lin
 
 ## เอกสารที่เกี่ยวข้อง
 
-- [`docs/TEST-CASES.md`](TEST-CASES.md) — catalogue 288 เคส / 19 UC พร้อมสถานะ ✅/🖐/⏳ และโค้ดที่แต่ละเคสอ้างถึง
+- [`docs/TEST-CASES.md`](TEST-CASES.md) — catalogue 292 เคส / 19 UC พร้อมสถานะ ✅/🖐/⏳ และโค้ดที่แต่ละเคสอ้างถึง
 - [`docs/ARCHITECTURE.md`](ARCHITECTURE.md) — โครงสร้างสองครึ่ง, data flow, state machine ของบิล
 - [`docs/CONFIGURATION.md`](CONFIGURATION.md) — env ทุกตัว (`TEST_DATABASE_URL`, `CRON_SECRET`, `DEV_AUTH`, `SLIPOK_API_KEY`/`SLIPOK_BRANCH_ID`)
 - [`backend/README.md`](../backend/README.md) — วิธีรัน backend และ seed

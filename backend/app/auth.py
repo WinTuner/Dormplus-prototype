@@ -7,7 +7,7 @@ Two ways in:
   1. the signed session cookie from POST /v1/auth/line (real LINE login, see app/routes/auth.py)
   2. X-Dev-* headers, only while DEV_AUTH is on (local development, never on a deployed server)
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from fastapi import Depends, Request
@@ -27,10 +27,13 @@ class Session:
     role: Role
     property_id: str
     room_id: str | None = None
+    # The month this tenant moved in ("YYYY-MM"), re-read from the database on every request. Bills
+    # for earlier periods belong to whoever lived here before, not to this person.
+    since: str | None = None
 
 
 STILL_LINKED_SQL = text("""
-    select 1 from tenants t join rooms r on r.id = t.room_id
+    select to_char(t.moved_in, 'YYYY-MM') as since from tenants t join rooms r on r.id = t.room_id
     where t.line_user_id = :uid and t.room_id = :room and r.property_id = :property_id
       and (t.moved_out is null or t.moved_out > (now() at time zone 'Asia/Bangkok')::date)
 """)
@@ -51,8 +54,11 @@ def current_session(request: Request, engine: Engine = Depends(get_engine)) -> S
             )
             # A cookie lives 7 days. Re-check the binding on every request, so unlinking a tenant
             # or moving them out takes effect at once instead of when the cookie expires.
-            if session.role == "tenant" and not still_linked(engine, session):
-                raise ApiError(401, "SESSION_REVOKED", "LINE นี้ไม่ได้ผูกกับห้องนี้แล้ว — เข้าสู่ระบบใหม่")
+            if session.role == "tenant":
+                linked, since = linked_since(engine, session)
+                if not linked:
+                    raise ApiError(401, "SESSION_REVOKED", "LINE นี้ไม่ได้ผูกกับห้องนี้แล้ว — เข้าสู่ระบบใหม่")
+                session = replace(session, since=since)
             return session
         # A stale or tampered cookie falls through to 401 rather than being trusted.
 
@@ -73,13 +79,18 @@ def current_session(request: Request, engine: Engine = Depends(get_engine)) -> S
     )
 
 
-def still_linked(engine: Engine, session: Session) -> bool:
+def linked_since(engine: Engine, session: Session) -> tuple[bool, str | None]:
+    """(still bound, month they moved in). One query answers both questions."""
     with engine.connect() as conn:
         row = conn.execute(
             STILL_LINKED_SQL,
             {"uid": session.user_id, "room": session.room_id, "property_id": session.property_id},
         ).first()
-    return row is not None
+    return (row is not None, row.since if row else None)
+
+
+def still_linked(engine: Engine, session: Session) -> bool:
+    return linked_since(engine, session)[0]
 
 
 def owner_session(session: Session = Depends(current_session)) -> Session:

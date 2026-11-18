@@ -75,6 +75,12 @@ def queue_reminders(rows: list[dict]) -> int:
     """Hand each row to the worker in a single batch insert. Returns how many jobs were queued."""
     if not rows:
         return 0
+    from app.config import get_settings
+
+    if not get_settings().line_channel_access_token:
+        # No token, no send. Queuing anyway would fail every job and write a 'skipped' row per
+        # invoice per day forever; the step is retried as soon as the token is configured.
+        return 0
     from app.tasks import reminder_text
 
     if app is None:

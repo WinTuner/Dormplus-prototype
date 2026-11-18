@@ -18,6 +18,9 @@ const store = {
     return values.has(key) ? values.get(key) : null;
   },
   async set(key, value) { values.set(key, value); },
+  // The real store does these with a conditional PUT on R2; the fake has no second writer.
+  async update(key, apply) { const next = await apply(values.has(key) ? values.get(key) : null); if (next !== undefined) values.set(key, next); },
+  async create(key, value) { if (values.has(key)) return false; values.set(key, value); return true; },
 };
 const cache = (name, exports) => {
   const filename = path.join(__dirname, "api", `${name}.js`);

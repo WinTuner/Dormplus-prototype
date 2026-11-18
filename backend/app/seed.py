@@ -49,8 +49,10 @@ def seed(conn: Connection) -> None:
             {"id": room_id, "pid": PROPERTY_ID, "no": room_no, "rent": RENT_METER},
         )
         conn.execute(
-            text("""insert into tenants (id, room_id, name)
-                    values (:id, :room, :name) on conflict do nothing"""),
+            # moved_in is set: a tenant's bills start with that month (see app/auth.py linked_since),
+            # and the seeded invoices for r_203 are older than the day this seed runs.
+            text("""insert into tenants (id, room_id, name, moved_in)
+                    values (:id, :room, :name, date '2026-01-01') on conflict do nothing"""),
             {"id": f"t_{room_no}", "room": room_id, "name": f"ผู้เช่า {room_no}"},
         )
 
