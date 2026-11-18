@@ -7,3 +7,4 @@ node_modules/
 
 # The template is committed; only real values are ignored.
 !.env.example
+test-results/

@@ -170,10 +170,15 @@ async function voidBill(req, res, userId) {
     // Money the dorm is holding for a cancelled payment: a paid bill, or a pending one whose slip the
     // provider verified (the transfer is real; only the owner's tap was missing). The system does not
     // move money; this is the number the owner has to refund, kept on the record so it is not lost.
-    ...((bill.status === "paid" ||
-      (bill.status === "pending" && (bill.slipVerify?.ok === true || bill.slipAmount != null))) && bill.total
+    // The refund is what the slip actually moved (`slipAmount`), not the bill: a short slip left the
+    // dorm holding less than the total, and an over-paid one more (that extra is a separate refund).
+    ...(bill.status === "paid"
       ? { refundDue: bill.total + extraOwed }
-      : {}),
+      : bill.status === "pending" && bill.slipAmount != null
+        ? { refundDue: bill.slipAmount }
+        : bill.status === "pending" && bill.slipVerify?.ok === true && bill.total
+          ? { refundDue: bill.total }
+          : {}),
     // The extra was already paid back before the void: keep it for the history only.
     ...(overpaidExtra && oldRefundedAt ? { priorRefund: { reason: "overpaid", amount: overpaidExtra, refundedAt: oldRefundedAt } } : {}),
   };
@@ -237,7 +242,20 @@ async function rejectSlip(req, res, userId) {
   }
 
   const next = { ...bill, status: "unpaid", slipRejected: { at: new Date().toISOString(), by: userId, reason } };
-  await saveBill(next, { latest });
+  // Rejected only while it is still the bill that was read: a void or a confirm may have landed in
+  // between, and a blind write would bring a cancelled bill back as `unpaid` (its receipt number
+  // then gets reused by the next issue).
+  let applied = false;
+  await store.update(`bill:${period}:${room}`, (current) => {
+    const seen = current || (latest && latest.period === period ? latest : null);
+    if (!seen || seen.status !== "pending") return undefined;
+    applied = true;
+    return next;
+  });
+  if (!applied) {
+    return fail(res, 409, "INVALID_STATE", `บิลห้อง ${room} รอบ ${period} เพิ่งเปลี่ยนสถานะ — เปิดใหม่แล้วลองอีกครั้ง`);
+  }
+  await saveBill(next);
 
   const tenant = await store.get(`room-user:${room}`);
   if (tenant && visibleToTenant(bill, tenancy)) {

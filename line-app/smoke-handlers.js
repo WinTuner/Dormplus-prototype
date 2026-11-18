@@ -30,6 +30,7 @@ const store = {
     data.set(k, v);
     return true;
   },
+  remove: async (k) => { data.delete(k); },
   // Mirror _store: the prefix goes through pathOf too, so "owner:" also matches "owner-invite:<code>".
   // A key written as null still exists as a file, so listings include it.
   keysWith: async (prefix) => {
@@ -1845,7 +1846,95 @@ const { saveBill } = require("./api/_bills");
   assert.strictEqual(data.get("prepay:212").by, "UtenantA", "the first slip is still the one waiting");
   for (const k of ["prepay:212", "user-room:UtenantB", "room-user:212"]) data.delete(k);
 
-  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings, PromptPay QR, slip rejection, meter photo, audit fixes, races");
+  // A short or over-paid slip on a cancelled bill: the refund is what the tenant really transferred,
+  // not what the bill asked for (otherwise the dorm hands back money it never received, or loses it).
+  const shortSlip = { room: "208", period: "2027-10", total: 4000, rent: 4000, water: 0, elec: 0, due: "2027-10-09", status: "pending", rev: 1, issuedAt: "2027-10-01T00:00:00.000Z", slipPath: "slips/208-s.jpg", slipAt: "2027-10-02T00:00:00.000Z", slipCount: 1, slipVerify: { ok: false, provider: "slipok", transRef: "S208" }, slipAmount: 3000, shortBy: 1000 };
+  data.set("bill:208", { ...shortSlip });
+  data.set("bill:2027-10:208", { ...shortSlip });
+  r = await call(bill, { body: { action: "void", room: "208", period: "2027-10", reason: "ยอดไม่ตรง" }, user: "Uowner" });
+  assert.deepStrictEqual([r.status, r.body.refund], [200, 3000], "a short slip is refunded as paid, not as billed");
+  assert.strictEqual(data.get("bill:2027-10:208").refundDue, 3000);
+
+  const overSlip = { ...shortSlip, period: "2027-11", due: "2027-11-09", slipAmount: 4500, overpaid: 500, shortBy: undefined };
+  delete overSlip.shortBy;
+  data.set("bill:208", { ...overSlip });
+  data.set("bill:2027-11:208", { ...overSlip });
+  r = await call(bill, { body: { action: "void", room: "208", period: "2027-11", reason: "ยกเลิก" }, user: "Uowner" });
+  assert.deepStrictEqual([r.status, r.body.refund], [200, 4500], "an over-paid slip refunds the whole transfer");
+  for (const k of ["bill:208", "bill:2027-10:208", "bill:2027-11:208", "bill-void:2027-10:208:1", "bill-void:2027-11:208:1"]) data.delete(k);
+
+  // Rejecting a slip is a status write like any other: if the bill was voided a moment earlier, the
+  // reject must lose (409) instead of resurrecting a cancelled bill as `unpaid`.
+  const pendRej = { room: "208", period: "2027-12", total: 1000, rent: 1000, water: 0, elec: 0, due: "2027-12-09", status: "pending", rev: 1, issuedAt: "2027-12-01T00:00:00.000Z", slipPath: "slips/208-r.jpg", slipAt: "2027-12-02T00:00:00.000Z", slipCount: 1, slipVerify: { ok: true, transRef: "R208" } };
+  data.set("bill:208", { ...pendRej });
+  data.set("bill:2027-12:208", { ...pendRej });
+  const upBefore = store.update;
+  store.update = async () => {}; // the conditional write lost
+  r = await call(bill, { body: { action: "reject", room: "208", period: "2027-12", reason: "ยอดไม่ตรง" }, user: "Uowner" });
+  store.update = upBefore;
+  assert.deepStrictEqual([r.status, r.body.error.code], [409, "INVALID_STATE"], "a reject that lost the race does not resurrect the bill");
+  assert.strictEqual(data.get("bill:2027-12:208").status, "pending", "and the bill is untouched");
+  for (const k of ["bill:208", "bill:2027-12:208"]) data.delete(k);
+
+  // A resubmitted issue (the owner's page timed out and sent again) must not rewrite the bill that was
+  // just issued: a second write would push a second card with the same receipt number.
+  const resend = { room: "212", period: "2027-12", total: 100, rent: 100, water: 0, elec: 0, waterUnits: 0, elecUnits: 0, due: "2027-12-09", status: "unpaid", rev: 1, issuedAt: "2027-12-01T00:00:00.000Z" };
+  data.set("bill:212", { ...resend });
+  data.set("bill:2027-12:212", { ...resend });
+  const realGet2 = store.get;
+  let dupReads = 0;
+  store.get = async (k) => {
+    if (k !== "bill:2027-12:212") return realGet2(k);
+    dupReads += 1;
+    return dupReads === 1 ? { ...resend } : { ...resend, rev: 2 }; // someone re-issued it in between
+  };
+  try {
+    r = await call(run, { user: "Uowner", body: { period: "2027-12", readings: [{ room: "212", water: 0, elec: 0 }] } });
+  } finally {
+    store.get = realGet2;
+  }
+  assert.match(r.body.rooms[0].error || "", /เพิ่งถูกออกไปแล้ว/, "a duplicate issue is refused instead of billed twice");
+  for (const k of ["bill:212", "bill:2027-12:212", "bill-state:212", "bills:212", "meter:212"]) data.delete(k);
+
+  // `rent: null` is bad input, not zero: Number(null) is 0 and would make the room free forever.
+  r = await call(rooms, { method: "POST", body: { room: "202", rent: null }, user: "Uowner" });
+  assert.deepStrictEqual([r.status, r.body.error.code], [400, "VALIDATION"], "a null price is refused, not stored as 0");
+  // Two devices editing different fields of the same room keep both: the merge happens inside the write.
+  data.set("room:202", { rent: 4000 });
+  r = await call(rooms, { method: "POST", body: { room: "202", waterRate: 30 }, user: "Uowner" });
+  assert.deepStrictEqual([r.status, data.get("room:202")], [200, { rent: 4000, waterRate: 30 }], "saving one field keeps the others");
+  data.delete("room:202");
+
+  // A refused slip must give its transRef back: otherwise the same real slip is "used already" when the
+  // bill is re-issued and the tenant resends it.
+  resetV();
+  process.env.SLIPOK_API_KEY = "test-key";
+  process.env.SLIPOK_BRANCH_ID = "1234";
+  data.set("bill:2026-11:210", { ...vBill, status: "paid", paidAt: "2026-11-10T00:00:00.000Z", receiptNo: "R210-1" });
+  slipok = { status: 200, body: { success: true, data: { success: true, message: "ok", amount: 3500, transRef: "REF-REL", transDate: "20261110", transTime: "10:15:07", transTimestamp: "2026-11-10T03:15:07.000Z", receivingBank: "006" } } };
+  r = await call(slip, { body: { image: png }, user: "Udave" });
+  assert.deepStrictEqual([r.status, r.body.error.code], [409, "INVALID_STATE"], "a paid bill still refuses the slip");
+  assert.ok(!data.has("slip-ref:REF-REL"), "but the refused slip is not left marked as used");
+  data.set("bill:210", { ...vBill });
+  data.set("bill:2026-11:210", { ...vBill });
+  r = await call(slip, { body: { image: png }, user: "Udave" });
+  assert.strictEqual(r.status, 200, "so the same slip works once the bill is open again");
+  for (const k of ["bill:210", "bill:2026-11:210", "slip-ref:REF-REL", "user-room:Udave", "room-user:210"]) data.delete(k);
+
+  // A confirm that lost the race (the bill was voided a moment earlier) must not write `paid`: the
+  // receipt and the income would describe a bill that no longer exists.
+  const raceBill = { room: "212", period: "2027-05", total: 900, rent: 900, water: 0, elec: 0, due: "2027-05-09", status: "pending", rev: 1, issuedAt: "2027-05-01T00:00:00.000Z", slipPath: "slips/212-r.jpg", slipAt: "2027-05-02T00:00:00.000Z", slipCount: 1 };
+  data.set("bill:212", { ...raceBill });
+  data.set("bill:2027-05:212", { ...raceBill });
+  const upRace = store.update;
+  store.update = async () => {}; // the conditional write lost
+  await tap("Uowner", "action=confirm&room=212&period=2027-05");
+  store.update = upRace;
+  assert.strictEqual(data.get("bill:2027-05:212").status, "pending", "a confirm that lost the race does not pay the bill");
+  assert.deepStrictEqual([data.get("bill:2027-05:212").paidAt, data.get("bill:2027-05:212").receiptNo], [undefined, undefined], "and issues no receipt");
+  for (const k of ["bill:212", "bill:2027-05:212"]) data.delete(k);
+
+  console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings, PromptPay QR, slip rejection, meter photo, audit fixes, races, refunds, retry keys");
 })().catch((err) => {
   console.error(err);
   process.exit(1);

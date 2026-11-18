@@ -74,6 +74,7 @@ const storeStub = {
   get: async (k) => (owners.has(k) ? owners.get(k) : null),
   set: async (k, v) => owners.set(k, v),
   update: async (k, apply) => { const next = await apply(owners.has(k) ? owners.get(k) : null); if (next !== undefined) owners.set(k, next); },
+  remove: async (k) => { owners.delete(k); },
   create: async (k, v) => { if (owners.has(k)) return false; owners.set(k, v); return true; },
 };
 const storePath = require.resolve("./api/_store");

@@ -113,24 +113,31 @@ module.exports = async (req, res) => {
   // meant to be older than the bill, so markEarly does not apply to it.
   let verify = prev?.slipVerify || null;
   let amounts = null;
+  let claimed = null;
   if (shot) {
     // Recorded before the amount comparison: SlipOK verified the transfer, so its reference must be
     // claimed even when our own check then says the amount is wrong — otherwise the same slip could
-    // be resent against a bill whose total it happens to match.
-    const claimed = await rememberRef(await shot.pending, room);
-    amounts = advance ? { verify: claimed } : checkAmount(claimed, bill.total);
-    verify = markStale(amounts.verify);
-    if (!advance) verify = markEarly(verify, bill.issuedAt);
+    // be resent against a bill whose total it happens to match. Every refusal below hands it back.
+    claimed = await rememberRef(await shot.pending, room);
+    if (advance) verify = markStale(claimed);
   }
 
-  if (advance) return saveAdvance({ res, room, userId, owner, latest, note, slipPath, sent, verify });
+  if (advance) return saveAdvance({ res, room, userId, owner, latest, note, slipPath, sent, verify, claimed });
 
   // The bill was read before the provider call; the owner may have confirmed or cancelled it since.
   // Blob has no compare-and-set, so this second look is the only guard: a paid bill must never fall
   // back to `pending` (its receipt would vanish from the ledger), and a void one must not come back.
   const fresh = await store.get(`bill:${bill.period}:${room}`);
   if (fresh && fresh.status !== "unpaid" && fresh.status !== "pending") {
+    await releaseRef(claimed);
     return fail(res, 409, "INVALID_STATE", `บิลนี้${fresh.status === "paid" ? "ยืนยันการชำระ" : "ถูกยกเลิก"}ไปแล้ว — ไม่รับสลิป`);
+  }
+
+  // Compare against the bill as it stands now: a void + re-issue during the provider call leaves a
+  // different total and a later issuedAt, and a slip checked against the old one would look exact.
+  if (claimed) {
+    amounts = checkAmount(claimed, (fresh || bill).total);
+    verify = markEarly(markStale(amounts.verify), (fresh || bill).issuedAt);
   }
 
   let next = {
@@ -149,6 +156,10 @@ module.exports = async (req, res) => {
   // moment where it is `pending` with no owner card.
   if (await autoConfirms({ fresh: !!shot, verify, autoOn })) {
     const paid = await closeBills(room, [next], { latest, auto: true });
+    if (!paid.length) {
+      await releaseRef(claimed);
+      return fail(res, 409, "INVALID_STATE", "บิลนี้เปลี่ยนสถานะระหว่างตรวจสลิป — ส่งสลิปใหม่อีกครั้ง");
+    }
     await Promise.all([
       dropIfUnused(room, oldSlip, slipPath, [bill]),
       notifyAutoPaid(paid),
@@ -205,21 +216,39 @@ async function rememberRef(verify, room) {
   return { ...verify, ok: false, reason: `สลิปนี้ถูกใช้ไปแล้ว (ห้อง ${(seen && seen.room) || "?"})` };
 }
 
+// A refused slip gives its reference back: the same photo is valid again once the bill is re-issued,
+// and a claim left behind would answer "สลิปนี้ถูกใช้ไปแล้ว" to a slip nobody ever accepted.
+async function releaseRef(verify) {
+  if (!verify || !verify.transRef) return;
+  try {
+    await store.remove(`slip-ref:${verify.transRef}`);
+  } catch (err) {
+    console.error("slip reference release failed", err.message);
+  }
+}
+
 // The advance path: one `prepay:<room>` record per room. Only one slip can be waiting there, so a
 // second one from a different account is refused instead of silently replacing the first (its money
-// would exist only in the owner's chat).
-async function saveAdvance({ res, room, userId, owner, latest, note, slipPath, sent, verify }) {
-  const waiting = await store.get(`prepay:${room}`);
-  if (!owner && waiting && waiting.slipPath && waiting.by && waiting.by !== userId) {
-    return fail(res, 409, "INVALID_STATE", "ห้องนี้มีสลิปโอนล่วงหน้าของอีกบัญชีรออยู่แล้ว — ให้เจ้าของหอตรวจก่อน");
-  }
-  // `byStaff`: the owner recorded it, so it is about the room, not about one tenant (see _prepay.usable).
+// would exist only in the owner's chat). The refusal is decided inside the write, or two roommates
+// sending at the same moment would both read "empty" and the second would overwrite the first.
+async function saveAdvance({ res, room, userId, owner, latest, note, slipPath, sent, verify, claimed }) {
   const prepay = {
     room, slipPath, slipNote: note || null, slipAt: new Date().toISOString(), slipCount: sent + 1, by: userId,
     ...(owner && { byStaff: true }),
     slipVerify: verify || null,
   };
-  await store.set(`prepay:${room}`, prepay);
+  let blocked = false;
+  await store.update(`prepay:${room}`, (current) => {
+    if (!owner && current && current.slipPath && current.by && current.by !== userId) {
+      blocked = true;
+      return undefined;
+    }
+    return prepay;
+  });
+  if (blocked) {
+    await releaseRef(claimed);
+    return fail(res, 409, "INVALID_STATE", "ห้องนี้มีสลิปโอนล่วงหน้าของอีกบัญชีรออยู่แล้ว — ให้เจ้าของหอตรวจก่อน");
+  }
 
   // The owner may have issued the bill while this request was running: /api/run read `prepay:`
   // before it was written, so nobody would attach the slip until next month. Look at the room's
@@ -354,7 +383,16 @@ async function saveGroup({ res, req, room, owner, userId, note, image, periods }
   // One transfer for several months: the slip must be for the sum, not for one month. The amount
   // facts live in `slipGroup` (the confirm finds them there) and are copied onto every bill. The
   // transfer-before-issue rule uses the NEWEST bill: a slip older than it cannot have paid it.
-  const checked = checkAmount(shot ? await rememberRef(await shot.pending, room) : found.map((b) => b.slipVerify).find(Boolean) || null, total);
+  const claimed = shot ? await rememberRef(await shot.pending, room) : null;
+  // The same second look as the single-slip path: a period the owner confirmed or cancelled while
+  // the provider was checking must not be pulled back to `pending`. A refusal hands the reference back.
+  const again = await Promise.all(periods.map((p) => store.get(`bill:${p}:${room}`)));
+  if (again.some((b) => b && b.status !== "unpaid" && b.status !== "pending")) {
+    await releaseRef(claimed);
+    return fail(res, 409, "INVALID_STATE", "มีงวดที่ถูกยืนยันหรือยกเลิกไปแล้ว — ส่งสลิปใหม่อีกครั้ง");
+  }
+
+  const checked = checkAmount(claimed || found.map((b) => b.slipVerify).find(Boolean) || null, total);
   let verify = checked.verify;
   if (shot) verify = markEarly(markStale(verify), newest.issuedAt);
   const slipAt = new Date().toISOString();
@@ -368,17 +406,15 @@ async function saveGroup({ res, req, room, owner, userId, note, image, periods }
     slipGroup: { periods, total, ...amountFields(checked) },
     slipVerify: verify,
   }, checked));
-  // The same second look as the single-slip path: a period the owner confirmed or cancelled while
-  // the provider was checking must not be pulled back to `pending`.
-  const again = await Promise.all(periods.map((p) => store.get(`bill:${p}:${room}`)));
-  if (again.some((b) => b && b.status !== "unpaid" && b.status !== "pending")) {
-    return fail(res, 409, "INVALID_STATE", "มีงวดที่ถูกยืนยันหรือยกเลิกไปแล้ว — ส่งสลิปใหม่อีกครั้ง");
-  }
 
   // A verified slip for the exact sum closes every period at once (see autoConfirms): one write,
   // one notice for the owner, one receipt per period for the tenant.
   if (await autoConfirms({ fresh: !!shot, verify, autoOn })) {
     const paid = await closeBills(room, next, { latest, auto: true });
+    if (!paid.length) {
+      await releaseRef(claimed);
+      return fail(res, 409, "INVALID_STATE", "มีงวดที่เปลี่ยนสถานะระหว่างตรวจสลิป — ส่งสลิปใหม่อีกครั้ง");
+    }
     await Promise.all([
       ...oldSlips.map((old) => dropIfUnused(room, old, slipPath, found.filter((b) => b.slipPath === old))),
       notifyAutoPaid(paid),

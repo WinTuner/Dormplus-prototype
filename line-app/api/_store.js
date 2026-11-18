@@ -90,6 +90,13 @@ const create = async (key, value) => {
   return true;
 };
 
+// Forget a key. A released slip claim must really disappear: `create` only checks that the object is
+// gone, so leaving a `null` behind would keep the slip marked as used forever.
+const remove = async (key) => {
+  cache.delete(key);
+  await (r2Store ? r2Store.delFile(pathOf(key)) : blobStore.del(pathOf(key)));
+};
+
 // Keys that start with `prefix`, e.g. keysWith("owner:U") -> ["owner:Uabc…", …].
 // The part after the prefix must be plain letters/digits (LINE userIds are), because pathOf() is
 // one-way for other characters.
@@ -118,4 +125,4 @@ const delFile = (path) => (r2Store ? r2Store.delFile(path) : blobStore.del(path)
 const getFile = (path) =>
   r2Store ? r2Store.getFile(path) : blobStore.get(path, { access: "private", useCache: false });
 
-module.exports = { get, set, update, create, keysWith, putFile, delFile, getFile };
+module.exports = { get, set, update, create, remove, keysWith, putFile, delFile, getFile };

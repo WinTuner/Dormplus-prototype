@@ -13,9 +13,11 @@ const MAX_NAME = 60;       // dorm name
 
 const fail = (res, status, code, message) => res.status(status).json({ error: { code, message } });
 
-// A price is whole baht, never negative. `undefined` means "leave it alone"; null means "bad input".
+// A price is whole baht, never negative. `undefined` means "leave it alone"; null means "bad input",
+// but it has to be caught here: Number(null) is 0, which would quietly make a room free.
 function price(value, max) {
   if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
   const n = Number(value);
   return Number.isInteger(n) && n >= 0 && n <= max ? n : null;
 }
@@ -95,9 +97,9 @@ async function saveSettings(req, res, userId) {
 
   // Only this room's own overrides are stored: writing the resolved numbers would freeze every
   // field at today's dorm defaults, so a later dorm change (water 25 → 22) would never reach it.
-  const overrides = (await store.get(`room:${room}`)) || {};
-  const config = { ...overrides, ...Object.fromEntries(given) };
-  await store.set(`room:${room}`, config);
+  // The merge happens inside the write so two devices editing different fields do not lose one.
+  const overrides = Object.fromEntries(given);
+  await store.update(`room:${room}`, (current) => ({ ...(current || {}), ...overrides }));
   return res.status(200).json({ room, config: await configFor(room) });
 }
 
@@ -138,10 +140,15 @@ async function saveDorm(res, input) {
   }
   if (!Object.keys(fields).length) return fail(res, 400, "VALIDATION", "ต้องระบุ name, rent, waterRate, elecRate, dueDay, promptpay หรือ autoConfirm");
 
-  const current = (await store.get("dorm")) || {};
-  const next = { ...current, ...fields };
-  // null means "forget this value" so the env default applies again.
-  for (const key of Object.keys(next)) if (next[key] === null) delete next[key];
-  await store.set("dorm", Object.keys(next).length ? next : null);
+  // Merged inside the write: two devices changing different fields (name on one, promptpay on the
+  // other) must not lose one of them.
+  let next = {};
+  await store.update("dorm", (current) => {
+    const merged = { ...(current || {}), ...fields };
+    // null means "forget this value" so the env default applies again.
+    for (const key of Object.keys(merged)) if (merged[key] === null) delete merged[key];
+    next = merged;
+    return Object.keys(merged).length ? merged : null;
+  });
   return res.status(200).json({ dorm: next, defaults: await baseDefaults(next) });
 }

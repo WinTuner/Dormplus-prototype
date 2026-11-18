@@ -147,13 +147,35 @@ def test_a_failed_push_does_not_count_as_sent(seeded):
 def test_the_push_task_raises_so_the_queue_retries(seeded, monkeypatch):
     from app import tasks
 
-    monkeypatch.setattr(tasks.line_push, "push_text", lambda to, body: "error: HTTP 500 down")
+    monkeypatch.setattr(tasks.line_push, "push_text", lambda to, body, retry_key=None: "error: HTTP 500 down")
     monkeypatch.setattr(tasks, "get_engine", lambda: seeded)
     with pytest.raises(tasks.PushFailed):
         tasks.push_text(to_user_id="U_201", body="hi", invoice_id=None, kind="reminder_1")
     with seeded.connect() as conn:
         status = conn.execute(text("select line_status from message_log where to_user_id = 'U_201'")).scalar_one()
     assert status.startswith("error"), "the failed attempt is still logged"
+
+
+def test_the_push_task_sends_one_retry_key_per_invoice_kind_and_day(seeded, monkeypatch):
+    from app import tasks
+
+    seen = []
+    monkeypatch.setattr(
+        tasks.line_push, "push_text",
+        lambda to, body, retry_key=None: (seen.append(retry_key), "ok")[1],
+    )
+    monkeypatch.setattr(tasks, "get_engine", lambda: seeded)
+    add_invoice(seeded, "inv_due_1", "r_201", date(2026, 11, 19))
+
+    tasks.push_text(to_user_id="U_201", body="hi", invoice_id="inv_due_1", kind="reminder_1")
+    tasks.push_text(to_user_id="U_201", body="hi", invoice_id="inv_due_1", kind="reminder_1")
+    tasks.push_text(to_user_id="U_201", body="hi", invoice_id="inv_due_1", kind="reminder_2")
+    tasks.push_text(to_user_id="U_201", body="hi", invoice_id=None, kind="reminder_1")
+
+    assert seen[0] and len(seen[0]) == 36, "LINE wants a UUID"
+    assert seen[1] == seen[0], "a retry of the same reminder is dropped by LINE"
+    assert seen[2] != seen[0], "the next reminder kind is a new message"
+    assert seen[3] is None, "a message with no invoice has nothing to dedupe on"
 
 
 def test_a_tenant_without_line_is_not_queued(seeded):

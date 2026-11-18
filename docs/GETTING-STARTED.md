@@ -95,7 +95,7 @@ node smoke-cron.js         # งานเตือนบิลค้างรา
 node smoke-usecases.js     # 177 use case ตั้งแต่ต้นจนจบ (UC-01 … UC-18) · UC-19 (webhook ฝั่ง backend) อยู่ใน pytest
 ```
 
-ชุด use case คือ subset อัตโนมัติของ [`TEST-CASES.md`](./TEST-CASES.md) ซึ่งแตกครบ **302 case ใน 19 UC** (274 ✅ automated · 28 🖐 ต้องกดมือกับ LINE จริง · 0 ⏳ ยังไม่มี test) — **177** ตัวที่รันในไฟล์นี้คือส่วนที่ `line-app` ทดสอบได้โดยไม่ต้องมี LINE จริง (อีก 13 เคสของ UC-19 เป็น webhook ฝั่ง backend จึงอยู่ใน pytest) ส่วนที่เหลืออยู่ในตารางพร้อมเหตุผลว่าทำไมยังอัตโนมัติไม่ได้
+ชุด use case คือ subset อัตโนมัติของ [`TEST-CASES.md`](./TEST-CASES.md) ซึ่งแตกครบ **308 case ใน 19 UC** (280 ✅ automated · 28 🖐 ต้องกดมือกับ LINE จริง · 0 ⏳ ยังไม่มี test) — **177** ตัวที่รันในไฟล์นี้คือส่วนที่ `line-app` ทดสอบได้โดยไม่ต้องมี LINE จริง (อีก 13 เคสของ UC-19 เป็น webhook ฝั่ง backend จึงอยู่ใน pytest) ส่วนที่เหลืออยู่ในตารางพร้อมเหตุผลว่าทำไมยังอัตโนมัติไม่ได้
 
 ผลที่ต้องเห็น (ยืนยันบน Node v26.13.0 หลัง `npm ci`) — ทุกชุดพิมพ์ `... OK` ของตัวเอง ปิดท้ายด้วย `177/177 use case tests passed` และ exit code 0:
 
@@ -128,10 +128,10 @@ cron OK — auth, 6 reminder windows, dedup, catch-up, skips, tenancy, retry, ow
 ```powershell
 cd backend
 .\.venv\Scripts\python.exe -m pytest -q
-# 39 passed, 147 skipped  (collect ได้ 186 test จาก 20 ไฟล์)
+# 41 passed, 148 skipped  (collect ได้ 189 test จาก 21 ไฟล์)
 ```
 
-test ที่ต้องใช้ฐานข้อมูลจะถูก **skip** เมื่อไม่ได้ตั้ง `TEST_DATABASE_URL` (ดู `tests/conftest.py`) ถ้าอยากรันครบ 186 ตัว:
+test ที่ต้องใช้ฐานข้อมูลจะถูก **skip** เมื่อไม่ได้ตั้ง `TEST_DATABASE_URL` (ดู `tests/conftest.py`) ถ้าอยากรันครบ 189 ตัว:
 
 > `backend/.env.example` มี `TEST_DATABASE_URL` อยู่แล้ว แต่ `tests/conftest.py` อ่านจาก **environment variable เท่านั้น** (`os.environ`) — ใส่ใน `.env` แล้วยัง skip เหมือนเดิม ต้อง `export`/`$env:` ก่อนเรียก pytest
 
@@ -185,7 +185,7 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 | อาการ | สาเหตุ | ทางแก้ |
 |---|---|---|
 | `docker compose up -d` → `failed to connect to the docker API ... dockerDesktopLinuxEngine` | Docker Desktop ยังไม่เปิด (เจอจริงตอนเขียนเอกสารนี้) | เปิด Docker Desktop แล้วรอจนขึ้น Running |
-| `pytest` ได้ `39 passed, 147 skipped` | ไม่ได้ตั้ง `TEST_DATABASE_URL` — เป็นพฤติกรรมปกติ (collect ได้ 186 test แต่ **147 ตัวต้องมี Postgres**; อีก 39 ตัวรันได้เปล่า ๆ) | ตั้ง `TEST_DATABASE_URL` ชี้ `domplus_test` ตามข้อ 3.3 |
+| `pytest` ได้ `41 passed, 148 skipped` | ไม่ได้ตั้ง `TEST_DATABASE_URL` — เป็นพฤติกรรมปกติ (collect ได้ 189 test แต่ **147 ตัวต้องมี Postgres**; อีก 39 ตัวรันได้เปล่า ๆ) | ตั้ง `TEST_DATABASE_URL` ชี้ `domplus_test` ตามข้อ 3.3 |
 | `node smoke.js` → `Cannot find module '@vercel/blob'` หรือ `'aws4fetch'` | ยังไม่ได้ลง dependency (หา `node_modules` ไม่เจอ) | `cd line-app && npm ci` แล้วรันใหม่ |
 | หน้า `/owner` ล็อกอินไม่ได้ ตอบ `503 OWNER_LOGIN_OFF` | `OWNER_ACCESS_CODE` ว่าง (ค่า default ใน `.env.example`) | ใส่รหัสหอใน `.env` แล้วรีสตาร์ต uvicorn (บน Vercel: ใส่ env แล้ว Redeploy) |
 | ล็อกอิน `/owner` ผิดรหัสหลายครั้งแล้วได้ `429 TOO_MANY_ATTEMPTS` | กันเดารหัส: ผิดเกิน 10 ครั้ง/ชั่วโมงต่อ IP (`app/attempts.py`) | รอให้พ้นหน้าต่าง 1 ชั่วโมง แล้วใช้รหัสให้ถูก |
@@ -210,7 +210,7 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 | [`API.md`](./API.md) | ต้องยิง endpoint ของ backend เอง (auth, error code, ตัวอย่าง request) |
 | [`HANDOFF.md`](./HANDOFF.md) | จะรับงานต่อ — มีกับดักที่เจอมาแล้วและงานที่ยังเหลือ |
 | [`TESTING.md`](./TESTING.md) | อยากรู้ว่า smoke ทั้งห้าชุดและ pytest แต่ละชุดครอบอะไร |
-| [`TEST-CASES.md`](./TEST-CASES.md) | อยากเห็นว่า use case แต่ละข้อถูกตรวจด้วย test ตัวไหน หรือยังต้องกดมือ (302 case / 19 UC · 274 automate · 28 manual) |
+| [`TEST-CASES.md`](./TEST-CASES.md) | อยากเห็นว่า use case แต่ละข้อถูกตรวจด้วย test ตัวไหน หรือยังต้องกดมือ (308 case / 19 UC · 280 automate · 28 manual) |
 | [`backend/README.md`](../backend/README.md) | endpoint ทั้งหมด, dev headers, deploy Vercel + Neon, Procrastinate/cron |
 | [`line-app/docs/GETTING-STARTED.md`](../line-app/docs/GETTING-STARTED.md) | ต้องพา LINE app ขึ้น Vercel จริงตั้งแต่ต้น |
 | [`line-app/docs/TESTING.md`](../line-app/docs/TESTING.md) | อยากรู้ว่า smoke แต่ละตัวครอบอะไร และอะไรต้องทดสอบมือ |

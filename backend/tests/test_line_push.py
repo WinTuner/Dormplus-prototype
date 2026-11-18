@@ -70,6 +70,19 @@ def test_transport_error_is_reported_not_raised(monkeypatch, token):
     assert line_push.push_text("U1", "hi").startswith("error:")
 
 
+def test_a_retry_key_is_sent_and_a_409_counts_as_sent(monkeypatch, token):
+    key = "8e0b1f2c-1111-4a4a-9c9c-000000000001"
+    fake = _fake(monkeypatch, _Resp(409, "already used"))
+    assert line_push.push_text("U1", "hi", retry_key=key) == "ok"
+    _, kwargs = fake.calls[0]
+    assert kwargs["headers"]["X-Line-Retry-Key"] == key
+
+
+def test_a_409_without_a_retry_key_is_an_error(monkeypatch, token):
+    _fake(monkeypatch, _Resp(409, "conflict"))
+    assert line_push.push_text("U1", "hi").startswith("error: HTTP 409")
+
+
 def test_client_is_created_once_and_reused():
     line_push.client.cache_clear()
     try:

@@ -1752,7 +1752,7 @@ async function removeTenant(room) {
 async function editRoom(room, current) {
   const c = current || {};
   const ask = (label, value) => {
-    const raw = prompt(`${label} (บาท) — ห้อง ${room}`, String(value ?? 0));
+    const raw = prompt(`${label} (บาท) — ห้อง ${room}\nเว้นว่าง = ไม่ตั้งค่าห้องนี้ (ใช้ค่าเริ่มต้นของหอ)`, String(value ?? ""));
     return raw === null ? null : raw.trim();
   };
   const rent = ask("ค่าเช่าต่อเดือน", c.rent);
@@ -1761,14 +1761,19 @@ async function editRoom(room, current) {
   if (waterRate === null) return;
   const elecRate = ask("ค่าไฟต่อหน่วย", c.elecRate);
   if (elecRate === null) return;
-  if (![rent, waterRate, elecRate].every((v) => /^\d+$/.test(v))) {
-    return toast("ใส่เป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป", true);
+
+  // Only the fields the owner actually changed become this room's own overrides: sending all three
+  // numbers would pin water and electricity at today's dorm rates, so a later dorm change would
+  // never reach the room (the server stores what it is sent, nothing more).
+  const body = { room };
+  for (const [key, raw] of [["rent", rent], ["waterRate", waterRate], ["elecRate", elecRate]]) {
+    if (!raw) continue;
+    if (!/^\d+$/.test(raw)) return toast("ใส่เป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป", true);
+    if (Number(raw) !== Number(c[key])) body[key] = Number(raw);
   }
+  if (Object.keys(body).length === 1) return toast("ไม่มีการเปลี่ยนแปลง");
   try {
-    await api("/api/rooms", {
-      method: "POST",
-      body: JSON.stringify({ room, rent: Number(rent), waterRate: Number(waterRate), elecRate: Number(elecRate) }),
-    });
+    await api("/api/rooms", { method: "POST", body: JSON.stringify(body) });
     toast(`บันทึกราคาห้อง ${room} แล้ว — มีผลกับบิลที่ออกใหม่`);
     await loadOwner();
     go(`entry/${encodeURIComponent(room)}`);

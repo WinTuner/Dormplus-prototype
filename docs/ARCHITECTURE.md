@@ -367,6 +367,7 @@ backend ใช้ **Procrastinate** เป็นคิวที่เก็บ�
 - การ enqueue: `notify_invoices` / `queue_reminders` ส่งทุกงาน LINE ด้วย `batch_defer` ครั้งเดียว (insert เดียว) ไม่ใช่ `defer` ต่อแถว
 - `backend/app/tasks.py` — task เดียวที่คุยกับ LINE: `line.push_text` (`retry=3`) เขียนทุกความพยายามลง
 - **reply ไม่ผ่านคิว** — webhook เรียก `line_push.reply_text()` ตรง ๆ หลัง commit (§3) เพราะ replyToken มีอายุสั้นและมีค่าครั้งเดียว
+- **push มี retry key ของตัวเอง** — `line.push_text` ส่ง `X-Line-Retry-Key` = uuid5(`line-push:<invoice>:<kind>:<วันนี้>` ตามเวลา Bangkok) ทุกครั้ง LINE จึงตัดข้อความซ้ำของวันเดียวกันให้เอง (409 จาก LINE = ส่งแล้ว ถือว่าสำเร็จ) แต่ reminder ของวันถัดไปได้ key ใหม่และส่งได้ตามปกติ · ไม่มี key แล้วเจอ 409 = error จริง
 - การเรียก LINE (`app/line_push.py` push, `app/line.py` ตรวจ idToken) ใช้ `httpx.Client` ตัวเดียวแบบ keep-alive (`line_push.client()`, timeout 10 วินาที, import แบบ lazy) แทน urllib ต่อครั้ง
 - `GET /v1/invoices/{id}` เป็น select เดียว (items ผ่าน `json_agg`, payment ล่าสุดผ่าน lateral join) และ `POST /v1/invoices/{id}/confirm` อ่าน `paid_at` จาก `update … returning` ไม่ select เพิ่ม
   `message_log` และ raise `PushFailed` เมื่อ LINE ไม่รับ เพื่อให้คิว retry

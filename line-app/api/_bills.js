@@ -21,18 +21,19 @@ async function indexBills(room, newPeriods) {
 const indexBill = (room, period) => indexBills(room, [period]);
 
 // Saves bills of ONE room together: the per-period copies and the index are written side by side,
-// and `bill:<room>` is touched once, with the newest of them. A caller that has just read
-// `bill:<room>` passes it as `latest` (null when there is none) so it is not fetched again; that
-// saves one round trip on every slip, confirmation and void.
-async function saveBills(bills, { latest } = {}) {
+// and `bill:<room>` is touched once, with the newest of them.
+async function saveBills(bills) {
   if (!bills.length) return;
   const room = bills[0].room;
   const newest = bills.reduce((a, b) => (b.period > a.period ? b : a));
+  // The two indexes are derived data (`_ledger.stateBills` rebuilds from the bills): losing that race
+  // must not fail the write the caller asked for, and must not keep the pointer below from moving.
+  const derived = (promise) => promise.catch((err) => console.error("bill index write failed", room, err.message));
   await Promise.all([
     ...bills.map((b) => store.set(`bill:${b.period}:${room}`, b)),
-    indexBills(room, bills.map((b) => b.period)),
+    derived(indexBills(room, bills.map((b) => b.period))),
     // The compact state other paths read instead of one key per period (see `_ledger.stateBills`).
-    ledger.indexState(bills),
+    derived(ledger.indexState(bills)),
   ]);
   // Written last on purpose: `bill:<room>` is the pointer the chat and the slips follow, so it must
   // never name a bill whose own key is not there yet. The conditional write re-checks the stored
