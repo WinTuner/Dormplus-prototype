@@ -7,24 +7,24 @@
 | ครึ่ง | stack | โปรเจกต์ Vercel (Root Directory) | อ่าน config จาก |
 |---|---|---|---|
 | **backend** | FastAPI + Postgres (Neon/Supabase) | `line-backend` (`backend/`) | `backend/app/config.py` ผ่าน `pydantic-settings` → env หรือ `backend/.env` |
-| **line-app** | Vercel serverless JS + Vercel Blob | `line-app` (`line-app/`) | `process.env` ตรง ๆ ใน `line-app/api/*.js` — **ไม่มี dotenv** |
+| **line-app** | Vercel serverless JS + Cloudflare R2 (fallback Vercel Blob) | `line-app` (`line-app/`) | `process.env` ตรง ๆ ใน `line-app/api/*.js` — **ไม่มี dotenv ใน runtime** |
 
 > **สำคัญ:** ทั้งสองครึ่งเป็นคนละโปรเจกต์ Vercel จึงมีชุด env แยกกัน ค่าที่ชื่อซ้ำกัน (เช่น `LIFF_ID`, `CRON_SECRET`) ต้องใส่ทั้งสองโปรเจกต์ ไม่ใช่ใส่ที่เดียวแล้วใช้ร่วม — และ `CRON_SECRET` ทั้งสองที่ **ไม่ใช่ค่าเดียวกันก็ได้**
 
-ที่มา: `backend/app/config.py`, `backend/app/db.py`, `backend/app/attempts.py`, `backend/.env.example`, `line-app/api/*.js` (รวม `api/_verify.js`, `api/_store.js`, `api/_store-r2.js`), `line-app/scripts/migrate-blob-to-r2.js`, `backend/vercel.json`, `line-app/vercel.json`, `backend/migrations/versions/0005_line_events.py`, `backend/README.md`, `line-app/README.md`, `Dockerfile`
+ที่มา: `backend/app/config.py`, `backend/app/db.py`, `backend/app/attempts.py`, `backend/.env.example`, `line-app/.env.example`, `line-app/api/*.js` (รวม `api/_verify.js`, `api/_pay.js`, `api/_gemini.js`, `api/_store.js`, `api/_store-r2.js`), `line-app/scripts/*.js`, `backend/vercel.json`, `line-app/vercel.json`, `backend/migrations/versions/0005_line_events.py`, `backend/README.md`, `line-app/README.md`, `docs/DEPLOYMENT.md`, `Dockerfile`
 
 ---
 
 ## 1. Backend (FastAPI)
 
-ตัวแปรที่โค้ดอ่านจริงมี 12 ตัว (นิยามใน `Settings` ที่ `backend/app/config.py`) บวกตัวแปรสำหรับ test และตัวแปรที่ platform ฉีดให้
+ตัวแปรที่โค้ดอ่านจริงมี 15 ตัว (นิยามใน `Settings` ที่ `backend/app/config.py`) บวกตัวแปรสำหรับ test และตัวแปรที่ platform ฉีดให้
 
 | Variable | Prod | Local | Default | ผลเมื่อไม่มี / ผิด |
 |---|---|---|---|---|
 | `DATABASE_URL` | **จำเป็น** | **จำเป็น** | `postgresql+psycopg://postgres:postgres@localhost:5432/domplus` | ต่อ DB ไม่ได้ → `/healthz` ตอบ `503 DB_UNAVAILABLE`, route อื่นล้มเป็น 500 |
 | `SESSION_SECRET` | **จำเป็น** | **จำเป็น** | `dev-only-change-me` (ถูกปฏิเสธ) | `app/session.py` โยน `RuntimeError` — login และทุก request ที่มี cookie ล้มเป็น 500 |
 | `COOKIE_SECURE` | **ควรเป็น `true`** | `false` ถ้าเป็น HTTP | `true` | ตั้ง `true` บน `http://127.0.0.1` → browser ไม่ส่ง cookie `dp_session` กลับ → 401 ตลอด |
-| `DEV_AUTH` | ต้องเป็น `false` | `true` ได้ | `false` | เปิดบน production จริงจะถูกเพิกเฉย **แต่** ขึ้นกับ `VERCEL_ENV` (ดู §1.3) |
+| `DEV_AUTH` | ต้องเป็น `false` | `true` ได้ | `false` | เปิดบน production จริงจะถูกเพิกเฉย **แต่** ขึ้นกับการตรวจ `is_production` (`VERCEL_ENV` / `RAILWAY_ENV` / `K_SERVICE` — ดู §1.3) |
 | `OWNER_ACCESS_CODE` | **จำเป็นถ้าใช้หน้าจอเจ้าของหอ `/owner`** | ตั้งก็ได้ | `""` | ว่าง = `POST /v1/auth/owner` ตอบ `503 OWNER_LOGIN_OFF` (หน้า `/owner` เปิดได้แต่ล็อกอินไม่ผ่าน) · เป็นรหัสใช้ร่วมของหอเดียว ไม่ใช่บัญชีรายคน |
 | `LINE_CHANNEL_ID` | **จำเป็นถ้าใช้ LINE Login** | ไม่ใส่ก็ได้ | `""` | `POST /v1/auth/line` ตอบ `503 LINE_NOT_CONFIGURED` |
 | `LIFF_ID` | **จำเป็นถ้าใช้หน้า LIFF** | ไม่ใส่ก็ได้ | `""` | `GET /v1/liff-config` คืน `{"liff_id": ""}` → หน้า LIFF `liff.init()` ไม่ได้ |
@@ -34,7 +34,9 @@
 | `CRON_SECRET` | ไม่บังคับ (cron ของ backend ปิดอยู่) | ไม่ใส่ก็ได้ | `""` | endpoint `/v1/cron/daily` ยังอยู่แต่ตอบ 401 ทุกครั้ง จนกว่าจะตั้งค่านี้ — ใช้เมื่อยิงมือหรือเปิด cron กลับ (ดู §1.4) |
 | `DUNNING_TOKEN` | ทางเลือกแทน `CRON_SECRET` | — | — | ชื่อเก่าที่ยังรับผ่าน `AliasChoices`; ถ้าตั้งทั้งคู่ `CRON_SECRET` ชนะ · **alias นี้มีเฉพาะฝั่ง backend** `line-app` ไม่รับชื่อนี้ |
 | `PROPERTY_ID` | **ควรตั้งให้ตรงหอ** | `p_1` | `p_1` | ไม่ error แต่ทุก connection ถูกตั้ง `app.property_id` เป็นค่านี้ → RLS จะไม่เห็นแถวของหออื่นเลย และ cron จะเลือกบิลเฉพาะหอนี้ (ดู §1.6) · deployment ที่ไม่ได้ตั้ง env นี้จะเดินเป็น `p_1` เงียบ ๆ |
-| `VERCEL_ENV` | platform ฉีดให้ | ไม่ต้องตั้ง | `""` | ใช้ตัดสิน `is_production` (ปิด `/docs`, ปิด `DEV_AUTH`) |
+| `VERCEL_ENV` | platform ฉีดให้ | `vercel dev` ตั้งเป็น `development` | `""` | ใช้ตัดสิน `is_production` (ปิด `/docs`, ปิด `DEV_AUTH`) เมื่อค่าเป็น `"production"` เท่านั้น |
+| `RAILWAY_ENV` | platform ฉีดให้ (ดูหมายเหตุ) | ไม่ต้องตั้ง | `""` | **ค่าใดก็ได้ที่ไม่ว่าง = `is_production`** (ไม่ต้องเป็น `"production"`) — ชื่อ env มาจากชื่อ field `railway_env` ตรง ๆ ไม่มี alias |
+| `K_SERVICE` / `CLOUD_RUN_SERVICE` | platform ฉีดให้ | ไม่ต้องตั้ง | `""` | Cloud Run ตั้งชื่อ service ให้เอง → ไม่ว่าง = `is_production` · รับได้ทั้งสองชื่อ (`AliasChoices("K_SERVICE", "CLOUD_RUN_SERVICE")`) |
 | `TEST_DATABASE_URL` | — | เฉพาะตอนรัน `pytest` | ไม่มี | ไม่ตั้ง → test ที่ต้องใช้ DB ถูกข้าม; **ฐานนี้ถูกล้างทุกครั้งที่รัน test** |
 | `PORT` | platform ฉีดให้ | ไม่ต้องตั้ง | `8000` | Dockerfile ใช้ `${PORT:-8000}` |
 
@@ -75,8 +77,10 @@
 `DEV_AUTH` เปิดทาง `X-Dev-Property` / `X-Dev-Role` / `X-Dev-User` / `X-Dev-Room` (ดู `backend/app/auth.py`) เพื่อเลือกหอและบทบาทได้โดยไม่ต้องมี LINE Login
 
 - โค้ดเช็ก `dev_auth_active = dev_auth and not is_production`
-- `is_production` เป็นจริง **เฉพาะเมื่อ `VERCEL_ENV == "production"`**
-- ⚠️ บน Docker / Railway / Cloud Run (`Dockerfile` รองรับ) ที่ไม่มี `VERCEL_ENV` ค่า `is_production` เป็น `false` → ถ้าตั้ง `DEV_AUTH=true` ไว้ จะ**ใช้งานได้จริง** ใครก็สวมบทเจ้าของได้ ต้องมั่นใจว่า `DEV_AUTH=false` บนทุก deployment ที่ไม่ใช่เครื่องตัวเอง
+- `is_production` (`backend/app/config.py`) เป็นจริงเมื่อ **ข้อใดข้อหนึ่ง**: `VERCEL_ENV == "production"` · `RAILWAY_ENV` ไม่ว่าง (ค่าใดก็ได้) · `K_SERVICE` / `CLOUD_RUN_SERVICE` ไม่ว่าง — ไม่ใช่แค่ Vercel แล้ว
+- ⚠️ ยังมีช่องว่าง: Docker / VM เปล่า ๆ ที่ไม่ตั้ง `RAILWAY_ENV` หรือ `K_SERVICE` เอง → `is_production` ยังเป็น `false` → ถ้าตั้ง `DEV_AUTH=true` ไว้ จะ**ใช้งานได้จริง** ใครก็สวมบทเจ้าของได้ ต้องมั่นใจว่า `DEV_AUTH=false` บนทุก deployment ที่ไม่ใช่เครื่องตัวเอง
+
+<!-- VERIFY: Railway ฉีดชื่อ `RAILWAY_ENVIRONMENT` ไม่ใช่ `RAILWAY_ENV` — โค้ดอ่านเฉพาะ `RAILWAY_ENV` (field `railway_env` ไม่มี alias) จึงต้องยืนยันจาก runtime หรือตั้งค่านี้เอง -->
 
 ### 1.4 `CRON_SECRET` / `DUNNING_TOKEN` — cron รันที่ line-app ไม่ใช่ backend
 
@@ -145,9 +149,9 @@ webhook ฝั่งนี้บันทึกทุก event ลงตาร�
 
 ## 2. line-app (serverless JS)
 
-โค้ดอ่าน `process.env` **21 ตัว** ใน `line-app/api/*.js` (นับจาก `api/config.js`, `api/cron.js`, `api/dev.js`, `api/me.js`, `api/owner.js`, `api/qr.js`, `api/rooms.js`, `api/run.js`, `api/slip.js`, `api/webhook.js`, `api/_auth.js`, `api/_line.js`, `api/_prepay.js`, `api/_remind.js`, `api/_rooms.js`, `api/_store.js`, `api/_verify.js`) บวกตัวแปรที่ `@vercel/blob` อ่านเอง และ credential อีกสามตัวของ R2 ที่ `api/_store-r2.js` รับผ่าน `env` (default = `process.env`)
+โค้ดอ่าน `process.env` **24 ตัว** ใน `line-app/api/*.js` (นับจาก `api/config.js`, `api/cron.js`, `api/dev.js`, `api/bill.js`, `api/me.js`, `api/owner.js`, `api/qr.js`, `api/rooms.js`, `api/run.js`, `api/slip.js`, `api/webhook.js`, `api/_auth.js`, `api/_gemini.js`, `api/_line.js`, `api/_pay.js`, `api/_prepay.js`, `api/_remind.js`, `api/_rooms.js`, `api/_store.js`, `api/_verify.js`) บวกตัวแปรที่ `@vercel/blob` อ่านเอง (โค้ดไม่อ่าน) และ credential อีกสามตัวของ R2 ที่ `api/_store-r2.js` รับผ่านพารามิเตอร์ `env` (default = `process.env`) — รวม `R2_*` ทั้งสี่ที่ตารางด้านล่าง
 
-**เพดาน 12 functions ของ Vercel Hobby:** `api/` มีไฟล์ที่ไม่ขึ้นต้นด้วย `_` **12 ไฟล์พอดี** — `bill.js`, `config.js`, `cron.js`, `dev.js`, `me.js`, `owner.js`, `qr.js`, `rooms.js`, `run.js`, `slip.js`, `slip-image.js`, `webhook.js` (helper ที่ขึ้นต้นด้วย `_` อีก 14 ไฟล์ไม่นับเป็น function) การเพิ่ม endpoint ที่ 13 จะทำให้ deploy ล้มด้วย `exceeded_serverless_functions_per_deployment` — ต้องรวมหรือลบไฟล์เดิมก่อน และ helper ใหม่ต้องตั้งชื่อขึ้นต้นด้วย `_` เสมอ
+**เพดาน 12 functions ของ Vercel Hobby:** `api/` มีไฟล์ที่ไม่ขึ้นต้นด้วย `_` **12 ไฟล์พอดี** — `bill.js`, `config.js`, `cron.js`, `dev.js`, `me.js`, `owner.js`, `qr.js`, `rooms.js`, `run.js`, `slip.js`, `slip-image.js`, `webhook.js` (helper ที่ขึ้นต้นด้วย `_` อีก 16 ไฟล์ไม่นับเป็น function) การเพิ่ม endpoint ที่ 13 จะทำให้ deploy ล้มด้วย `exceeded_serverless_functions_per_deployment` — ต้องรวมหรือลบไฟล์เดิมก่อน และ helper ใหม่ต้องตั้งชื่อขึ้นต้นด้วย `_` เสมอ
 
 | Variable | Prod | Local | Default | ผลเมื่อไม่มี / ผิด |
 |---|---|---|---|---|
@@ -158,7 +162,7 @@ webhook ฝั่งนี้บันทึกทุก event ลงตาร�
 | `LOGIN_CHANNEL_ID` | ไม่บังคับ | ไม่บังคับ | อนุมานจากส่วนหน้า `-` ของ `LIFF_ID` | ถ้า LIFF อยู่คนละ provider กับ LINE Login ต้องตั้ง ไม่งั้นตรวจ idToken ไม่ผ่าน (403) |
 | `OWNER_USER_ID` | **จำเป็น** | ไม่ใส่ก็ได้ | — | ไม่มี root owner → `/api/rooms`, `/api/run` ตอบ 403 และไม่มีการ์ด "ยืนยันการชำระ" ส่งถึงใคร · cron ก็ไม่ส่งสรุปทวงให้เจ้าของ |
 | `SEED_TOKEN` | **ไม่ควรตั้ง** | ตั้งได้ | — | ถ้าไม่ตั้งหรือสั้นกว่า 16 ตัว → `/api/dev` ตอบ 403 และ bypass ปิด (ปลอดภัยกว่า) |
-| `ALLOW_SEED_BYPASS` | **ต้องไม่ตั้ง / `false`** | `true` ได้ | — (ปิด) | ไม่มีผลบน production; บน preview เปิด bypass + `/api/dev` (preview ใช้ Blob ชุดเดียวกับ production — อันตราย) |
+| `ALLOW_SEED_BYPASS` | **ต้องไม่ตั้ง / `false`** | `true` ได้ | — (ปิด) | ไม่มีผลบน production; บน preview เปิด bypass + `/api/dev` ได้ — แต่ preview ไม่มี `R2_*` จึงเขียนไม่ลง และถ้าไปเพิ่ม `R2_*` ให้ preview จะเขียนลง bucket จริงทันที (ห้าม) |
 | `RICHMENU_OWNER_ID` | ไม่บังคับ | ไม่บังคับ | — | ไม่สลับ rich menu ให้เจ้าของที่ถูกเชิญ (`api/owner.js`) |
 | `RICHMENU_TENANT_ID` | ไม่บังคับ | ไม่บังคับ | — | ไม่สลับ rich menu ให้ผู้เช่าที่ผูกห้อง (`api/qr.js`) |
 | `PUBLIC_BASE_URL` | แนะนำ | ไม่บังคับ | `` `https://${req.headers.host}` `` | ใช้ host ของ request — บน Vercel ปกติถูกต้อง · `api/cron.js` ใช้ค่านี้ทำลิงก์ในข้อความทวง |
@@ -168,6 +172,7 @@ webhook ฝั่งนี้บันทึกทุก event ลงตาร�
 | `ELEC_RATE` | ไม่บังคับ | ไม่บังคับ | `7` | ค่าไฟ/หน่วย |
 | `SLIPOK_API_KEY` | ไม่บังคับ | ไม่บังคับ | — | ใช้คู่กับ `SLIPOK_BRANCH_ID`; ตั้งไม่ครบทั้งคู่ = ตรวจสลิปไม่ทำงาน (`ok: null`, `reason: "not_configured"`) แต่สลิปยังถูกบันทึก (§2.5) |
 | `SLIPOK_BRANCH_ID` | ไม่บังคับ | ไม่บังคับ | — | branch ของหอนี้ใน SlipOK — ต้องผูกบัญชีรับเงินของหอไว้ ไม่งั้นสลิปทุกใบได้ `1014` (บัญชีผู้รับไม่ใช่บัญชีของหอ) |
+| `SLIP_AUTO_CONFIRM` | **ควรตั้ง `0` บน Preview** | ไม่บังคับ | ไม่ตั้ง (= ให้ `dorm.autoConfirm` ตัดสิน) | kill switch ของทั้ง deployment: `0`/`off`/`false` (ไม่สนตัวพิมพ์/ช่องว่าง) → `autoConfirmOn()` ใน `api/_pay.js` คืน `false` ทันที **ชนะ `dorm.autoConfirm`** · ค่าอื่นหรือไม่ตั้ง = เปิด/ปิดตาม `dorm.autoConfirm` (ค่าเริ่มต้น = ปิด) · อ่านทุกครั้งที่เรียก ไม่ต้อง redeploy |
 | `GEMINI_API_KEY` | ไม่บังคับ | ไม่บังคับ | — | เปิด "อ่านมิเตอร์จากรูป" (`POST /api/run {action:"read"}`, `api/_gemini.js`) — ไม่ตั้ง = `503 METERS_OFF` และปุ่มถ่ายรูปยังขึ้นแต่กดแล้วได้ข้อความให้พิมพ์เอง · ส่งรูปไป Google (PDPA) |
 | `GEMINI_MODEL` | ไม่บังคับ | ไม่บังคับ | `gemini-2.5-flash` | เปลี่ยนโมเดลที่อ่านมิเตอร์ (ต้องรองรับ `responseSchema`) |
 | `BILL_PERIOD` | ไม่บังคับ | ไม่บังคับ | `""` (seed ใช้ `2026-11`) | `/api/run` ถ้า body ไม่ส่ง `period` และ env ว่าง → `400 VALIDATION`; `/api/rooms` คืน `period: null` |
@@ -176,12 +181,14 @@ webhook ฝั่งนี้บันทึกทุก event ลงตาร�
 
 ตัวแปรที่ **โค้ดไม่เคยอ่านเอง** แต่ platform/library ต้องใช้:
 
+> **สถานะจริง 18 พ.ย. 2026 (จาก `docs/DEPLOYMENT.md` §3.2.1):** production ของ `line-app` รันบน **R2** (`R2_BUCKET=domplus-pcat` + credential ครบสี่ตัวบน Production) เพราะ Blob ใช้โควต้าฟรีครบและถูก pause 30 วัน · **Preview ไม่มี `R2_*`** (token จำกัดที่ bucket เดียว) จึงอ่าน storage ไม่ได้ — ตั้งใจให้เป็นแบบนั้น · ถอยกลับ Blob ทำไม่ได้ในช่วงที่ store ยังถูก pause
+
 | Variable | ใครอ่าน | ต้องสร้างเองไหม |
 |---|---|---|
-| `BLOB_STORE_ID` | `@vercel/blob` | ไม่ต้อง — `vercel storage connect` ใส่ให้ · **ถูกเมินทั้งหมดเมื่อตั้ง `R2_BUCKET`** |
+| `BLOB_STORE_ID` | `@vercel/blob` | ไม่ต้อง — `vercel storage connect` ใส่ให้ · **ถูกเมินทั้งหมดเมื่อตั้ง `R2_BUCKET`** (กรณี production ปัจจุบัน) |
 | `VERCEL_OIDC_TOKEN` | `@vercel/blob` (คู่กับ `BLOB_STORE_ID`) | ไม่ต้อง — Vercel ฉีดตอน runtime · **ถูกเมินเมื่อตั้ง `R2_BUCKET`** |
-| `BLOB_READ_WRITE_TOKEN` | **ไม่มีใน runtime** — ทุก call ใช้ `access: "private"` + OIDC | **ไม่ต้องตั้งบน deployment** · **แต่ต้องใช้ตอนรัน `scripts/migrate-blob-to-r2.js` ด้วยมือ** (สคริปต์เรียก `list()`/`get()` ตรง ๆ นอก Vercel จึงไม่มี OIDC) |
-| `R2_BUCKET` | `api/_store.js` (บรรทัดที่ 8, ตอน module load) | **ตั้งเมื่อย้ายไป R2** — มีค่านี้เมื่อไร **ทุกอย่าง** (JSON key + รูปสลิป + list) ไป R2 และตัวแปร Blob ทั้งสามถูกเมิน |
+| `BLOB_READ_WRITE_TOKEN` | **ไม่มีใน runtime** — ทุก call ใช้ `access: "private"` + OIDC | **ไม่ต้องตั้งบน deployment** (และห้ามตั้ง) · **แต่ต้องใช้ตอนรัน `scripts/migrate-blob-to-r2.js` / `check-r2-copy.js` ด้วยมือ** (สคริปต์เรียก `list()`/`get()` ตรง ๆ นอก Vercel จึงไม่มี OIDC) |
+| `R2_BUCKET` | `api/_store.js` (บรรทัดที่ 8, ตอน module load) | **ตั้งบน production แล้ว** — มีค่านี้เมื่อไร **ทุกอย่าง** (JSON key + รูปสลิป + list) ไป R2 และตัวแปร Blob ทั้งสามถูกเมิน · บน Preview ไม่ตั้ง |
 | `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` | `api/_store-r2.js` | ต้องมี **ครบทั้งสาม** คู่กับ `R2_BUCKET` (S3 API token ของ bucket) — ขาดตัวใดตัวหนึ่ง `createStore()` โยน error ทุก request จนกว่าจะแก้ env |
 
 - R2 ใช้ endpoint `https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com/<R2_BUCKET>` ด้วย `region: "auto"` และเซ็นด้วย `aws4fetch` (ไม่ใช้ `@aws-sdk/client-s3`)
@@ -245,7 +252,7 @@ webhook ฝั่งนี้บันทึกทุก event ลงตาร�
 - ไม่ใช่ `DUNNING_TOKEN` — ชื่อเก่านั้นเป็น alias ของ backend เท่านั้น
 - วันที่คิดตามเวลาไทย (`Asia/Bangkok`) ไม่ใช่ UTC ของเซิร์ฟเวอร์
 - กันรันซ้อนด้วย Blob key `cron-lock` (15 นาที): ถ้ารอบก่อนยังไม่จบ รอบใหม่ตอบ `200 {"skipped":"another run is in progress"}` — Vercel retry จึงไม่ทำให้ส่งซ้ำ
-- ตั้งแล้ว **ต้อง Redeploy** — env ของ Vercel มีผลกับ deployment ใหม่ · `cron.js` อ่าน `CRON_SECRET` ทุก request แต่ `_line.js` / `_auth.js` / `_rooms.js` อ่านตอน module load (ดู §6 ข้อ 3)
+- ตั้งแล้ว **ต้อง Redeploy** — env ของ Vercel มีผลกับ deployment ใหม่ · `cron.js` อ่าน `CRON_SECRET` ทุก request แต่ `_line.js` / `_auth.js` / `_rooms.js` อ่านตอน module load (ดู §6 ข้อ 3) · `SLIP_AUTO_CONFIRM` และ `SEED_TOKEN` อ่านทุกครั้งที่เรียก จึงมีผลทันทีหลัง redeploy
 
 <!-- VERIFY: มีการตั้ง `CRON_SECRET` (≥ 16 ตัว) บนโปรเจกต์ `line-app` แล้วหรือยัง และค่าเดียวกับที่ Vercel ใช้แนบ header — เห็นได้ที่ Project → Settings → Environment Variables -->
 
@@ -284,14 +291,18 @@ webhook ฝั่งนี้บันทึกทุก event ลงตาร�
 `pydantic-settings` อ่าน `env_file=".env"` จาก **current working directory** และ `extra="ignore"`
 
 ```bash
-# คัดลอกจาก .env.example แล้วแก้ค่า
+# คัดลอกจาก .env.example แล้วแก้ค่า (ไฟล์นี้มีครบ 13 key ตามตัวอย่างล่าง)
 DATABASE_URL=postgresql+psycopg://user:pass@host:5432/domplus
 DEV_AUTH=false
 LINE_CHANNEL_ID=
 LIFF_ID=
+LINE_CHANNEL_SECRET=
+LINE_CHANNEL_ACCESS_TOKEN=
+SECRET_ENC_KEY=
 SESSION_SECRET=change-me-to-a-long-random-value
 COOKIE_SECURE=true
 OWNER_ACCESS_CODE=
+TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/domplus_test
 CRON_SECRET=
 PROPERTY_ID=p_1
 ```
@@ -303,15 +314,19 @@ PROPERTY_ID=p_1
 - ถ้าใช้ role `dormplus_app` ในเครื่องด้วย ต้องสร้าง role นั้นใน Postgres local และให้สิทธิ์ DML ก่อน ไม่งั้น connection แรกจะ error — หรือใช้ superuser ในเครื่องแล้วรู้ไว้ว่า RLS จะถูกข้าม (test จึงต้องมี `tests/test_rls.py` แยก)
 - ไม่มี `config.json` / `config.yaml`; `alembic.ini` เก็บแค่ `script_location` กับ logger ไม่มี connection string
 
-### 3.2 `line-app` ไม่มีไฟล์ config
+### 3.2 `line-app` — `.env.example` มีไว้ให้สคริปต์ ไม่ใช่ให้ runtime
 
-- ไม่มี `.env`, `.env.example`, dotenv ใน dependency (`package.json` มี `@vercel/blob` + `aws4fetch` + `qrcode-svg` — `aws4fetch` คือตัวเซ็น S3 request ของ R2 และ `qrcode-svg` ใช้สร้าง QR พร้อมเพย์)
-- สคริปต์ offline ใช้ env จาก shell เท่านั้น: `line-app/scripts/migrate-blob-to-r2.js` ต้องมี `BLOB_READ_WRITE_TOKEN` + `R2_ACCOUNT_ID` + `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` + `R2_BUCKET` (โหมด `--dry` ไม่ต้องมี credential R2 แต่ยังต้องมี token ของ Blob เพื่ออ่าน) · `setup-richmenu.js` / `set-richmenu-image.js` ก็ตั้ง env ใน shell เช่นกัน
-- **ไม่มี `.env` ของ line-app ให้คัดลอก** — การย้าย Blob → R2 ทำด้วย env ตอนรันสคริปต์ (รายละเอียดใน `docs/DEPLOYMENT.md`) ไม่ใช่ไฟล์ config ในเรพ
-- การใส่ `.env` เฉย ๆ **ไม่มีผล** เพราะไม่มีอะไรโหลดเข้า `process.env` (ไม่มี `--env-file` และไม่มี `scripts` ที่รันเซิร์ฟเวอร์)
+- **มี `line-app/.env.example`** (tracked ใน git) — `.gitignore` เป็น `.env*` แต่มี `!.env.example` ยกเว้นไว้ · ไฟล์นี้จดเฉพาะของงาน offline: `BLOB_READ_WRITE_TOKEN` + `R2_ACCOUNT_ID` + `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` + `R2_BUCKET`
+- **runtime บน Vercel ไม่อ่านไฟล์นี้** — ไม่มี dotenv ใน dependency (`package.json` มีแค่ `@vercel/blob`, `aws4fetch`, `qrcode-svg`) และไม่มี `--env-file` ในสคริปต์ที่รันเซิร์ฟเวอร์ (ทั้งไฟล์ `scripts` และ `test`)
+- สคริปต์ offline ต้องโหลดเองด้วย `node --env-file=.env …` (รูปแบบที่ `.env.example` เขียนไว้) หรือส่ง env ทาง shell:
+  - `scripts/migrate-blob-to-r2.js` — `BLOB_READ_WRITE_TOKEN` + (`R2_ACCOUNT_ID` + `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` + `R2_BUCKET`) · โหมด `--dry` ไม่ต้องมี credential R2 แต่ยังต้องมี token ของ Blob เพื่ออ่าน
+  - `scripts/check-r2-copy.js` — ครบทั้งห้าตัว (เทียบ Blob กับ R2), `scripts/backup-r2.js` — `R2_*` ทั้งสี่
+  - `scripts/setup-richmenu.js` / `scripts/set-richmenu-image.js` — `LINE_CHANNEL_ACCESS_TOKEN` + `LIFF_ID`
+- `line-app/.env` (gitignored) **มีอยู่ในเครื่อง dev** และชี้ R2 ของ production — `POST /api/dev?do=seed` จากเครื่องจะเขียนทับข้อมูลจริง (ดู `docs/DEPLOYMENT.md` §3.2.1)
+- **การใส่ `.env` เฉย ๆ ไม่มีผลกับ deployment** — ต้องตั้งที่ Vercel → Project → Settings → Environment Variables หรือส่งทาง shell ตอนรันสคริปต์
 - `line-app/vercel.json` เก็บ `git.deploymentEnabled`, **`crons` (`/api/cron`, `0 2 * * *`)**, `rewrites` (`/` → `/liff/bill.html`) และ security headers
 - `backend/vercel.json` เก็บเฉพาะ `git.deploymentEnabled` — ไม่มี `crons`
-- ค่าทั้งหมดมาจาก Vercel → Project → Settings → Environment Variables หรือจาก shell ตอน `vercel dev`
+- ค่าทั้งหมดมาจาก Vercel → Project → Settings → Environment Variables หรือจาก shell ตอน `vercel dev` / รันสคริปต์
 
 ---
 
@@ -341,7 +356,9 @@ PROPERTY_ID=p_1
 
 ไม่บังคับ: `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` (ตั้งคู่กัน และ branch ต้องผูกบัญชีรับเงินของหอ), `RICHMENU_OWNER_ID` / `RICHMENU_TENANT_ID`, `ROOMS` / `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` (มี default ในโค้ด), `PUBLIC_BASE_URL` (ไม่ตั้ง = ใช้ host ของ request)
 
-เลือก backend ของ storage: **ไม่ตั้ง R2 เลย = Vercel Blob (OIDC, ไม่ต้องมี token)** ซึ่งเป็นค่าปกติ · ถ้าจะย้ายไป R2 ต้องตั้ง `R2_BUCKET` + `R2_ACCOUNT_ID` + `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` **ครบทั้งสี่ตัวในรอบ deploy เดียวกัน** — ขาดตัวใดตัวหนึ่ง `api/_store-r2.js` โยน error ทุก request ที่แตะ storage (ไม่ fallback กลับ Blob) · คัดลอกข้อมูลก่อนด้วย `scripts/migrate-blob-to-r2.js` (ต้องมี `BLOB_READ_WRITE_TOKEN` ตอนรันมือ)
+**สถานะ storage ตอนนี้ (จาก `docs/DEPLOYMENT.md` §3.2.1):** production ตั้ง `R2_BUCKET` + credential ครบสี่ตัวแล้ว จึงรันบน R2 · **Preview ไม่มี `R2_*`** → แตะ storage ไม่ได้ (ตั้งใจ) · การถอยกลับ Blob ทำไม่ได้จนกว่า store จะพ้นช่วง pause
+
+ถ้าติดตั้งใหม่ตั้งแต่ต้น: **ไม่ตั้ง R2 เลย = Vercel Blob (OIDC, ไม่ต้องมี token)** · ถ้าจะย้ายไป R2 ต้องตั้ง `R2_BUCKET` + `R2_ACCOUNT_ID` + `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` **ครบทั้งสี่ตัวในรอบ deploy เดียวกัน** — ขาดตัวใดตัวหนึ่ง `api/_store-r2.js` โยน error ทุก request ที่แตะ storage (ไม่ fallback กลับ Blob) · คัดลอกข้อมูลก่อนด้วย `scripts/migrate-blob-to-r2.js` (ต้องมี `BLOB_READ_WRITE_TOKEN` ตอนรันมือ)
 
 ค่าหอ (`rent`, `waterRate`, `elecRate`, `dueDay`, `promptpay`, `name`) **ตั้งจากหน้า settings ในแอป** (`POST /api/rooms {dorm}`) ไม่ใช่ env — env เป็นเพียงค่า fallback ของห้องที่ยังไม่เคยบันทึก และไม่มีผลกับห้องที่มี `room:<room>` แล้ว (ดู §2.1)
 
@@ -366,6 +383,8 @@ PROPERTY_ID=p_1
 | เพดานเดารหัสผิด (ทุก scope: `owner-login`, `line.link`) | 10 ครั้ง / 1 ชั่วโมง / actor → `429 TOO_MANY_ATTEMPTS` | `backend/app/attempts.py` |
 | `PROPERTY_ID` | `p_1` (ถูกตั้งเป็น `app.property_id` ทุก connection) | `backend/app/config.py`, `backend/app/db.py` |
 | `LINE_CHANNEL_ID` / `LIFF_ID` / `LINE_CHANNEL_ACCESS_TOKEN` / `LINE_CHANNEL_SECRET` / `CRON_SECRET` | `""` | `backend/app/config.py` |
+| `VERCEL_ENV` / `RAILWAY_ENV` / `K_SERVICE` (`CLOUD_RUN_SERVICE`) | `""` | `backend/app/config.py` |
+| `is_production` | `VERCEL_ENV=="production"` หรือ `RAILWAY_ENV` ไม่ว่าง หรือ `K_SERVICE`/`CLOUD_RUN_SERVICE` ไม่ว่าง | `backend/app/config.py` |
 | `PORT` | `8000` | `Dockerfile` |
 | `CRON_SECRET` (line-app) | `""` (ใช้ได้เมื่อ ≥ 16 ตัว) | `line-app/api/cron.js` |
 | ความยาวต่ำสุดของ cron secret (line-app) | `16` | `line-app/api/cron.js` |
@@ -379,8 +398,11 @@ PROPERTY_ID=p_1
 | `dueDay` | ไม่ตั้ง (`null`) → ไม่มีวันครบกำหนดอัตโนมัติ (ใช้ `BILL_DUE`) | `line-app/api/rooms.js`, `line-app/api/run.js` |
 | `promptpay` | ไม่ตั้ง → `/api/bill` ไม่มี QR พร้อมเพย์ | `line-app/api/_promptpay.js`, `line-app/api/bill.js` |
 | จำนวน endpoint ใน `api/` | 12 (เท่าเพดาน Vercel Hobby) | `line-app/api/` |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | `line-app/api/_gemini.js` (บรรทัด 10) |
+| `BILL_PERIOD` / `BILL_DUE` (จาก env) | `""` — seed ใช้ `2026-11` / `2026-11-16` | `line-app/api/dev.js`, `line-app/api/run.js` |
+| `SLIP_AUTO_CONFIRM` | ไม่ตั้ง = เปิด/ปิดตาม `dorm.autoConfirm` (default ปิด) · `0`/`off`/`false` = ปิดทั้ง deployment | `line-app/api/_pay.js` |
 | `SLIPOK_API_KEY` / `SLIPOK_BRANCH_ID` (line-app) | ไม่ตั้ง (undefined = ไม่ตรวจสลิป) | `line-app/api/_verify.js` |
-| `R2_BUCKET` / `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` (line-app) | ไม่ตั้งทั้งชุด = ใช้ Vercel Blob; ตั้ง `R2_BUCKET` = ต้องมีครบสี่ตัว | `line-app/api/_store.js`, `line-app/api/_store-r2.js` |
+| `R2_BUCKET` / `R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` (line-app) | ไม่ตั้งทั้งชุด = ใช้ Vercel Blob; ตั้ง `R2_BUCKET` = ต้องมีครบสี่ตัว (**production ตั้งครบแล้ว — ดู §2**) | `line-app/api/_store.js`, `line-app/api/_store-r2.js` |
 | migration head (backend) | `0006` (index FK ของ `invoice_items`/`payments`; `0005` = `line_events`) | `backend/migrations/versions/0006_invoice_child_indexes.py` |
 | `PUBLIC_BASE_URL` | `https://<host ของ request>` | `line-app/api/run.js`, `dev.js`, `webhook.js`, `cron.js` |
 | `LIFF_ID` (line-app) | `null` (ตอบใน `/api/config`) | `line-app/api/config.js` |
@@ -403,12 +425,12 @@ Vercel อ่าน env ตาม scope ที่เลือกตอนสร�
 | `SEED_TOKEN` / `ALLOW_SEED_BYPASS` (line-app) | ใช้ไม่ได้เด็ดขาด | ใช้ได้ถ้า `ALLOW_SEED_BYPASS=true` | ใช้ได้ |
 | `COOKIE_SECURE` (backend) | `true` | `true` | `false` ถ้าเป็น HTTP |
 | `DATABASE_URL` | pooled, role `dormplus_app` | ควรใช้ Neon branch แยก (role เดียวกัน) | local Postgres หรือ unpooled |
-| Blob store (line-app) | store จริง | **ใช้ store เดียวกับ production** ตาม README | ต้องมี OIDC/credential เอง |
+| Blob store / R2 (line-app) | **R2** (`R2_BUCKET` + credential ครบสี่ตัว) — Blob ถูก pause | **ไม่มี `R2_*`** → แตะ storage ไม่ได้ (ตั้งใจ กันเขียนทับข้อมูลจริง) | ต้องมี credential เอง (`.env` + `node --env-file`) |
 | cron ที่ส่งข้อความทวง | `line-app` `/api/cron` (backend ไม่มี cron) | ไม่รัน (Vercel cron ผูกกับ Production) | ยิงมือด้วย curl ถ้าตั้ง `CRON_SECRET` |
 
 ข้อควรระวัง:
 
-1. **Preview ของ line-app ใช้ env และ Blob ชุดเดียวกับ production** — อย่าเปิด `ALLOW_SEED_BYPASS` หรือรัน seed บน preview เพราะจะทับบิลจริง
+1. **Preview ของ `line-app` ใช้ env อื่น ๆ ชุดเดียวกับ production แต่ไม่มี `R2_*`** — storage ใช้งานไม่ได้จาก preview จึงไม่ทับข้อมูลจริง · ที่ยังอันตรายคือ **เครื่อง local ที่มี `.env` ชี้ R2 ของ production**: `POST /api/dev?do=seed` จะเขียนทับข้อมูลจริง และสคริปต์ที่ยิง bucket จริง (`scripts/migrate-blob-to-r2.js`, `check-r2-copy.js`, `backup-r2.js`) จะอ่าน/เขียนของจริงด้วย · ชุด smoke ไม่แตะ bucket — `smoke.js` ใช้ fake S3 (`fakeFetch`) และชุดอื่นใช้ `Map` แทน store · อย่าเปิด `ALLOW_SEED_BYPASS` และตั้ง `SLIP_AUTO_CONFIRM=0` เมื่อทดสอบ
 2. **Preview ของ backend ใช้ DB ชุดเดียวกับ production ถ้าไม่ได้แยก env** — ควรตั้ง `DATABASE_URL` ของ Preview เป็น Neon branch
 3. **แก้ env แล้วต้อง Redeploy** — line-app จับค่าใส่ `const` ตอน module load (`api/_line.js`, `api/_auth.js`, `api/_rooms.js`, และ `api/_store.js` ที่เลือก R2/Blob จาก `R2_BUCKET`) และ instance ที่ warm อยู่จะใช้ค่าเดิมจนกว่าจะ deploy ใหม่ · backend ก็อ่าน `Settings` ผ่าน `lru_cache` ต่อโปรเซส
 4. `PUBLIC_BASE_URL` บน Preview ถ้าตั้งเป็นโดเมน production ลิงก์ในการ์ดจะชี้ไป production

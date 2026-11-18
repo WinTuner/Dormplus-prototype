@@ -43,11 +43,14 @@ repo นี้มี **สอง stack ที่เป็นอิสระจ�
    ส่วน `backend/` เป็นเป้าหมายระยะยาวตามสัญญา [`docs/API.md`](./API.md)
 4. **backend รับ event ได้แล้ว แต่ไม่มีใครส่งมา** — `backend/app/main.py` มี router
    auth · properties · rooms · billing · me · dunning · cron · invites · reports · webhooks
-   (`POST /v1/webhooks/line/:property_id` ตรวจ signature → กัน event ซ้ำด้วยตาราง `line_events` →
-   เขียน `audit_log`; ถ้าไม่ได้ตั้ง `LINE_CHANNEL_SECRET` ตอบ 503 `LINE_NOT_CONFIGURED`) แต่ **ช่องทางของ OA
-   ยังชี้ที่ `line-app/api/webhook.js`** ซึ่งเป็นที่เดียวที่ตอบผู้เช่าจริง
-5. **ทางออกของ backend คือ push เท่านั้น** — `backend/app/line_push.py` เรียก
-   `POST https://api.line.me/v2/bot/message/push` และไม่รู้จัก state ที่ line-app เขียนไว้
+   (`POST /v1/webhooks/line/:property_id` ตรวจ signature ด้วย secret ของหอ (`properties.line_secret_enc`)
+   → กัน event ซ้ำด้วยตาราง `line_events` → เขียน `audit_log` เฉพาะ event ที่ยังไม่เคยรับ → ตอบข้อความ
+   ให้ event สดผ่าน `line_handlers.py`) แต่ **ช่องทางของ OA ยังชี้ที่ `line-app/api/webhook.js`**
+   ซึ่งเป็นที่เดียวที่ส่งการ์ดบิล/ใบเสร็จและรับ postback ยืนยันจริง
+5. **backend ตอบ LINE ได้ทั้ง push และ reply** — `backend/app/line_push.py` เรียก
+   `POST https://api.line.me/v2/bot/message/{push,reply}` · `reply_text()` ตอบ follow และคำว่า `บิล`
+   ด้วยข้อความ text จาก Postgres แต่ไม่รู้จัก state ที่ line-app เขียนไว้ — บิลที่ผู้เช่าเห็นจริงยังอยู่
+   ใน Blob/R2
 
 ผลที่ตามมาในทางปฏิบัติ: การแก้บิลใน stack หนึ่งไม่กระทบอีก stack, ไม่มี distributed transaction,
 และไม่มี single source of truth ของ "บิลห้อง 203 รอบ 2026-11" — มีสองชุดแยกกันอยู่
@@ -83,11 +86,11 @@ graph TD
   REM --> BLOB
   REM -->|"push (ทวง)"| LINE
   BE --> PG
-  BE -->|"push"| LINE
+  BE -->|"push / reply (text)"| LINE
 ```
 
 อ่านแผนผัง: มีสองเส้นทางที่แยกกันโดยสิ้นเชิง — เส้นบน (LINE → `line-app/` → object store) และเส้นล่าง
-(`backend/` → Postgres → push) ทั้งสองเส้นบรรจบกันที่ LINE platform เท่านั้น — ยกเว้นลูกศรจาก `USER`
+(`backend/` → Postgres → push/reply) ทั้งสองเส้นบรรจบกันที่ LINE platform เท่านั้น — ยกเว้นลูกศรจาก `USER`
 ไป `BE` ซึ่งคือหน้า `/owner` ที่คุยกับ backend ตรง ๆ
 ไม่มีลูกศรระหว่าง `line-app/` กับ `backend/` · และ cron รายวันของทั้งระบบอยู่ที่ `line-app/` (เส้นบน)
 ไม่ใช่ที่ backend · ข้อยกเว้นเดียวของ "ทุกคนเข้า LINE": เจ้าของเปิด `/owner` ในเบราว์เซอร์แล้วคุยกับ
@@ -101,10 +104,10 @@ graph TD
 
 | กลไก | ใครใช้ | ที่อยู่ในโค้ด |
 |---|---|---|
-| Messaging API webhook | `line-app/` เท่านั้น (รับ event: follow, ข้อความ `บิล`, postback ยืนยัน) | `line-app/api/webhook.js` |
+| Messaging API webhook | ทั้งสอง stack — `line-app/` คือที่ที่ OA ชี้อยู่จริง (follow, ข้อความ `บิล`, postback ยืนยัน) · `backend/` รับได้และตอบ follow/คำว่า `บิล` เป็นข้อความ text | `line-app/api/webhook.js` · `backend/app/routes/webhooks.py` |
 | LIFF (หน้าเว็บใน LINE) | ทั้งสอง stack — คนละหน้า คนละ LIFF id | `line-app/liff/bill.html` · `backend/liff/index.html` |
 | LINE Login (idToken) | ทั้งสอง stack ตรวจ idToken กับ `oauth2/v2.1/verify` | `line-app/api/_auth.js` · `backend/app/line.py` |
-| Messaging API push | ทั้งสอง stack (การ์ดบิล · การ์ดยืนยัน · ใบเสร็จ · ทวง · สรุปให้เจ้าของ) | `line-app/api/_line.js` · `backend/app/line_push.py` |
+| Messaging API push / reply | ทั้งสอง stack (การ์ดบิล · การ์ดยืนยัน · ใบเสร็จ · ทวง · สรุปให้เจ้าของ · backend ตอบ event สดด้วย text) | `line-app/api/_line.js` · `backend/app/line_push.py` |
 
 **ฝั่ง `line-app/`** (รายละเอียดเต็มอยู่ใน [`line-app/docs/ARCHITECTURE.md`](../line-app/docs/ARCHITECTURE.md)):
 
@@ -122,11 +125,16 @@ graph TD
   หน้าต่างย่อยที่ LINE เปิดให้เอง · ถ้า `getFriendship()` ตอบไม่ได้ (ไม่ใช่ LIFF browser หรือช่องทาง
   ยังไม่ออกแบบให้ถาม) ค่าเป็น `null` และไม่แสดงการ์ด เพื่อไม่กวนผู้ใช้ด้วยคำเตือนที่อาจไม่จริง
 
-**ฝั่ง `backend/`** ส่งข้อความได้ (`backend/app/line_push.py`, เรียกจาก task ในคิวเท่านั้น —
-`backend/app/tasks.py`) และ **รับ event ได้** ที่ `POST /v1/webhooks/line/:property_id` (ตรวจ
-`X-Line-Signature` ด้วย `LINE_CHANNEL_SECRET`, กัน event ซ้ำด้วย `webhookEventId` ในตาราง `line_events`,
-ตอบ 503 `LINE_NOT_CONFIGURED` ถ้ายังไม่ตั้ง secret) แต่ endpoint นั้นยังไม่มี handler ที่ตอบผู้ใช้ และ
-webhook ของ OA ยังชี้ที่ `line-app`
+**ฝั่ง `backend/`** ส่งข้อความได้ทั้งขา push (`backend/app/line_push.py`, เรียกจาก task ในคิว —
+`backend/app/tasks.py`) และขา reply (`reply_text()`) · **รับ event ได้** ที่
+`POST /v1/webhooks/line/:property_id`: ตรวจ `X-Line-Signature` ด้วย secret ของหอ
+(`properties.line_secret_enc` ถอดด้วย `SECRET_ENC_KEY` — ไม่มีค่อยตกไปใช้ `LINE_CHANNEL_SECRET`),
+ตอบ 503 `LINE_SECRET_UNREADABLE` ถ้าถอดไม่ได้, 503 `LINE_NOT_CONFIGURED` ถ้าไม่ได้ตั้งเลย · event ซ้ำ
+(คีย์ `webhookEventId` ในตาราง `line_events`) ตอบ 200 เหมือนกัน แต่ไม่เขียน `audit_log` และไม่ตอบผู้ใช้
+· event ใหม่ถูกส่งต่อให้ `backend/app/line_handlers.py` **หลัง commit** (ยังไม่ผ่านคิว): follow → ข้อความ
+ต้อนรับ, ข้อความ `บิล`/`bill`/`ใบเสร็จ`/`invoice` → บิลล่าสุดของผู้เช่าคนนั้นเป็น **ข้อความ text**
+ผ่าน replyToken (ไม่มีการ์ด Flex — การ์ดสร้างที่ `line-app`) · **webhook ของ OA ยังชี้ที่ `line-app`**
+จึงยังไม่มี event จริงไหลมาที่นี่
 
 **หน้าเจ้าของของ `backend/` ที่ `/owner`** — เป็นทางเข้าเดียวของทั้งระบบที่ไม่ผ่าน LINE:
 `backend/app/main.py` mount `backend/owner/` เป็น static (`StaticFiles(..., html=True)`) ที่ path `/owner`
@@ -146,7 +154,7 @@ webhook ของ OA ยังชี้ที่ `line-app`
   (`{uid:"owner", role:"owner", property_id: PROPERTY_ID}`) — เจ้าของกับผู้เช่าจึงใช้กลไก session
   ชุดเดียวกัน (HMAC-SHA256, 7 วัน, HttpOnly, SameSite=Lax)
 - เดารหัสผิดได้ 10 ครั้ง/ชั่วโมง/IP ผ่าน `backend/app/attempts.py` (`scope="owner-login"`,
-  `actor=request.client.host`) — นับเฉพาะครั้งที่ผิด ผู้ที่ล็อกอินถูกไม่ถูกหน่วง
+  `actor` = hop แรกของ `X-Forwarded-For` ถ้าไม่มีจึงใช้ `request.client.host` (`routes/auth.py:265-267`)) — นับเฉพาะครั้งที่ผิด ผู้ที่ล็อกอินถูกไม่ถูกหน่วง
 - ไม่ตั้ง `OWNER_ACCESS_CODE` = ตอบ 503 `OWNER_LOGIN_OFF` และหน้าเว็บบอกว่ารหัสยังไม่ถูกตั้ง
 - **หนึ่ง deployment = หนึ่งหอ ดังนั้นไม่มีบัญชีรายคน:** "เจ้าของ" คือใครก็ตามที่รู้รหัสร่วมนั้น
   ไม่มี username ไม่มีตาราง owner · cookie พา `uid:"owner"` ไปด้วย ดังนั้น `audit_log.actor` ของทุก
@@ -180,7 +188,7 @@ env ครั้งเดียว)
 <!-- VERIFY: Vercel Blob free tier = 10,000 operations/เดือน และ R2 ให้ 10M read ops/เดือน — เป็นข้อจำกัดของแพลตฟอร์ม (อ้างจากคอมเมนต์ใน line-app/api/_store.js และ _store-r2.js) ไม่ใช่ค่าที่ตรวจได้จากเรพ -->
 
 สองกลไกที่ลด read: **(1) cache ใน memory 10 วินาทีต่อ instance** สำหรับ key ที่เปลี่ยนช้า (`dorm`, `room:`,
-`bills:`, `bill-state:`) — ทุก `set()` ลบ entry ของ key นั้นทันที และ key ที่เป็นเงิน (`bill:`, `slip-ref:`,
+`rooms:`, `bills:`, `bill-state:`) — ทุก `set()` ลบ entry ของ key นั้นทันที และ key ที่เป็นเงิน (`bill:`, `slip-ref:`,
 `qr-code:`) ไม่ถูก cache เลย cache hit จึงเป็นค่าที่เคยอ่านได้จริง (เก่าได้ไม่เกิน 10 วินาที — §10 ข้อ 15)
 **(2) key สรุป `bill-state:<room>`** ซึ่งแทนการอ่านบิลทีละรอบ (ย่อหน้าถัดจากตาราง)
 
@@ -241,9 +249,12 @@ transRef?, paidAt?, bank? }` · `ok: null` แปลว่า "บอกไม�
 ถ้าใช้ counter กลาง เลขเดียวกันจะถูกแจกสองใบได้
 
 ฝั่ง Blob ทุกการอ่านระบุ `useCache: false` และทุกการเขียนเป็น `allowOverwrite: true` (R2 ไม่มี flag
-เหล่านี้ — อ่าน/เขียน object ตรง ๆ ด้วย S3 API) · ทั้งสองเบื้องหลัง **ไม่มี transaction, ไม่มี conditional
-write, ไม่มี compare-and-set** ดังนั้นรูปแบบ "อ่าน–แก้–เขียน" จึงเป็น race ได้
-มีสองที่ที่ออกแบบรับข้อจำกัดนี้ไว้แล้วโดยตรง: `cron-lock` (บรรเทา overlap ของ cron) และการล้าง
+เหล่านี้ — อ่าน/เขียน object ตรง ๆ ด้วย S3 API) · **R2 มี conditional write จริง**: `store.update(key, fn)`
+อ่านพร้อม ETag แล้วเขียนด้วย `If-Match` (key ที่ยังไม่มี = `If-None-Match: *`) และลองซ้ำ 3 ครั้งก่อน throw
+· `store.create(key, value)` ใช้ `If-None-Match: *` จึงเป็น compare-and-set ที่กันสลิปซ้ำ (`slip-ref:`)
+· **Blob ไม่มีทั้งสองอย่าง** — `update()` ถอยเป็นอ่าน–แก้–เขียนครั้งเดียว, `create()` เป็นอ่านแล้วเขียน
+จึงยังเป็น race ได้ · ทั้งสองเบื้องหลังยัง **ไม่มี transaction ข้าม key** · สองที่ที่ออกแบบรับข้อจำกัดนี้ไว้
+โดยตรง: `cron-lock` (บรรเทา overlap ของ cron) และการล้าง
 `prepay:<room>` ที่จะล้างเฉพาะเมื่อ `slipAt` ยังตรงกับใบที่เพิ่งใช้ไป (ดู §5.1) — ดูข้อจำกัดใน
 [`line-app/docs/ARCHITECTURE.md`](../line-app/docs/ARCHITECTURE.md)
 
@@ -252,7 +263,7 @@ write, ไม่มี compare-and-set** ดังนั้นรูปแบบ
 (ใบเสร็จ), `confirm:` (`confirmKey()` ใน `_bills.js` — การ์ดยืนยันของเจ้าของ), `remind:` และ
 `remind-summary:` — และถ้า LINE ตอบ 409 ถือว่า "ส่งไปแล้ว" (`{ duplicate: true }`) ไม่ใช่ error
 ผู้เช่าจึงได้ใบเสร็จใบเดียวแม้เจ้าของสองคนกดยืนยันพร้อมกัน · ข้อนี้กัน *ข้อความ* ซ้ำเท่านั้น
-ไม่ได้กันการเขียนทับข้อมูล — Blob ยังไม่มี compare-and-set
+ไม่ได้กันการเขียนทับข้อมูล — บน Blob ยังไม่มี compare-and-set (บน R2 มี `If-Match` — ต้นหัวข้อนี้)
 
 <!-- VERIFY: Blob store ถูกผูกกับโปรเจกต์ Vercel ผ่าน OIDC (ไม่มีการใส่ token ในโค้ด) และชื่อ store/env มาจากการตั้งค่าบน Vercel ไม่ใช่จากไฟล์ในเรพ — โค้ดเรียก @vercel/blob โดยไม่ระบุ token -->
 <!-- VERIFY: ถ้าเปิดใช้ R2 ค่า R2_ACCOUNT_ID / R2_BUCKET / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY ถูกตั้งบน Vercel และ bucket มีข้อมูลครบ (คัดลอกด้วย scripts/migrate-blob-to-r2.js แล้ว) — ไม่มีค่าใดในเรพที่ยืนยันได้ และถ้า R2_BUCKET ถูกตั้งแต่ credential ไม่ครบ createStore() จะ throw ทุก request -->
@@ -261,11 +272,11 @@ write, ไม่มี compare-and-set** ดังนั้นรูปแบบ
 
 schema อยู่ที่ `db/schema.sql` (snapshot อ่านอย่างเดียว) แต่ **ตัวที่รันจริงคือ Alembic migration**
 ใน `backend/migrations/versions/` (`0001_initial_schema.py`, `0002_link_codes.py`,
-`0003_auth_failures.py`, `0004_rls_property.py`, `0005_line_events.py`)
+`0003_auth_failures.py`, `0004_rls_property.py`, `0005_line_events.py`, `0006_invoice_child_indexes.py`)
 
 | กลุ่มตาราง | ตาราง | ใช้ทำอะไร |
 |---|---|---|
-| โดเมนหอพัก | `properties`, `rooms`, `tenants` | หอ/ห้อง/ผู้เช่า · `tenants.line_user_id` คือจุดผูก LINE |
+| โดเมนหอพัก | `properties`, `rooms`, `tenants` | หอ/ห้อง/ผู้เช่า · `tenants.line_user_id` คือจุดผูก LINE · `properties.line_secret_enc`/`line_token_enc` คือ channel secret/token ของ OA ประจำหอ (เข้ารหัสด้วย `SECRET_ENC_KEY` — §7) |
 | มิเตอร์และบิล | `readings`, `invoices`, `invoice_items` | `UNIQUE(room_id, period)` กันบิลซ้ำที่ระดับ DB |
 | การชำระเงิน | `payments` | `verify_ok` เป็น `null` = ยังไม่มีใครตรวจ (manual) |
 | การสื่อสาร | `message_log` | ใช้กันส่งทวงซ้ำ: นับเฉพาะแถวที่ `line_status = 'ok'` |
@@ -312,7 +323,8 @@ RLS ทำงานจริงตั้งแต่ migration `0004`:
 2. คำนวณ "วันนี้" ตามเวลาไทยด้วย `Intl.DateTimeFormat(..., { timeZone: "Asia/Bangkok" })`
    ไม่ใช่วัน UTC ของ server
 3. อ่าน `cron-lock`; ถ้ามี lock ที่อายุน้อยกว่า 15 นาที ตอบ 200 `{ skipped }` แล้วจบ
-   (Vercel อาจ retry run ที่ timeout ขณะ run แรกยังทำงาน — object store ไม่มี compare-and-set จึงทำได้แค่
+   (Vercel อาจ retry run ที่ timeout ขณะ run แรกยังทำงาน — object store ไม่มี lock ข้าม key
+   จึงทำได้แค่
    บรรเทา ไม่ได้กันได้ 100%) · เขียน lock แล้วลบใน `finally`
 4. `_remind.runReminders({ today, baseUrl })` แล้วตอบ `{ ok, today, sent, failed }`
 
@@ -354,6 +366,7 @@ backend ใช้ **Procrastinate** เป็นคิวที่เก็บ�
   · `apply_schema()` สร้างตารางของ Procrastinate
 - การ enqueue: `notify_invoices` / `queue_reminders` ส่งทุกงาน LINE ด้วย `batch_defer` ครั้งเดียว (insert เดียว) ไม่ใช่ `defer` ต่อแถว
 - `backend/app/tasks.py` — task เดียวที่คุยกับ LINE: `line.push_text` (`retry=3`) เขียนทุกความพยายามลง
+- **reply ไม่ผ่านคิว** — webhook เรียก `line_push.reply_text()` ตรง ๆ หลัง commit (§3) เพราะ replyToken มีอายุสั้นและมีค่าครั้งเดียว
 - การเรียก LINE (`app/line_push.py` push, `app/line.py` ตรวจ idToken) ใช้ `httpx.Client` ตัวเดียวแบบ keep-alive (`line_push.client()`, timeout 10 วินาที, import แบบ lazy) แทน urllib ต่อครั้ง
 - `GET /v1/invoices/{id}` เป็น select เดียว (items ผ่าน `json_agg`, payment ล่าสุดผ่าน lateral join) และ `POST /v1/invoices/{id}/confirm` อ่าน `paid_at` จาก `update … returning` ไม่ select เพิ่ม
   `message_log` และ raise `PushFailed` เมื่อ LINE ไม่รับ เพื่อให้คิว retry
@@ -420,6 +433,10 @@ backend ใช้ **Procrastinate** เป็นคิวที่เก็บ�
      เก็บไว้) · เขียน ref ก่อนบิลจึงปิดช่องจ่ายสองบิลด้วยสลิปใบเดียวได้ แต่ถ้าเขียนบิลล้มหลังเขียน ref
      สลิปนั้นจะถูกมองว่าซ้ำ (แลกมาด้วยการกันการจ่ายซ้ำ) · บน Vercel Blob ไม่มี conditional write จึงถอย
      เป็นอ่านแล้วเขียน (ช่องที่ยอมรับ)
+    - **อ่านซ้ำก่อนเขียน:** การตรวจสลิปยิงออกไปนอกระบบ (ช้าเป็นวินาที) หลังผลกลับมาจึงอ่านบิลจริงอีกครั้ง —
+      ถ้าสถานะไม่ใช่ `unpaid`/`pending` แล้ว (เจ้าของปิดหรือยกเลิกไประหว่างนั้น) ตอบ `409 INVALID_STATE`
+      และไม่เขียนทับ · ทางกลุ่มก็อ่านซ้ำและปฏิเสธถ้ามีงวดถูกยืนยัน/ยกเลิกไปแล้ว · ช่องนี้คือราคาของ
+      "อ่าน–แก้–เขียน" ที่ไม่มี transaction — ทางเลือกคือยอมให้สถานะถอยหลังจาก `paid` กลับเป็น `pending`
    - **เทียบยอด (`checkAmount`):** ผลตรวจ + ยอดบิล → `{ verify, slipAmount, overpaid, shortBy }` แล้วเขียน
      `slipAmount`/`overpaid`/`shortBy` ลงบิล (และ `slipGroup` ของสลิปหลายรอบ) ผ่าน `withAmounts()` ·
      ยอดไม่เท่า = `ok: false` พร้อมเหตุผลภาษาไทย "เกินบิล X บาท" / "ขาด X บาท" **ไม่บล็อก** เจ้าของยังตัดสินเอง
@@ -439,17 +456,19 @@ backend ใช้ **Procrastinate** เป็นคิวที่เก็บ�
      การตรวจสลิปใช้ `amount` = ผลรวมทุกรอบ (โอนครั้งเดียวหลายเดือนจะไม่ผ่าน 1013 ถ้ายอดไม่ครบ)
 5. เจ้าของกด "ยืนยันการชำระ" → postback `action=confirm&room=…&period=…` (หรือ `periods=…` สำหรับกลุ่ม)
    → `POST /api/webhook` → `webhook.js` ตรวจ `x-line-signature` → `isOwner(userId)` →
-   - ใบเดียว: บิลต้องเป็น `pending` → `paidCopy()` เขียน `status:"paid"`, `paidAt`, `confirmedBy`,
-     `receiptNo = receiptNoOf(bill)` · ถ้ามียอดโอนเกิน บิลได้ `refundDue` (ยอดเกิน) + `refundReason:"overpaid"`
-     และถูก tag ลง `overpaid:<room>` ผ่าน `tagOverpaid()` — **คืนเป็นเงิน ไม่ทบเป็นเครดิตบิลรอบถัดไป**
+   - ใบเดียว: บิลต้องเป็น `pending` → `_pay.closeBills(room, [bill], { latest, userId })` ปิดด้วย
+     `paidCopy()` (`status:"paid"`, `paidAt`, `confirmedBy`, `receiptNo = receiptNoOf(bill)`) · ถ้ามียอดโอนเกิน
+     บิลได้ `refundDue` (ยอดเกิน) + `refundReason:"overpaid"` และถูก tag ลง `overpaid:<room>` ผ่าน
+     `tagOverpaid()` — **คืนเป็นเงิน ไม่ทบเป็นเครดิตบิลรอบถัดไป**
      (สลิปหลายรอบเป็นโอนครั้งเดียว ยอดเกินจึงตกที่รอบใหม่สุดรอบเดียว: `overpaidOf()` ใน `_bills.js`)
-   - กลุ่ม: ปิดเฉพาะรอบที่ยัง `pending` **และ** `slipGroup.periods` ตรงกับ key ของการ์ด ·
+   - กลุ่ม: `closeBills()` ปิดเฉพาะรอบที่ยัง `pending` **และ** `slipGroup.periods` ตรงกับ key ของการ์ด ·
      รอบที่ไปต่อแล้วถูกข้ามและบอกในคำตอบ · คำตอบระบุ "ยอดที่ปิด" จริง (ผลรวมอาจต่างจากบนการ์ด
      ถ้ามีรอบถูกยกเลิกไปแล้ว)
-   → `push()` ใบเสร็จ (`receiptBubble`) ให้ผู้เช่า (แบ่งชุดละ ≤ 5 · `X-Line-Retry-Key` =
-   `receipt:<room>:<tenant>:<period>:<rev>:<total>:<receiptNo>:<slipAt>,…` ลายเซ็นของใบเสร็จใบนั้น
-   จึงมีใบเดียวแม้เจ้าของสองคนกดพร้อมกัน) และ `reply()` ยืนยันให้เจ้าของ (ต่อท้ายด้วย
-   "ยอดเกิน X บาท — ต้องคืนผู้เช่า" ถ้ามี)
+   → `sendReceipts()` push ใบเสร็จ (`receiptBubble`) ให้ผู้เช่า (เฉพาะบิลที่ `visibleToTenant()` · แบ่งชุดละ ≤ 5 ·
+   `X-Line-Retry-Key` = `receipt:<room>:<tenant>:<period>:<rev>:<total>:<receiptNo>:<slipAt>,…` ลายเซ็นของ
+   ใบเสร็จใบนั้น จึงมีใบเดียวแม้เจ้าของสองคนกดพร้อมกัน) และ `reply()` ยืนยันให้เจ้าของ (ต่อท้ายด้วย
+   `refundNote()` = "ยอดเกิน X บาท — ต้องคืนผู้เช่า" ถ้ามี) · `_pay.closeBills()`/`sendReceipts()` คือชุดเดียวกับ
+   ที่การปิดบิลอัตโนมัติใช้ (§6.1 ข้อ 4) จึงไม่มีเส้นทาง "ปิดบิล" ที่สองที่ต่างกัน
 6. ดูรูปสลิป: `GET /api/slip-image?room=` → ตรวจสิทธิ์ → `getFile()` แบบ private → stream กลับ ·
    `&advance=1` อ่าน `prepay:<room>` · `&archived=1` อ่าน `prepay-old:<room>` (เฉพาะ staff)
 7. ดูใบเสร็จ: การ์ดใบเสร็จพาไป LIFF ด้วย `?room=…&receipt=<period>#receipt/<period>` (LIFF อาจทิ้ง
@@ -473,8 +492,9 @@ bil object ถูกเขียนทับทั้งก้อนทุกค
    (`line-app/api/bill.js`) — ต้องเป็น owner, `room` ต้องอยู่ใน `ROOMS`, `reason` 1–200 ตัวอักษร,
    บิลต้องไม่ใช่ `void` อยู่แล้ว (409 `INVALID_STATE`)
 2. เขียนบิลเป็น `status:"void"` พร้อม `voidedAt`, `voidedBy`, `voidReason`, `statusBefore` และเก็บ
-   `receiptNo`/`slipPath` เดิมไว้ (ใบเสร็จที่ออกไปแล้วคือหลักฐาน) · ถ้าบิลเดิม `paid` จะใส่
-   `refundDue` — ระบบไม่เคลื่อนเงินเอง ตัวเลขนี้คือยอดที่เจ้าของต้องคืน · บิลที่เคยมี **ยอดโอนเกิน** ค้างอยู่
+   `receiptNo`/`slipPath` เดิมไว้ (ใบเสร็จที่ออกไปแล้วคือหลักฐาน) · ถ้าบิลเดิม `paid` **หรือ** `pending`
+   ที่สลิปผ่านการตรวจ (`slipVerify.ok === true`) จะใส่ `refundDue` — ระบบไม่เคลื่อนเงินเอง ตัวเลขนี้คือ
+   ยอดที่เจ้าของต้องคืน (บิล `pending` ที่ยังไม่ผ่านตรวจไม่ค้างเงินที่ต้องคืน) · บิลที่เคยมี **ยอดโอนเกิน** ค้างอยู่
    จะได้ `refundDue = total + ยอดเกินที่ยังไม่ได้คืน` และยอดเกินที่คืนไปก่อนแล้วถูกเก็บเป็น `priorRefund`
    (ไม่คัดลอก `refundedAt` เดิมมาทับ ไม่ให้ยอดค้างหายจากรายการ)
 3. **archive ทันทีที่ตอนยกเลิก** ไปที่ `bill-void:<period>:<room>:<rev>` และเพิ่ม `<period>:<rev>`
@@ -583,6 +603,7 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 |---|---|---|
 | `?overdue=1` | ผู้เช่า (ห้องตัวเอง) · เจ้าของ/ผู้ช่วย (ทุกห้อง หรือ `room=` ระบุ) | `{ today, count, total, maxDaysOverdue, items \| rooms }` — นับเฉพาะ `status:"unpaid"` ที่ `due < today` (บิลครบกำหนดวันนี้ยังไม่สาย, `pending`/`void` ไม่นับ, บิลไม่มี `due` นับไม่ได้) · `daysOverdue` คำนวณจากวันตามเวลาไทย |
 | `?income=YYYY-MM` | เจ้าของ/ผู้ช่วยเท่านั้น (403) | เงินที่ **รับเข้า** ในเดือนนั้นตาม `paidAt` ไม่ใช่ `period` ของบิล (บิล พ.ย. ที่จ่าย 2 ธ.ค. เป็นรายได้ ธ.ค. และบิล ธ.ค. ที่ออกก่อนแล้วจ่าย พ.ย. เป็นรายได้ พ.ย.) · นับเฉพาะ `paid` · `{ month, total, count, items }` |
+| `?pending=1` | เจ้าของ/ผู้ช่วยเท่านั้น (403) | ใบที่รอเจ้าของยืนยัน — ไล่ `bill-state` ของทุกห้อง เก็บเฉพาะ `pending` แล้วอ่านบิลจริงเฉพาะใบที่ผ่าน (ยอด/วันที่/สลิปจึงเป็นของจริง) · `{ count, total, items }` · มีไว้เพราะการ์ดยืนยันในแชทหลุดง่ายเมื่อห้องเยอะ |
 | `?voided=1` | เจ้าของ/ผู้ช่วยเท่านั้น | archive ของบิลที่ถูกยกเลิก (`readVoids`) ใหม่→เก่า กรอง `period=` ได้ |
 | `?voided=1&refunds=1` | เจ้าของ/ผู้ช่วยเท่านั้น | **เงินที่ยังต้องคืน** ทั้งหอ (`room=` เพื่อกรอง) สองชนิดพร้อม `kind`: `void` (บิล `paid` ที่ถูกยกเลิก) และ `overpaid` (บิล `paid` ที่สลิปมากกว่ายอด — `refundDue` คือส่วนเกิน) · `{ count, total, items }` เฉพาะที่ยัง `!refundedAt` |
 
@@ -598,7 +619,7 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 | ขอบเขต | กลไก | ไฟล์ | เมื่อไม่ผ่าน |
 |---|---|---|---|
 | LINE → webhook | HMAC-SHA256 ของ body ดิบ เทียบ `x-line-signature` | `line-app/api/_line.js` (`verify`) | 401 `bad signature` |
-| LINE → webhook (`backend`) | HMAC-SHA256 (Base64) เทียบ `X-Line-Signature` ด้วย `LINE_CHANNEL_SECRET` · `:property_id` ต้องเท่ากับ `PROPERTY_ID` ของ deployment · `webhookEventId` ที่เคยรับแล้วถูกทิ้ง (ตาราง `line_events`) | `backend/app/routes/webhooks.py`, `backend/migrations/versions/0005_line_events.py` | 503 `LINE_NOT_CONFIGURED` (ยังไม่ตั้ง secret) · 404 หอไม่ตรง · 401 signature ผิด · 400 body ไม่ใช่ JSON · event ซ้ำ = 200 แต่ไม่เขียน `audit_log` |
+| LINE → webhook (`backend`) | HMAC-SHA256 (Base64) เทียบ `X-Line-Signature` ด้วย secret ของหอ — `properties.line_secret_enc` ถอดด้วย `SECRET_ENC_KEY` (Fernet) หรือตกไปใช้ `LINE_CHANNEL_SECRET` เมื่อหอยังไม่ตั้ง · `:property_id` ต้องเท่ากับ `PROPERTY_ID` ของ deployment · `webhookEventId` ที่เคยรับแล้วถูกทิ้ง (ตาราง `line_events`) | `backend/app/routes/webhooks.py`, `backend/app/secrets.py`, `backend/migrations/versions/0005_line_events.py` | 503 `LINE_SECRET_UNREADABLE` (ถอด secret ไม่ได้) · 503 `LINE_NOT_CONFIGURED` (ยังไม่ตั้ง secret) · 404 หอไม่ตรง · 401 signature ผิด · 400 body ไม่ใช่ JSON · event ซ้ำ = 200 แต่ไม่เขียน `audit_log` และไม่ตอบผู้ใช้ |
 | LIFF → `line-app` API | `Authorization: Bearer <idToken>` → `POST oauth2/v2.1/verify` กับ `CHANNEL_ID` (cache ใน memory ≤ 5 นาที, ไม่เกิน `exp` ของ token) | `line-app/api/_auth.js` (`requireUser`) | 401 ไม่มี token · 403 token ผิด/หมดอายุ |
 | dev bypass (`line-app`) | header `x-seed-token` เท่ากับ `SEED_TOKEN` (≥ 16 ตัว) **และ** `BYPASS_ALLOWED` | `line-app/api/_auth.js` (`seedTokenOk`) | production ปฏิเสธเสมอ · preview ต้องเปิด `ALLOW_SEED_BYPASS=true` |
 | บทบาทใน `line-app` | `OWNER_USER_ID` (root) หรือ key `owner:<userId>` ที่มี `role` | `line-app/api/_auth.js` (`roleOf`, `isOwner`, `canView`, `isRoot`) | 403 · viewer อ่านได้แต่ออกบิล/ยืนยัน/ยกเลิก/เชิญไม่ได้ |
@@ -608,7 +629,7 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 | cron → `line-app` | `Authorization: Bearer <CRON_SECRET>` เทียบด้วย `crypto.timingSafeEqual`; secret สั้นกว่า 16 ตัว = ยังไม่ตั้ง | `line-app/api/cron.js`, `line-app/api/_auth.js` (`sameSecret`) | 401 · 503 `NOT_CONFIGURED` |
 | cron → `backend` (ไม่ได้ตั้ง schedule แล้ว) | `Authorization: Bearer <CRON_SECRET>` เทียบด้วย `hmac.compare_digest`; token ใน query ถูกปฏิเสธ | `backend/app/routes/cron.py`, `.../dunning.py` | 401 `UNAUTHORIZED` |
 | ผู้ใช้ → `backend` | signed cookie `dp_session` (HMAC ด้วย `SESSION_SECRET`) | `backend/app/session.py` (`sign`/`unsign`) | cookie ปลอม/หมดอายุ = ตกลงไปที่ 401 |
-| session ผู้เช่า → DB | ตรวจ `still_linked()` ทุก request (ไม่รอ cookie หมดอายุ) | `backend/app/auth.py` | 401 `SESSION_REVOKED` |
+| session ผู้เช่า → DB | ตรวจ `still_linked()` ทุก request (ไม่รอ cookie หมดอายุ) · คำสั่งเดียวกันคืน `since = to_char(tenants.moved_in,'YYYY-MM')` ให้ session พกไว้กรองบิล | `backend/app/auth.py` | 401 `SESSION_REVOKED` · บิลที่ `period < since` ตอบ 404 |
 | ผู้ใช้ → `/owner` (`backend`) | รหัสเจ้าของหอร่วม เทียบกับ `OWNER_ACCESS_CODE` ด้วย `hmac.compare_digest` · ผิดได้ 10 ครั้ง/ชม./IP · ไม่ตั้งรหัส = ปิดทางเข้า | `backend/app/routes/auth.py` (`login_owner`), `backend/app/attempts.py` | 503 `OWNER_LOGIN_OFF` · 401 `UNAUTHORIZED` · 429 `TOO_MANY_ATTEMPTS` |
 | role ใน `backend` | `owner_session` / `tenant_session` เป็น dependency ของ route | `backend/app/auth.py` | 403 `FORBIDDEN` |
 | หอ → ข้อมูลใน DB | RLS ของ `0004` + `app.property_id` ที่ผูกตอน connect | `backend/migrations/versions/0004_rls_property.py`, `backend/app/db.py` | แถวของหออื่นไม่ถูกอ่าน/เขียน (ไม่ error แต่ไม่เห็น) |
@@ -635,6 +656,14 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
   · ฝั่ง `backend` กัน event ซ้ำด้วย `webhookEventId` แล้ว (`line_events`) แต่ `line-app` ไม่มีตารางแบบนั้น
   — ตัวที่ทำหน้าที่แทนคือ idempotency ของ **push** (`X-Line-Retry-Key` + LINE 409 = ส่งไปแล้ว):
   สองการ์ดที่ยืนยันบิลเดียวกันพร้อมกันจึงให้ใบเสร็จใบเดียว ไม่ใช่สองใบ (ดู §4.1)
+- **การตอบของ `backend` อ่านจาก Postgres ไม่ใช่จาก Blob/R2** — `line_handlers.py` ตอบเฉพาะ follow
+  (ข้อความต้อนรับ) กับข้อความ `บิล`/`bill`/`ใบเสร็จ`/`invoice` (บิลล่าสุดของห้องที่ผู้เช่ายังผูกอยู่
+  ณ วันนี้ตามเวลาไทย) และเป็น **ข้อความ text ล้วน ไม่มีการ์ด** — ไม่มีปุ่มให้กดจากฝั่งนี้ ปุ่ม/การ์ดทั้งหมด
+  จึงยังเป็นของ `line-app` · และบิลที่ผู้เช่าเห็นจริงอยู่ใน Blob/R2 ไม่ใช่ `invoices` ของ Postgres
+- **`backend` ตอบผู้ใช้เฉพาะ event ที่เพิ่งรับครั้งแรก** — event ซ้ำถูกตอบ 200 แล้วจบ قبلถึง handler
+  (replyToken ของ event เดิมใช้ได้ครั้งเดียวอยู่แล้ว แต่การกันที่ `line_events` ทำให้ไม่เกิด 401/400
+  จาก LINE ซ้ำใน log) · ตัว handler รันหลัง commit ใน threadpool และกลืน exception ต่อ event
+  (event หนึ่งพังไม่ทำให้ทั้งชุดล้ม) — ผลคือ at-most-once ไม่ใช่ at-least-once: คำตอบที่ล้มไม่ถูก retry
 - **ห้ามรับ `property_id` จาก client** — เป็นกติกากลางที่เขียนไว้ใน `backend/app/auth.py` และ
   `docs/HANDOFF.md` ทุก query ใช้ค่าจาก session
 
@@ -643,6 +672,9 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 | Abstraction | ที่อยู่ | หน้าที่ |
 |---|---|---|
 | `get` / `set` / `keysWith` (+ `putFile`/`getFile`/`delFile`) | `line-app/api/_store.js` | ทางเดียวที่โค้ดส่วนใหญ่แตะ storage · เลือก R2 หรือ Vercel Blob จาก `R2_BUCKET` และถือ cache 10 วินาทีของ key ที่เปลี่ยนช้า (เขียนแล้วลบทันที) |
+| `update(key, fn)` / `create(key, value)` | `line-app/api/_store.js` (`_store-r2.js`) | การเขียนที่ต้องกันการทับกัน: บน R2 ใช้ ETag + `If-Match` (หรือ `If-None-Match: *` เมื่อ key ยังไม่มี) แล้วลองซ้ำ 3 ครั้ง · บน Blob ถอยเป็นอ่าน–แก้–เขียนครั้งเดียว · `create()` คือ compare-and-set ที่กันสลิปซ้ำ (`slip-ref:`) และ index 60/24 รอบ (`bills:`, `bill-state:`) |
+| `indexBills(bills, {latest})` | `line-app/api/_bills.js` | key `bills:<room>` (60 รอบล่าสุด) เขียนผ่าน `store.update()` — merge ไม่ทับ และไม่ขยับเมื่อไม่มีรอบใหม่ |
+| `closeBills` / `sendReceipts` / `autoConfirmOn` (`_pay.js`) | `line-app/api/_pay.js` | เส้นทางเดียวของการปิดบิลเป็น `paid` + ออกใบเสร็จ ใช้ทั้ง postback ของเจ้าของ (`webhook.js`) และการปิดอัตโนมัติจากสลิป (`slip.js`) · `autoConfirmOn()` อ่านสวิตช์หอ/kill switch/env แล้วคืน `false` เมื่ออ่านไม่ได้ |
 | `indexState` / `stateBills` / `stateOf` | `line-app/api/_ledger.js` | key `bill-state:<room>` (24 รอบ): `saveBills()` เรียก `indexState()` ให้ index ตรงกับบิลเสมอ · `stateBills()` อ่านครั้งเดียวแล้ว fallback ไปบิลจริงแบบไม่เขียนอะไร |
 | `saveBills(bills, {latest})` / `saveBill` | `line-app/api/_bills.js` | เขียนบิลหลายรอบของห้องเดียวพร้อมกัน (per-period + index + `bill:<room>`) และไม่ให้รอบเก่าทับรอบใหม่ · `latest` ที่ผู้เรียกอ่านมาแล้วถูกส่งเข้ามาเพื่อลด round trip |
 | `archiveVoid` | `line-app/api/_bills.js` | เก็บสำเนาบิลที่ถูกยกเลิกเป็น `bill-void:<period>:<room>:<rev>` + index (idempotent) |
@@ -650,7 +682,7 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 | `receiptNoOf` | `line-app/api/_bills.js` | เลขใบเสร็จที่คำนวณจากบิล (`R<yyyymm>-<room>[-<rev>]`) ไม่ใช้ counter |
 | `withAmounts` / `confirmKey` / `tagOverpaid` / `overpaidOf` | `line-app/api/_bills.js` | ฟิลด์ยอดเงินบนบิล (`slipAmount`/`overpaid`/`shortBy`), key ของการ์ดยืนยัน, index `overpaid:<room>` และกฎ "ยอดเกินตกที่รอบใหม่สุดของกลุ่มเท่านั้น" |
 | `bangkokToday` / `bangkokMonth` / `daysBetween` / `recentBills` / `overdueOf` | `line-app/api/_ledger.js` | กติกาเงินตามเวลา: วันนี้/เดือนนี้ตามเวลาไทย, ผลต่างวัน, การอ่านบิลจริงแบบมีขอบเขต (`recentBills` เป็น fallback ของห้องที่ยังไม่มี `bill-state:`) และการนับบิลเลยกำหนด |
-| `attachPrepay` / `usable` / `clearPrepay` | `line-app/api/_prepay.js` | ผูกสลิปโอนล่วงหน้าเข้ากับบิล (`run.js` และ `slip.js` เรียกตัวเดียวกัน จึงได้เนื้อหาเหมือนกันและ push ถูก dedupe) · ล้าง `prepay` เฉพาะใบที่ใช้จริง (`slipAt` ตรง) |
+| `attachPrepay` / `usable` / `usableIn` / `clearPrepay` | `line-app/api/_prepay.js` | ผูกสลิปโอนล่วงหน้าเข้ากับบิล (`run.js` และ `slip.js` เรียกตัวเดียวกัน จึงได้เนื้อหาเหมือนกันและ push ถูก dedupe) · `usableIn()` คือคำตอบว่า "สลิปที่โอนมาก่อนบิลเป็นของห้องนี้จริงไหม" (เจ้าของสลิป หรือรูมเมทที่ `user-room:` ผูกห้องเดียวกัน) · ล้าง `prepay` เฉพาะใบที่ใช้จริง (`slipAt` ตรง) |
 | `configFor(room)` | `line-app/api/_rooms.js` | ราคาที่ใช้จริง = `DEFAULTS` จาก env ทับด้วย `room:<room>` — จุดเดียวที่ตัดสินว่าราคาห้องคือเท่าไร |
 | `verifySlip({bytes, mime, amount})` | `line-app/api/_verify.js` | ตรวจสลิปกับ SlipOK แล้วคืน `{ ok: true\|false\|null, reason?, transRef?, amount? }` · ไม่ throw และไม่เคยปฏิเสธการแนบสลิป |
 | `markStale` / `markEarly` / `checkAmount` / `amountFields` | `line-app/api/_verify.js` | ลด `ok:true` เป็น `ok:null` เมื่อสลิปเก่ากว่า 30 วันหรือโอนก่อนบิลออก (มีเหตุผลภาษาไทย, ไม่บล็อก) · เทียบยอดสลิปกับบิลแล้วคืน `slipAmount`/`overpaid`/`shortBy` |
@@ -680,12 +712,12 @@ Vercel Cron → `GET /api/cron` (`Authorization: Bearer <CRON_SECRET>`) → `_re
 pakdee-prototype/
 ├─ line-app/               # stack ที่ใช้งานจริง: Node serverless + object store (Blob หรือ R2)
 │  ├─ api/                 # 1 ไฟล์ = 1 serverless function (ชื่อไฟล์คือ route) — 12 ไฟล์ = เต็มเพดาน
-│  │  ├─ _*.js             # helper ที่ require() กันตรง ๆ (ไม่ใช่ endpoint) — 15 ไฟล์
-│  │  │                    #   _store _store-r2 _bills _ledger _prepay _promptpay _verify _remind _auth _line
+│  │  ├─ _*.js             # helper ที่ require() กันตรง ๆ (ไม่ใช่ endpoint) — 16 ไฟล์
+│  │  │                    #   _store _store-r2 _bills _ledger _pay _prepay _promptpay _verify _remind _auth _line
 │  │  │                    #   _rooms _async _limit _qr _gemini
 │  │  └─ *.js              # endpoint: bill config cron dev me owner qr rooms run slip slip-image webhook
 │  ├─ liff/bill.html       # UI เดียวของ stack นี้ (ไม่มี build, inline JS/CSS)
-│  ├─ scripts/             # rich menu (setup-richmenu.js, set-richmenu-image.js) + migrate-blob-to-r2.js
+│  ├─ scripts/             # rich menu (setup-richmenu.js, set-richmenu-image.js, _richmenu-defs.js) + migrate-blob-to-r2.js, check-r2-copy.js, backup-r2.js
 │  ├─ docs/                # เอกสารเฉพาะ stack นี้
 │  └─ vercel.json          # crons: GET /api/cron · rewrite / → /liff/bill.html · security headers
 ├─ backend/                # stack เป้าหมาย: FastAPI + Postgres
@@ -720,7 +752,7 @@ pakdee-prototype/
   (`bill` / `advance` / `archived`), `api/owner.js` รวม GET/POST/DELETE ของสิทธิ์เจ้าของ และ
   `api/rooms.js` รวมอ่านทุกห้อง (GET) + ตั้งราคาห้องเดียว (POST) และ `api/bill.js` รวมอ่านบิล (`GET`,
   ทุกโหมด query) + `void`/`reject`/`refunded` (`POST`) ในไฟล์เดียว · helper ใหม่ (`_verify`, `_ledger`,
-  `_prepay`, `_promptpay`, `_store-r2`) จึงถูกเพิ่มเป็นไฟล์ `_` ไม่ใช่ endpoint — และโค้ดที่สอง endpoint ต้องใช้เหมือนกัน
+  `_prepay`, `_promptpay`, `_store-r2`, `_pay`) จึงถูกเพิ่มเป็นไฟล์ `_` ไม่ใช่ endpoint — และโค้ดที่สอง endpoint ต้องใช้เหมือนกัน
   (หน้าต่างบิล/วันที่ไทย, การผูกสลิปโอนล่วงหน้า) ถูกย้ายลง `_ledger`/`_prepay` แทนการเขียนซ้ำ
 - **business rules อยู่ใกล้ที่เก็บข้อมูล** — `line-app/` คำนวณเงินใน `api/run.js` จาก `configFor()`
   (ราคาที่เจ้าของแก้ต่อห้องอยู่ใน `room:<room>` เขียนโดย `POST /api/rooms`; env เป็นเพียงค่าเริ่มต้น);
@@ -735,10 +767,14 @@ pakdee-prototype/
 
 1. **ไม่มี single source of truth** — บิลของผู้ใช้จริงอยู่ใน object store ของ `line-app/` (Blob หรือ R2) ส่วนบิลใน Postgres
    (`backend/`) ถูกสร้างด้วย seed/migration แยกกัน · การย้ายข้อมูลข้าม stack ยังไม่มีเครื่องมือในเรพ
-2. **`line-app/` ไม่มี transaction และไม่มี compare-and-set** — เขียนทับทั้ง object (ทั้ง Blob และ R2) ไม่มี lock ระดับ key
-   (`cron-lock` และการล้าง `prepay` แบบเทียบ `slipAt` เป็นเพียงการบรรเทา) · เลขใบเสร็จจึงถูกคำนวณ
+2. **`line-app/` ไม่มี transaction** — เขียนทับทั้ง object ไม่มี lock ระดับ key และไม่มี commit ข้าม key ·
+   R2 มี conditional write (`If-Match` / `If-None-Match: *` ผ่าน `store.update()`/`store.create()`) จึงกัน
+   การเขียนทับกันได้เฉพาะ *key เดียว* · บน Blob ไม่มีเลย (อ่าน–แก้–เขียนครั้งเดียว) · `cron-lock`,
+   การล้าง `prepay` แบบเทียบ `slipAt`, การอ่านซ้ำก่อนเขียนใน `slip.js` และ `rememberRef()` เป็นการบรรเทา
+   ไม่ใช่การกัน · เลขใบเสร็จจึงถูกคำนวณ
    ไม่นับ และการทวงเป็น at-least-once · ข้อความซ้ำถูกลดลงด้วย `X-Line-Retry-Key` (LINE ตอบ 409 = ส่งไปแล้ว)
-   แต่ยังซ้ำได้ถ้าเขียน mark ไม่สำเร็จแล้วรันอีกวัน (key มีวันที่) — ข้อมูลที่เขียนทับกันยังเป็น race อยู่
+   แต่ยังซ้ำได้ถ้าเขียน mark ไม่สำเร็จแล้วรันอีกวัน (key มีวันที่) — ข้อมูลที่อยู่คนละ key แต่ต้องไปด้วยกัน
+   (บิล + `bill-state:` + `overpaid:`) ยังไม่ atomic
 3. **เจ้าของ `backend/` ไม่มีตัวตนรายคน** — เข้าได้ที่ `/owner` ด้วยรหัสเดียวของหอ
    (`OWNER_ACCESS_CODE`) ไม่มี username/บัญชี/ตาราง owner และไม่มีเพิกถอนสิทธิ์รายคน: ทุกคนที่รู้รหัส
    คือ "เจ้าของ" คนเดียวกันในสายตา `audit_log` · รหัสหลุด = ต้องเปลี่ยนรหัส และถ้าต้องตัด session
@@ -751,10 +787,14 @@ pakdee-prototype/
    เก่ากว่าทุก tenancy (ผู้เช่าที่ผูกอยู่จะไม่เห็น) · ห้องที่ยังไม่เคยเปลี่ยนผู้เช่าตั้งแต่เปิดใช้
    `tenancy:<room>` จะไม่มี record และ `visibleToTenant()` คืน `true` (เห็นทุกใบเหมือนเดิม) —
    ช่องว่างนี้หายไปเองเมื่อห้องนั้นเปลี่ยนผู้เช่าครั้งแรก
-6. **webhook ฝั่ง backend พร้อมรับ แต่ไม่มีใครส่งมา และยังไม่ตอบผู้ใช้** — endpoint ตรวจ signature,
-   กัน event ซ้ำด้วย `line_events`, เขียน `audit_log` และตอบ 503 `LINE_NOT_CONFIGURED` ถ้าไม่ได้ตั้ง
-   `LINE_CHANNEL_SECRET` · แต่ LINE อนุญาต webhook URL เดียวต่อช่องทาง ซึ่งยังเป็นของ `line-app`
-   · สลับเมื่อไหร่บอทที่ใช้งานจริงจะดับ และยังไม่มี handler ที่ตอบผู้ใช้ (งานตอนนี้คือ `audit_log` 1 แถว)
+6. **webhook ฝั่ง backend ตอบผู้ใช้ได้แล้ว แต่ OA ยังชี้ที่ `line-app`** — endpoint ตรวจ signature ด้วย
+   secret ของหอ (`properties.line_secret_enc`, ตกไปใช้ `LINE_CHANNEL_SECRET`), กัน event ซ้ำด้วย
+   `line_events`, เขียน `audit_log` เฉพาะ event ใหม่ แล้วให้ `line_handlers.py` ตอบ follow และคำว่า `บิล`
+   เป็น **ข้อความ text จาก Postgres** · แต่ LINE อนุญาต webhook URL เดียวต่อช่องทาง ซึ่งยังเป็นของ
+   `line-app` · สลับเมื่อไหร่ของจริงที่ `line-app` ทำจะหายทั้งหมด: การ์ดบิล Flex, การ์ดยืนยัน + postback,
+   การแนบสลิป, การทวง, และคำตอบที่ได้จะเป็นบิลจาก `invoices` ของ Postgres ซึ่งไม่ใช่ชุดที่ผู้เช่าจ่ายจริง
+   (ชุดจริงอยู่ใน Blob/R2) จึงอาจว่างหรือผิดใบ · ต้องย้าย/ทับข้อมูลก่อน (ยังไม่มีเครื่องมือในเรพ — ข้อ 1)
+   และต่อให้ย้ายแล้ว ฝั่งนี้ก็ยังตอบได้แค่ text เพราะการ์ดทั้งหมดสร้างที่ `line-app`
 7. **ตรวจสลิป: `line-app` ใช้ SlipOK แบบ optional, `backend` ยัง manual** — `_verify.verifySlip()` ถูกเรียก
    จาก `slip.js` ตอนแนบรูปสลิป (ยอด + บัญชีผู้รับ + สลิปซ้ำ) แล้วเก็บผลเป็น `slipVerify` บนบิลหรือ
    `prepay` · สลิปบิลรายเดือนที่รูปใหม่ได้ `ok === true` **ปิดบิลเอง** (`paid` + ใบเสร็จ, `autoConfirmed: true`)
