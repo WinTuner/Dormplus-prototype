@@ -298,3 +298,26 @@ def test_guessing_codes_is_rate_limited(owner, client_for, seeded, line_ready):
     assert res.json()["error"]["code"] == "TOO_MANY_ATTEMPTS"
     # someone else is not slowed down by the guesser
     assert link(client_for(seeded), real, user="U_somchai").status_code == 200
+
+
+# --- the bill belongs to the person, not to the room ----------------------------------------------
+
+def test_a_new_tenant_does_not_see_or_pay_the_previous_tenants_bills(owner, client_for, seeded, line_ready):
+    """A room keeps its bills when someone moves out; the next person owes only from their own month."""
+    with seeded.begin() as conn:
+        conn.execute(text("update tenants set moved_in = date '2026-11-01' where id = 't_203'"))
+        conn.execute(text("""insert into invoices (id, room_id, period, rent, total, due_date, status)
+                             values ('inv_nov203', 'r_203', '2026-11', 3000, 3000,
+                                     date '2026-11-09', 'unpaid')
+                             on conflict (room_id, period) do nothing"""))
+    october = one(seeded, "select id from invoices where room_id = 'r_203' and period = '2026-10'")
+    november = one(seeded, "select id from invoices where room_id = 'r_203' and period = '2026-11'")
+
+    phone = client_for(seeded)
+    link(phone, invite(owner)["code"])
+
+    assert [i["period"] for i in phone.get("/v1/me/invoices").json()["items"]] == ["2026-11"]
+    assert phone.get(f"/v1/invoices/{november.id}").status_code == 200
+    assert phone.get(f"/v1/invoices/{october.id}").status_code == 404
+    assert phone.post(f"/v1/invoices/{october.id}/slip", json={"slip_url": None}).status_code == 404
+

@@ -32,6 +32,16 @@ let gate = null; // async (op, key) => void
 const store = {
   get: async (k) => { if (gate) await gate("get", k); return data.has(k) ? data.get(k) : null; },
   set: async (k, v) => { if (gate) await gate("set", k); data.set(k, v); if (gate) await gate("set-done", k); },
+  // The real store does these with a conditional PUT on R2; the fake has no second writer, so one pass.
+  update: async (k, apply) => {
+    const next = await apply(await store.get(k));
+    if (next !== undefined) await store.set(k, next);
+  },
+  create: async (k, v) => {
+    if (await store.get(k) !== null) return false;
+    await store.set(k, v);
+    return true;
+  },
   keysWith: async (prefix) => {
     const pathPrefix = pathOf(prefix).replace(/\.json$/, "");
     return [...data.keys()]

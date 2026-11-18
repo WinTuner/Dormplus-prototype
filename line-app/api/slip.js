@@ -195,15 +195,14 @@ const baseUrlOf = (req) => process.env.PUBLIC_BASE_URL || `https://${req.headers
 
 // One transaction can only pay for one thing: the first bill to claim a `transRef` keeps it.
 // SlipOK detects a reused slip too, but only within what its branch remembers — this key is ours.
+// The claim is a create-if-absent, so two requests carrying the same slip cannot both win it.
 async function rememberRef(verify, room) {
   if (!verify || verify.ok !== true || !verify.transRef) return verify;
   const key = `slip-ref:${verify.transRef}`;
+  const claimed = await store.create(key, { room, at: new Date().toISOString() });
+  if (claimed) return verify;
   const seen = await store.get(key);
-  if (seen) {
-    return { ...verify, ok: false, reason: `สลิปนี้ถูกใช้ไปแล้ว (ห้อง ${seen.room || "?"})` };
-  }
-  await store.set(key, { room, at: new Date().toISOString() });
-  return verify;
+  return { ...verify, ok: false, reason: `สลิปนี้ถูกใช้ไปแล้ว (ห้อง ${(seen && seen.room) || "?"})` };
 }
 
 // The advance path: one `prepay:<room>` record per room, replaced by each new slip.

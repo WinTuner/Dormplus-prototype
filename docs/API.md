@@ -212,6 +212,14 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
 ```
 `items` เรียงตามลำดับที่บันทึก · `payment` เมื่อมี = `{ "amount", "slip_key", "verify_ok", "verified_at" }` (`verify_ok: null` = รอเจ้าของตรวจ)
 
+**หนี้เป็นของคน ไม่ใช่ของห้อง**: session ของผู้เช่าพก `since` = `to_char(tenants.moved_in, 'YYYY-MM')` ที่อ่านใหม่ทุกคำขอ ผู้เช่าจึงเห็นและแนบสลิปได้เฉพาะใบที่ `period >= since` — ใบของคนที่อยู่ก่อนหน้าตอบ `404` ทั้งอ่านและแนบสลิป แม้จะเป็นห้องเดียวกัน
+
+### `GET /me/invoices`
+12 งวดล่าสุดของผู้เช่าคนนี้ (ห้องมาจาก session cookie ไม่ใช่จาก request · ตัดงวดก่อน `moved_in` ออก)
+```json
+{ "items": [ { "id": "inv_1", "period": "2026-11", "total": 3842, "status": "unpaid", "due_date": "2026-11-09" } ] }
+```
+
 ---
 
 ## การชำระเงิน

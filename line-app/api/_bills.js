@@ -7,15 +7,15 @@ const ledger = require("./_ledger");
 
 const PERIOD = /^\d{4}-(0[1-9]|1[0-2])$/;
 
-// Adds periods to `bills:<room>` with one read and at most one write.
+// Adds periods to `bills:<room>`; a conditional write, so two requests adding different periods at
+// the same time merge instead of one list overwriting the other.
 async function indexBills(room, newPeriods) {
-  const key = `bills:${room}`;
-  const periods = (await store.get(key)) || [];
-  const fresh = newPeriods.filter((p) => !periods.includes(p));
-  if (!fresh.length) return;
-  periods.push(...fresh);
-  periods.sort().reverse();
-  await store.set(key, periods.slice(0, 60));
+  await store.update(`bills:${room}`, (periods) => {
+    const list = periods || [];
+    const fresh = newPeriods.filter((p) => !list.includes(p));
+    if (!fresh.length) return undefined;
+    return [...list, ...fresh].sort().reverse().slice(0, 60);
+  });
 }
 
 const indexBill = (room, period) => indexBills(room, [period]);

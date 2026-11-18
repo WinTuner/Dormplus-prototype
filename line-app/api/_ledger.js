@@ -83,12 +83,13 @@ async function seedState(room) {
 
 async function indexState(bills) {
   if (!bills.length) return;
-  const key = `bill-state:${bills[0].room}`;
-  const current = (await store.get(key)) || (await seedState(bills[0].room));
-  const byPeriod = new Map(current.map((s) => [s.period, s]));
-  for (const b of bills) byPeriod.set(b.period, stateOf(b));
-  const next = [...byPeriod.values()].sort((a, b) => (a.period < b.period ? 1 : -1)).slice(0, STATE_MAX);
-  await store.set(key, next);
+  const room = bills[0].room;
+  await store.update(`bill-state:${room}`, async (current) => {
+    const base = current || (await seedState(room));
+    const byPeriod = new Map(base.map((s) => [s.period, s]));
+    for (const b of bills) byPeriod.set(b.period, stateOf(b));
+    return [...byPeriod.values()].sort((a, b) => (a.period < b.period ? 1 : -1)).slice(0, STATE_MAX);
+  });
 }
 
 // The compact state, or the bills themselves for a room written before the key existed. Nothing is

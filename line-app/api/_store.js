@@ -59,6 +59,37 @@ const set = async (key, value) => {
   });
 };
 
+// Read-modify-write that cannot lose a concurrent writer's merge. R2 answers a conditional PUT with
+// 412 when the object changed since the read, so the merge is retried instead of overwriting it.
+// Vercel Blob has no conditional write, so there it is the old blind write, once.
+const update = async (key, apply, attempts = 3) => {
+  for (let i = 0; i < attempts; i += 1) {
+    const version = r2Store ? await r2Store.getVersioned(pathOf(key)) : null;
+    const text = r2Store ? (version ? version.text : null) : await blobText(pathOf(key));
+    const next = await apply(text == null ? null : JSON.parse(text));
+    if (next === undefined) return; // apply() says nothing changed
+    if (!r2Store) { await set(key, next); return; }
+    const done = await r2Store.putVersioned(pathOf(key), JSON.stringify(next),
+      version ? { ifMatch: version.etag } : { ifNoneMatch: true });
+    if (done) { cache.delete(key); return; }
+  }
+  throw new Error(`store.update(${key}): มีคนเขียนทับครบ ${attempts} ครั้ง`);
+};
+
+// Create only if the key is absent; true when this caller created it. A slip's transRef is claimed
+// this way, so two requests cannot both believe they were the first.
+const create = async (key, value) => {
+  if (!r2Store) {
+    if (await blobText(pathOf(key)) != null) return false;
+    await set(key, value);
+    return true;
+  }
+  const done = await r2Store.putVersioned(pathOf(key), JSON.stringify(value), { ifNoneMatch: true });
+  if (!done) return false;
+  cache.delete(key);
+  return true;
+};
+
 // Keys that start with `prefix`, e.g. keysWith("owner:U") -> ["owner:Uabc…", …].
 // The part after the prefix must be plain letters/digits (LINE userIds are), because pathOf() is
 // one-way for other characters.
@@ -87,4 +118,4 @@ const delFile = (path) => (r2Store ? r2Store.delFile(path) : blobStore.del(path)
 const getFile = (path) =>
   r2Store ? r2Store.getFile(path) : blobStore.get(path, { access: "private", useCache: false });
 
-module.exports = { get, set, keysWith, putFile, delFile, getFile };
+module.exports = { get, set, update, create, keysWith, putFile, delFile, getFile };

@@ -15,6 +15,16 @@ const data = new Map();
 const store = {
   get: async (k) => (data.has(k) ? data.get(k) : null),
   set: async (k, v) => data.set(k, v),
+  // The real store does these with a conditional PUT on R2; the fake has no second writer.
+  update: async (k, apply) => {
+    const next = await apply(data.has(k) ? data.get(k) : null);
+    if (next !== undefined) data.set(k, next);
+  },
+  create: async (k, v) => {
+    if (data.has(k)) return false;
+    data.set(k, v);
+    return true;
+  },
 };
 const api = (name) => path.join(__dirname, "api", name);
 require.cache[require.resolve(api("_store"))] = { id: api("_store.js"), filename: api("_store.js"), loaded: true, exports: store };
