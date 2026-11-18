@@ -212,6 +212,10 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 - **Side effect:** ไม่มี
 - **หมายเหตุ:** GET ไม่ตรวจ `req.method` (ยกเว้น POST ที่เข้า path ยกเลิกบิลด้านล่าง)
 
+### `GET /api/bill?pending=1` — บิลที่รอตรวจสลิป (ทุกงวด)
+
+เจ้าของ/ผู้ช่วยเท่านั้น (ผู้เช่า → `403`) · ทุกห้องใน `ROOMS` · มาจากดัชนี `bill-state:<room>` (1 อ่าน/ห้อง) แล้วอ่าน `bill:<period>:<room>` เฉพาะห้องที่มีบิล `pending` · ครอบ **ทุกงวด** ไม่ใช่แค่งวดล่าสุดของห้อง เพราะผู้เช่าจ่ายงวดเก่าได้ (`periods` ของ `/api/slip`) และการ์ดที่ส่งเข้าแชทต้องมีที่กดยืนยันในหน้าเจ้าของด้วย · → `{ count, total, items: [{ room, period, total, due, slipAt, slipCount, slipPath, slipVerify }] }` เรียง `period` เก่าสุดก่อน แล้วเลขห้อง
+
 ### `GET /api/bill?overdue=1` — ยอดค้างชำระ (นับที่เซิร์ฟเวอร์)
 
 บิล `unpaid` ที่มี `due` และ `due` **น้อยกว่า** วันนี้ (เวลา Asia/Bangkok — `_ledger.bangkokToday()`) · `due` = วันนี้ยังไม่ถือว่าค้าง · `pending` / `paid` / `void` / ไม่มี `due` ไม่นับ · อ่านบิลล่าสุด + ย้อนหลังอีก 12 งวดต่อห้อง (เท่ากับที่ cron ทวงใช้) · `daysOverdue` = จำนวนวันปฏิทินจาก `due` ถึงวันนี้ (ข้ามเดือน/ปีถูกต้อง)
@@ -339,15 +343,15 @@ field ที่มีจริงขึ้นกับว่าเขียน�
 - **รูปเดิมที่ถูกแทน** ลบเฉพาะเมื่อไม่มีบิลอื่นของห้อง (ตาม index `bills:<room>` และ `bill:<room>`) ชี้ไปที่รูปนั้นอยู่ — กติกานี้ใช้กับทางสลิปบิลเดียวด้วย เพราะบิลอาจยังแชร์รูปกับงวดอื่นอยู่ · สลิปบิลเดียวของบิลที่เคยอยู่ในกลุ่มจะล้าง `slipGroup`
 - **Side effect:** push การ์ด `confirmBubble` **ใบเดียว** หา `OWNER_USER_ID` แสดงทุกงวดกับยอดรวม ปุ่มยืนยันส่ง `action=confirm&room=<r>&periods=<p1,p2>` (กลุ่มที่มีงวดเดียวใช้การ์ดปกติ `period=`) — ดูการยืนยันที่ §13
 
-## 7. `GET /api/slip-image?room=203[&advance=1][&archived=1]`
+## 7. `GET /api/slip-image?room=203[&period=YYYY-MM][&advance=1][&archived=1]`
 
 `api/slip-image.js` — stream รูปสลิปจาก private Blob
 
 - **Auth:** Bearer idToken + สิทธิ์รายห้อง · `archived=1` เป็นของเจ้าของ/ผู้ช่วยเท่านั้น
-- **Query:** `room` (string) — **ไม่มี fallback ไปห้องที่ผูกไว้** ถ้าไม่ส่งจะได้ `room = ""` · `advance=1` → stream `prepay:<room>.slipPath` (สลิปโอนก่อนบิลออก) ด้วยสิทธิ์แบบเดียวกัน · `archived=1` → สลิปโอนล่วงหน้าของผู้เช่าคนก่อน (`prepay-old:<room>`) ให้เจ้าของเปิดดูหลังเปลี่ยนผู้เช่า · ไม่ส่ง = สลิปของ `bill:<room>` เหมือนเดิม — ผู้เช่าจะไม่ได้สลิปของบิลที่ถูกซ่อนตามสัญญาเช่า (§5) → `404 ยังไม่มีสลิป` (`advance=1` ไม่ต้องกรอง เพราะ `prepay` ของคนเดิมถูกเก็บออกตอนเปลี่ยนผู้เช่า)
+- **Query:** `room` (string) — **ไม่มี fallback ไปห้องที่ผูกไว้** ถ้าไม่ส่งจะได้ `room = ""` · `period=YYYY-MM` → สลิปของ **งวดนั้น** (`bill:<period>:<room>`) ไม่ใช่งวดล่าสุดของห้อง — หน้าเจ้าของมีสลิปรอตรวจได้หลายงวดของห้องเดียว · `advance=1` → stream `prepay:<room>.slipPath` (สลิปโอนก่อนบิลออก) ด้วยสิทธิ์แบบเดียวกัน · `archived=1` → สลิปโอนล่วงหน้าของผู้เช่าคนก่อน (`prepay-old:<room>`) ให้เจ้าของเปิดดูหลังเปลี่ยนผู้เช่า · ไม่ส่ง = สลิปของ `bill:<room>` เหมือนเดิม — ผู้เช่าจะไม่ได้สลิปของบิลที่ถูกซ่อนตามสัญญาเช่า (§5) → `404 ยังไม่มีสลิป` (`advance=1` ไม่ต้องกรอง เพราะ `prepay` ของคนเดิมถูกเก็บออกตอนเปลี่ยนผู้เช่า; `period` ที่ไม่มีบิลนั้น → `404` ไม่ fallback ไปงวดล่าสุด)
 - **200:** byte ของรูป, `Content-Type` จาก `blob.blob.contentType` (fallback `image/jpeg`), `Cache-Control: private, no-store`
 - **Error:** `403 FORBIDDEN` (ไม่ได้ผูกห้องนั้น — กรณีไม่ส่ง `room` ผู้เช่าจะได้ 403 นี้), `404 NOT_FOUND` (บิล — หรือ `prepay` เมื่อส่ง `advance` — ยังไม่มี `slipPath`, หรือ blob หาย), `401`/`403` จาก `requireUser`
-- **อ่าน Blob:** `user-room:<userId>`, `bill:<room>` (หรือ `prepay:<room>`), `get(bill.slipPath, {access:"private", useCache:false})`
+- **อ่าน Blob:** `user-room:<userId>`, `bill:<room>` (หรือ `bill:<period>:<room>` เมื่อส่ง `period`, `prepay:<room>`), `get(bill.slipPath, {access:"private", useCache:false})`
 - **Side effect:** ไม่มี
 
 ## 8. `GET /api/rooms` · `POST /api/rooms`

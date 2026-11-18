@@ -1742,6 +1742,29 @@ const { saveBill } = require("./api/_bills");
   assert.strictEqual(overpaidOf(groupBill("2026-09"), [groupBill("2026-09")]), 500, "the extra moves to the newest period still closing");
   assert.strictEqual(overpaidOf(groupBill("2026-09"), [groupBill("2026-09"), groupBill("2026-10")]), 0, "and stays on the newest when both close");
 
+  // The review screen offers every pending bill, not only each room's newest one: a tenant can pay an
+  // older round (`periods`), and that slip has to be confirmable from the screen too.
+  const olderPending = { room: "210", period: "2027-03", total: 1200, rent: 1200, water: 0, elec: 0, due: "2027-03-05", status: "pending", rev: 1, issuedAt: "2027-03-01T00:00:00.000Z", slipPath: "slips/210-old.jpg", slipAt: "2027-03-02T00:00:00.000Z", slipCount: 1, slipVerify: { ok: true, provider: "slipok", transRef: "T210" } };
+  const newerUnpaid = { ...olderPending, period: "2027-04", due: "2027-04-05", status: "unpaid", slipPath: null, slipAt: null, slipCount: 0, slipVerify: null };
+  data.set("bill:210", { ...newerUnpaid });
+  data.set("bill:2027-04:210", { ...newerUnpaid });
+  data.set("bill:2027-03:210", { ...olderPending });
+  data.set("bill-state:210", [
+    { period: "2027-03", room: "210", status: "pending", total: 1200, due: "2027-03-05", rev: 1, issuedAt: olderPending.issuedAt },
+    { period: "2027-04", room: "210", status: "unpaid", total: 1200, due: "2027-04-05", rev: 1, issuedAt: newerUnpaid.issuedAt },
+  ]);
+  r = await call(bill, { method: "GET", query: { pending: "1" }, user: "Uowner" });
+  const olderRow = r.body.items.find((i) => i.room === "210" && i.period === "2027-03");
+  assert.deepStrictEqual([r.status, olderRow?.slipVerify?.ok], [200, true], "an older period's pending slip is listed for review");
+  assert.strictEqual(r.body.count, r.body.items.length, "the count matches the list");
+  assert.strictEqual((await call(bill, { method: "GET", query: { pending: "1" }, user: "UtenantA" })).status, 403, "the review list is staff-only");
+  assert.strictEqual(
+    (await call(slipImage, { method: "GET", query: { room: "210", period: "1999-01" }, user: "Uowner" })).status,
+    404,
+    "a period with no bill does not fall back to the room's newest bill"
+  );
+  for (const k of ["bill:210", "bill:2027-03:210", "bill:2027-04:210", "bill-state:210"]) data.delete(k);
+
   console.log("handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings, PromptPay QR, slip rejection, meter photo, audit fixes");
 })().catch((err) => {
   console.error(err);

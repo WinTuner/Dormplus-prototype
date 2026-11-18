@@ -340,12 +340,14 @@ function snapResult(dial, prev) {
 // rejected slip is replaced by a new one under the same room — a room-only key would keep showing the
 // old photo and the owner could confirm a slip they never saw.
 const slipUrls = {};
-async function slipUrl(room, advance, path) {
+let previewUrl = null; // the tenant's chosen photo, one at a time (see $("file").onchange)
+async function slipUrl(room, advance, path, period) {
   // An advance slip can be replaced by the tenant, so it is never cached; a slip with no path is a
-  // one-off view (the full-screen sheet) and is fetched fresh every time.
-  const key = `${room}:${path || ""}`;
+  // one-off view (the full-screen sheet) and is fetched fresh every time. `period` names one round of
+  // an older bill, because a room can have a pending slip in a period that is no longer the newest.
+  const key = `${room}:${period || ""}:${path || ""}`;
   if (!advance && path && slipUrls[key]) return slipUrls[key];
-  const res = await fetch(`/api/slip-image?room=${encodeURIComponent(room)}${advance ? "&advance=1" : ""}`, {
+  const res = await fetch(`/api/slip-image?room=${encodeURIComponent(room)}${advance ? "&advance=1" : ""}${period ? `&period=${encodeURIComponent(period)}` : ""}`, {
     headers: { Authorization: `Bearer ${idToken}` },
   });
   if (!res.ok) throw new Error("โหลดสลิปไม่สำเร็จ");
@@ -627,8 +629,11 @@ function tenantSlip() {
   $("file").onchange = () => {
     const file = $("file").files[0];
     if (!file) return;
-    const url = URL.createObjectURL(file);
-    $("pick").innerHTML = `<img src="${url}" alt="สลิป">`;
+    // One preview at a time: the previous blob URL stays alive until the page reloads otherwise, and
+    // a photo is several MB.
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    previewUrl = URL.createObjectURL(file);
+    $("pick").innerHTML = `<img src="${previewUrl}" alt="สลิป">`;
     hasFile = true;
     refresh();
   };
@@ -747,6 +752,17 @@ async function loadOverdue() {
   }
 }
 
+// Every pending bill, from every period — not just each room's newest one. A tenant can pay an older
+// round, and that slip deserves a card here too (the chat card is the only other way to confirm it).
+async function loadPending() {
+  try {
+    O.pendingData = await api("/api/bill?pending=1");
+    O.pendingFailed = false;
+  } catch (e) {
+    O.pendingFailed = true;
+  }
+}
+
 // ค้างกี่งวด · รวมเท่าไร · เลยกี่วัน for one room of the server's overdue answer.
 const overdueRoomLine = (r) => `ค้าง ${r.count} งวด · รวม ${fmt(r.total)} บาท · เลย ${r.maxDaysOverdue} วัน`;
 
@@ -776,6 +792,7 @@ async function loadOwner() {
   try {
     const data = await api("/api/rooms");
     O.overdueData = null; // the bills may have changed; the overdue screens fetch it again
+  O.pendingData = null;
     O.rooms = data.rooms;
     O.dormName = data.dorm || null;
     O.cfg = Object.fromEntries(data.rooms.map((r) => [r.room, r.config]));
@@ -1502,8 +1519,11 @@ function ownerBill() {
     const d = $("due").value.trim();
     if (!/^\d{4}-\d{2}$/.test(p)) return toast("รอบบิลต้องเป็นรูปแบบ 2026-12", true);
     if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) return toast("วันครบกำหนดต้องเป็นรูปแบบ 2026-12-16", true);
+    // The due day travels with the new period: keeping the old string would issue December's bill with
+    // November's date (already past, so it starts overdue).
+    const day = Number((d || O.due).slice(8, 10)) || O.dueDay || DUE_DAY;
     if (p !== O.period) { O.period = p; O.draft = loadDraft(); O.skipped.clear(); }
-    O.due = d;
+    O.due = `${p}-${String(day).padStart(2, "0")}`;
     ownerBill();
   };
 
@@ -1553,7 +1573,6 @@ function ownerReview(tab, loaded) {
   O.reviewTab = tab === "overdue" ? "overdue" : "pending";
   header("DormPlus · เจ้าของหอ", "ค้าง / รอตรวจ", "home");
   bottom("");
-  const pending = O.rooms.filter((r) => r.bill?.status === "pending");
   // The list itself (periods, totals, days late) is the server's: it counts every unpaid period of
   // a room, not only the latest bill, and uses the dorm's date. Until it arrives, the latest-bill
   // count from /api/rooms stands in for the tab badge.
@@ -1565,20 +1584,29 @@ function ownerReview(tab, loaded) {
     });
   }
   const unpaidLater = O.rooms.filter((r) => r.bill?.status === "unpaid" && !isOverdue(r.bill));
+  // The badge stands in for the fetched list until it arrives (the room's newest bill only), then the
+  // server's count takes over because it covers every period.
+  const pd = O.pendingData;
+  const pendingCount = pd ? pd.count : O.rooms.filter((r) => r.bill?.status === "pending").length;
+  if (O.reviewTab === "pending" && !loaded && !pd) {
+    loadPending().then(() => {
+      if (route().startsWith("review") && O.reviewTab === "pending") ownerReview("pending", true);
+    });
+  }
 
-  const pendingCard = (r) => `
+  const pendingCard = (it) => `
     <div class="card">
       <div class="slip">
-        <div class="thumb" data-slip="${esc(r.room)}">${r.bill.slipPath ? "…" : "ไม่มีรูป"}</div>
+        <div class="thumb" data-slip="${esc(it.room)}" data-slip-period="${esc(it.period)}">${it.slipPath ? "…" : "ไม่มีรูป"}</div>
         <div style="flex:1">
-          <b>ห้อง ${esc(r.room)}</b>
-          <div class="m">ยอดบิล ${fmt(r.bill.total)} บาท${r.bill.slipAt ? " · แจ้ง " + timeTh(r.bill.slipAt) : ""}</div>
-          <div class="m">รอบบิล ${periodTh(r.bill.period)}</div>
-          ${verifyLine(r.bill.slipVerify)}
+          <b>ห้อง ${esc(it.room)}</b>
+          <div class="m">ยอดบิล ${fmt(it.total)} บาท${it.slipAt ? " · แจ้ง " + timeTh(it.slipAt) : ""}</div>
+          <div class="m">รอบบิล ${periodTh(it.period)}</div>
+          ${verifyLine(it.slipVerify)}
         </div>
       </div>
-      ${r.bill.slipPath ? `<button class="btn" style="margin-top:12px" data-open="${esc(r.room)}">ดูสลิป</button>` : ""}
-      ${MYROLE !== "viewer" ? `<button class="btn" style="margin-top:8px" data-reject="${esc(r.room)}">สลิปไม่ถูกต้อง (ตีกลับ)</button>` : ""}
+      ${it.slipPath ? `<button class="btn" style="margin-top:12px" data-open="${esc(it.room)}" data-period="${esc(it.period)}">ดูสลิป</button>` : ""}
+      ${MYROLE !== "viewer" ? `<button class="btn" style="margin-top:8px" data-reject="${esc(it.room)}" data-period="${esc(it.period)}">สลิปไม่ถูกต้อง (ตีกลับ)</button>` : ""}
     </div>`;
 
   const overdueCard = (r) => `
@@ -1588,9 +1616,11 @@ function ownerReview(tab, loaded) {
     </div>`;
 
   const body = O.reviewTab === "pending"
-    ? (pending.length
-        ? `${pending.map(pendingCard).join("")}<div class="hint">กด “ยืนยันการชำระ” ได้ที่การ์ดที่ส่งเข้าแชท LINE ของเจ้าของหอ</div>`
-        : `<div class="card empty m">ไม่มีสลิปที่รอตรวจ</div>`)
+    ? (!pd
+        ? `<div class="card empty m">${O.pendingFailed ? "โหลดรายการรอตรวจไม่สำเร็จ — ลองเปิดหน้านี้ใหม่" : "กำลังโหลด…"}</div>`
+        : pd.items.length
+          ? `${pd.items.map(pendingCard).join("")}<div class="hint">กด “ยืนยันการชำระ” ได้ที่การ์ดที่ส่งเข้าแชท LINE ของเจ้าของหอ</div>`
+          : `<div class="card empty m">ไม่มีสลิปที่รอตรวจ</div>`)
     : (!od
         ? `<div class="card empty m">${O.overdueFailed ? "โหลดรายการค้างชำระไม่สำเร็จ — ลองเปิดหน้านี้ใหม่" : "กำลังโหลด…"}</div>`
         : od.rooms.length
@@ -1600,22 +1630,24 @@ function ownerReview(tab, loaded) {
 
   view.innerHTML = `
     <div class="seg">
-      <button class="${O.reviewTab === "pending" ? "on" : ""}" data-tab="pending">รอตรวจสลิป ${pending.length}</button>
+      <button class="${O.reviewTab === "pending" ? "on" : ""}" data-tab="pending">รอตรวจสลิป ${pendingCount}</button>
       <button class="${O.reviewTab === "overdue" ? "on" : ""}" data-tab="overdue">ค้างชำระ ${overdueCount}</button>
     </div>
     ${body}`;
 
   view.querySelectorAll("[data-tab]").forEach((el) => (el.onclick = () => history.replaceState(null, "", "#review/" + el.dataset.tab) || ownerReview(el.dataset.tab)));
-  view.querySelectorAll("[data-open]").forEach((el) => (el.onclick = () => showSlip(el.dataset.open)));
+  const pendingItem = (room, period) => (pd?.items || []).find((i) => i.room === room && i.period === period);
+  view.querySelectorAll("[data-open]").forEach((el) => (el.onclick = () => showSlip(el.dataset.open, false, el.dataset.period || null)));
   view.querySelectorAll("[data-reject]").forEach((el) => {
-    const room = el.dataset.reject;
-    el.onclick = () => rejectSlip(room, O.rooms.find((r) => r.room === room)?.bill);
+    const { reject: room, period } = el.dataset;
+    el.onclick = () => rejectSlip(room, pendingItem(room, period) || { period });
   });
   view.querySelectorAll(".thumb[data-slip]").forEach(async (el) => {
-    const room = el.dataset.slip;
-    if (!O.rooms.find((r) => r.room === room)?.bill?.slipPath) return;
-    el.onclick = () => showSlip(room);
-    try { el.innerHTML = `<img src="${await slipUrl(room, false, O.rooms.find((r) => r.room === room)?.bill?.slipPath)}" alt="สลิป">`; } catch { el.textContent = "โหลดไม่ได้"; }
+    const { slip: room, slipPeriod: period } = el.dataset;
+    const it = pendingItem(room, period);
+    if (!it?.slipPath) return;
+    el.onclick = () => showSlip(room, false, period);
+    try { el.innerHTML = `<img src="${await slipUrl(room, false, it.slipPath, period)}" alt="สลิป">`; } catch { el.textContent = "โหลดไม่ได้"; }
   });
 }
 
@@ -1724,17 +1756,17 @@ async function editRoom(room, current) {
   }
 }
 
-async function showSlip(room, advance) {
+async function showSlip(room, advance, period) {
   const sheet = document.createElement("div");
   sheet.className = "sheet";
-  sheet.innerHTML = `<div class="card"><div class="row"><b>สลิป${advance ? "โอนล่วงหน้า" : ""}ห้อง ${esc(room)}</b><button class="btn sm" id="closeSlip">ปิด</button></div>
+  sheet.innerHTML = `<div class="card"><div class="row"><b>สลิป${advance ? "โอนล่วงหน้า" : ""}ห้อง ${esc(room)}${period ? " · " + periodTh(period) : ""}</b><button class="btn sm" id="closeSlip">ปิด</button></div>
     <div class="m" id="slipBody" style="margin-top:12px">กำลังโหลด…</div></div>`;
   document.body.appendChild(sheet);
   const close = () => sheet.remove();
   sheet.onclick = (e) => { if (e.target === sheet) close(); };
   $("closeSlip").onclick = close;
   try {
-    $("slipBody").outerHTML = `<img src="${await slipUrl(room, advance)}" alt="สลิปห้อง ${esc(room)}">`;
+    $("slipBody").outerHTML = `<img src="${await slipUrl(room, advance, null, period)}" alt="สลิปห้อง ${esc(room)}">`;
   } catch (e) {
     $("slipBody").className = "err";
     $("slipBody").textContent = e.message;
