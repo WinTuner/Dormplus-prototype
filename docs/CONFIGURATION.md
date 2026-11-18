@@ -278,9 +278,11 @@ webhook ฝั่งนี้บันทึกทุก event ลงตาร�
 | `/api/bill`, `/api/me`, `/api/owner`, `/api/rooms`, `/api/qr`, `/api/dev` | `no-store` | ข้อมูลรายผู้ใช้/สถานะบิลเปลี่ยนได้ทุกเมื่อ |
 | `/api/slip-image` | `private, no-store` | รูปสลิปเป็นข้อมูลส่วนตัว ต้องไม่ถูก cache ที่ CDN |
 | `/api/cron` | ไม่ตั้ง header | เรียกโดย Vercel Cron พร้อม secret และตอบ JSON สั้น ๆ |
+| `/liff/*` และ `/` (หน้า LIFF) | `public, max-age=0, s-maxage=300, stale-while-revalidate=86400` | หน้าเป็น shell 110 KB ที่อ่านข้อมูลผ่าน `/api` ทั้งหมด → ให้ edge เก็บ 5 นาที เปิดจากแชทซ้ำจึงไม่ต้องโหลดใหม่ (deploy purge edge เอง) |
 
 - `/api/config` เป็น public จริง: **ห้ามใส่ข้อมูลรายผู้ใช้หรือ secret ลงไป** ไม่งั้นจะติด CDN ไปหาทุกคนภายใน 5 นาที
 - อย่าเปลี่ยน `/api/config` เป็น `no-store` — หน้า LIFF จะช้าลงโดยไม่จำเป็น (เป็น request แรกก่อน `liff.init()`)
+- Header ของหน้า LIFF อยู่ใน `line-app/vercel.json` (`headers`) ไม่ใช่ในโค้ดหน้า — หน้าไม่มีข้อมูลผู้ใช้อยู่ในตัว จึง cache ได้ปลอดภัย
 
 ---
 
