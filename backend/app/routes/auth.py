@@ -53,7 +53,7 @@ TENANT_BY_LINE_SQL = text("""
     from tenants t
     join rooms r on r.id = t.room_id
     where t.line_user_id = :line_user_id
-      and (t.moved_out is null or t.moved_out > current_date)
+      and (t.moved_out is null or t.moved_out > (now() at time zone 'Asia/Bangkok')::date)
     order by t.moved_in desc nulls last
     limit 1
 """)
@@ -192,6 +192,19 @@ def bind(conn: Connection, invite, room_id: str, line_user_id: str, line_name: s
 
     current = "(moved_out is null or moved_out > :today)"
 
+    # Two invites for the same account opened at once both pass the `elsewhere` check below; the lock
+    # makes the second one run after the first has written, so it sees the new room.
+    conn.execute(text("select pg_advisory_xact_lock(hashtext(:uid))"), {"uid": line_user_id})
+
+    # The same person coming back to the same room would collide with the unique
+    # (room_id, line_user_id) index. The moved-out row gives up the key; it stays as history.
+    conn.execute(
+        text("""update tenants set line_user_id = null
+                 where room_id = :room and line_user_id = :uid
+                   and not (moved_out is null or moved_out > :today)"""),
+        {"room": room_id, "uid": line_user_id, "today": day},
+    )
+
     # One LINE account lives in one room: otherwise /v1/auth/line would have to guess which dorm
     # to sign the caller into (it orders by moved_in and picks one).
     elsewhere = conn.execute(
@@ -245,7 +258,10 @@ def login_owner(
     settings = get_settings()
     if not settings.owner_access_code:
         raise ApiError(503, "OWNER_LOGIN_OFF", "ยังไม่ได้ตั้ง OWNER_ACCESS_CODE บนเซิร์ฟเวอร์")
-    actor = request.client.host if request.client else "unknown"
+    # Behind Vercel/Cloud Run the peer address is the platform proxy: one shared key would let ten
+    # wrong codes lock every owner out, and a missing peer would make them all "unknown".
+    forwarded = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+    actor = forwarded or (request.client.host if request.client else "unknown")
     attempts.ensure_not_blocked(engine, "owner-login", actor)
     if not hmac.compare_digest(body.code, settings.owner_access_code):
         attempts.record_failure(engine, "owner-login", actor)

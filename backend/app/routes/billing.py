@@ -285,7 +285,10 @@ def _bill_and_enqueue(engine: Engine, session: Session, period: str,
                     "amounts": [ln[2] * ln[3] for ln in lines],
                 })
 
-        if not created and any(room.billed for room in rooms):
+        # Only a period with nothing left to bill is a conflict: a room that merely lacks a reading
+        # keeps the run answerable (202 with skipped_no_reading), so the owner can retry after
+        # entering it.
+        if not created and all(room.billed for room in rooms):
             raise ApiError(409, "CONFLICT", f"ออกบิลรอบ {period} ไปแล้ว ไม่มีห้องใหม่ให้ออกบิล")
 
         if created:

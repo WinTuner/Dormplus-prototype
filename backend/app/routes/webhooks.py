@@ -101,7 +101,10 @@ async def line_webhook(
         raise ApiError(400, "VALIDATION", "body ไม่ใช่ JSON ของ LINE")
 
     with engine.begin() as conn:
-        fresh = conn.execute(EVENT_SQL, [{"event_id": i, "pid": property_id} for i in ids]).all() if ids else []
+        # One statement per id: two ids in one `execute` go through psycopg's executemany, which drops
+        # RETURNING, and `.all()` then raises instead of answering (LINE batches events).
+        fresh = [event_id for event_id in ids
+                 if conn.execute(EVENT_SQL, {"event_id": event_id, "pid": property_id}).first()]
         # A retry of an event we already recorded changes nothing, and is still a 200 so LINE stops.
         if not ids or fresh:
             conn.execute(AUDIT_SQL, {"pid": property_id,

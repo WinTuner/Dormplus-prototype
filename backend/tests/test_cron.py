@@ -63,6 +63,17 @@ def test_the_cron_secret_in_the_header_queues_and_drains(monkeypatch):
         get_settings.cache_clear()
 
 
+def test_the_drain_app_knows_the_tasks(monkeypatch):
+    """The worker looks a task up in its own App's dict. Tasks register on the sync app, so a drain
+    app without the copy finds nothing, fails every job with TaskNotFound, and still answers 200."""
+    from app.queue import get_app, get_async_app
+
+    import app.tasks  # noqa: F401 - the decorator registers on the app get_app() returns
+
+    assert "line.push_text" in get_app().tasks, "the task decorator registers on the sync app"
+    assert "line.push_text" in get_async_app().tasks, "and the drain app has to know it too"
+
+
 def test_an_unset_secret_never_authorises(monkeypatch):
     """A deployment that forgot CRON_SECRET must fail closed, not run with an empty token."""
     try:

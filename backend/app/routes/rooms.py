@@ -51,9 +51,10 @@ class RoomsOut(BaseModel):
 
 class ReadingIn(BaseModel):
     period: str = Field(pattern=PERIOD_PATTERN, examples=["2026-11"])
-    water_now: int = Field(ge=0)
-    elec_now: int = Field(ge=0)
-    photo_url: str | None = None
+    # int4 columns: a larger number would reach Postgres as a NumericValueOutOfRange 500.
+    water_now: int = Field(ge=0, le=2_147_483_647)
+    elec_now: int = Field(ge=0, le=2_147_483_647)
+    photo_url: str | None = Field(default=None, max_length=500)
 
 
 class ReadingResult(BaseModel):
@@ -73,7 +74,8 @@ ROOMS_SQL = text("""
     from rooms r
     left join lateral (
         select room_id, name, line_user_id from tenants
-        where room_id = r.id and moved_out is null
+        where room_id = r.id
+          and (moved_out is null or moved_out > (now() at time zone 'Asia/Bangkok')::date)
         order by moved_in desc nulls last, id
         limit 1
     ) t on true

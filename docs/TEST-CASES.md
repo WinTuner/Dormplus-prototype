@@ -124,13 +124,14 @@ UC-07 และ UC-08 เพิ่มเข้ามาหลังแผนภ�
 | TC-03-13 | การ์ดบิลไม่ขึ้นคำว่า `null` เมื่อไม่มีวันครบกำหนด | ออกบิลโดยไม่ส่ง due | ดูการ์ดที่ผู้เช่าได้ · ออกซ้ำพร้อม due | การ์ดไม่มีบรรทัด "ครบกำหนด" และไม่มีคำว่า null · เมื่อมี due แสดง "ครบกำหนด 2026-11-16" (แก้แล้ว — ตัวเตือนรายวันก็ข้ามบิลที่ไม่มี due) | ✅ `line-app/smoke-usecases.js › TC-03-13` |
 | TC-03-14 | บิลมี QR ชำระเงิน (PromptPay) ตามยอด | เจ้าของใส่พร้อมเพย์ในหน้าตั้งค่าหอ | ผู้เช่าเปิดบิลที่ยังไม่จ่าย | `pay.payload` เป็น EMVCo ที่ถูกต้อง (tag 00/01/29/53/54/58 + CRC ตรง) · `pay.qr` เป็น SVG · ยอด = ยอดบิล · บิลที่จ่ายแล้ว/ยกเลิกไม่มี QR · **การสแกนจริงด้วยแอปธนาคารยังต้องทดสอบมือ** | ✅ `line-app/smoke-handlers.js` (PromptPay QR) |
 | TC-03-15 | เจ้าของเห็นผลออกบิลจริงบนหน้าจอ LIFF และผู้เช่าได้รับการ์ดใน LINE จริง | LINE OA + LIFF จริง | กรอกหน่วยทุกห้อง กดออกบิล | แสดงผลต่อห้อง · การ์ดถึงผู้เช่า · ปุ่มเปิดหน้าบิลถูกห้อง | 🖐 ทดสอบมือกับ LINE จริง |
-| TC-03-16 | backend: ออกบิลห้องที่มีมิเตอร์เดือนนี้ · 42 ห้องในคำขอเดียว · ออกซ้ำ 409 · ล้มกลางทางย้อนทั้งชุด | seed + มิเตอร์ | `POST /v1/billing/run` | 202 และยอดตรงสัญญา | ✅ `backend/tests/test_billing.py::test_bills_the_rooms_that_have_this_months_reading`<br>`backend/tests/test_billing.py::test_all_42_rooms_in_one_request`<br>`backend/tests/test_billing.py::test_running_again_is_409_and_creates_nothing`<br>`backend/tests/test_billing.py::test_a_failure_halfway_rolls_back_the_whole_run` |
+| TC-03-16 | backend: ออกบิลห้องที่มีมิเตอร์เดือนนี้ · 42 ห้องในคำขอเดียว · ออกซ้ำ (202 จนครบทุกห้อง, 409 เมื่อครบแล้ว) · ล้มกลางทางย้อนทั้งชุด | seed + มิเตอร์ | `POST /v1/billing/run` | 202 และยอดตรงสัญญา | ✅ `backend/tests/test_billing.py::test_bills_the_rooms_that_have_this_months_reading`<br>`backend/tests/test_billing.py::test_all_42_rooms_in_one_request`<br>`backend/tests/test_billing.py::test_running_again_with_rooms_still_unread_is_202`<br>`backend/tests/test_billing.py::test_a_failure_halfway_rolls_back_the_whole_run` |
 | TC-03-17 | backend: ผู้เช่าออกบิลไม่ได้ · period ผิดถูกปฏิเสธ · ผู้เช่าที่ไม่มีมิเตอร์เดือนก่อนไม่ถูกออกบิล | — | เรียก `/v1/billing/run` | 403 / 422 / ข้ามห้อง | ✅ `backend/tests/test_billing.py::test_tenants_cannot_run_billing`<br>`backend/tests/test_billing.py::test_bad_period_is_rejected`<br>`backend/tests/test_billing.py::test_a_room_without_an_earlier_reading_is_not_billed` |
 | TC-03-20 | backend: ออกบิลแล้วส่งข้อความบิลเข้า LINE และ drain ในคำขอเดียว | ห้อง 3 ห้องผูก LINE | `POST /v1/billing/run` | `queued = 3`, `drained = true`, `job_id` = งานแรก · งาน `kind="invoice"` ต่อใบ · บิลทุกห้องที่พร้อมยังถูกสร้าง | ✅ `backend/tests/test_billing.py::test_run_notifies_the_rooms_that_have_a_tenant`<br>`backend/tests/test_notify.py` |
 | TC-03-21 | backend: คิวไม่พร้อม (ยังไม่ apply schema) ต้องไม่ออกบิลล้ม · drain ล้มก็ยังคืน `queued` จริง | มีผู้เช่าผูก LINE | `POST /v1/billing/run` โดยคิวโยน exception | 202 · `queued: 0, drained: false` · บิลครบ 12 ใบใน DB · ถ้า enqueue สำเร็จแต่ drain ล้ม → `queued` ยังเป็นจำนวนจริง, `drained: false` | ✅ `backend/tests/test_billing.py::test_queue_down_still_returns_the_bills`<br>`backend/tests/test_billing.py::test_a_failed_drain_keeps_the_queued_count` |
 | TC-03-18 | backend: ออกบิลหลายรายการเขียน `invoice_items` เป็น batch เดียว | — | ออกบิล 1 ห้อง 3 รายการ | `insert into invoice_items` ครั้งเดียว (executemany) ไม่ใช่ 3 ครั้ง | ✅ `backend/tests/test_billing.py::test_create_invoice_batches_line_item_execute` |
 | TC-03-22 | backend: 42 ห้องได้ข้อความครบและ `message_log` ครบ 42 แถว | ผูก LINE ทุกห้อง + จดมิเตอร์ พ.ย. ครบ | `POST /v1/billing/run` แล้วรันงานที่เข้าคิว | `queued = 42, drained = true` · เมื่อ worker รัน (LINE ตอบ 200) `message_log` มี 42 แถว `kind='invoice'`, `line_status='ok'` | ✅ `backend/tests/test_billing.py::test_all_42_bills_reach_the_tenant_and_the_message_log` |
 | TC-03-23 | backend: ห้องที่มีรูมเมทได้ข้อความครั้งเดียวถึงคนล่าสุด | ห้อง 201 มีผู้เช่า 2 คนผูก LINE ต่างกัน | ออกบิล | `room 201` ปรากฏครั้งเดียวในงานที่เข้าคิว และเป็น `line_user_id` ของคนที่ `moved_in` ใหม่สุด | ✅ `backend/tests/test_billing.py::test_two_tenants_in_one_room_get_one_message` |
+| TC-03-24 | backend: ออกบิลซ้ำเมื่อยังมีห้องที่ไม่มีมิเตอร์ — ยังตอบ 202 ไม่ใช่ 409 | ออกบิลแล้ว 12 ห้อง เหลือ 30 ห้องยังไม่มีมิเตอร์ | เรียก `/v1/billing/run` ซ้ำ | **202** `rooms_to_bill:0, skipped_no_reading:30` (409 เฉพาะเมื่อ **ทุก** ห้องออกบิลแล้ว) — รอบที่ออกครบทั้ง 42 ห้องแล้วจึงได้ 409 | ✅ `backend/tests/test_billing.py::test_running_again_with_rooms_still_unread_is_202`<br>`backend/tests/test_billing.py::test_running_again_after_every_room_is_billed_is_409` |
 
 ## UC-04 ยืนยันการชำระ (include ออกใบเสร็จ)
 
@@ -308,6 +309,7 @@ UC-07 และ UC-08 เพิ่มเข้ามาหลังแผนภ�
 | TC-09-17 | backend: idToken ของ LINE — ถูก channel / ผิด channel / session หมดอายุ / ถูกแก้ | — | `POST /v1/auth/line` | รับ/ปฏิเสธตามสัญญา | ✅ `backend/tests/test_session_and_line.py::test_verify_id_token_accepts_matching_channel`<br>`backend/tests/test_session_and_line.py::test_verify_id_token_rejects_other_channel`<br>`backend/tests/test_session_and_line.py::test_tampered_token_is_rejected`<br>`backend/tests/test_session_and_line.py::test_expired_token_is_rejected` |
 | TC-09-18 | 1 ห้องมีผู้เช่ามากกว่า 1 คน (รูมเมท) | ผู้เช่าหลักผูกห้องอยู่แล้ว | เจ้าของกด "เพิ่มผู้เช่า (สมาชิก)" → คนที่สองสแกน · สแกนซ้ำ · บัญชีที่สามลองสแกน QR ประตู · เปลี่ยนผู้เช่า | สมาชิกถูกเพิ่มโดยไม่เปลี่ยนคนหลัก · `room-users` มี 2 บัญชี · สแกนซ้ำได้ `already:true` · QR ประตูยัง `409 ROOM_TAKEN` · เปลี่ยนผู้เช่าแล้วสมาชิกและรหัสเชิญถูกล้าง · การ์ด/ทวง/ใบเสร็จยังส่งหาคนหลัก | ✅ `line-app/smoke-handlers.js` (room members) |
 | TC-09-19 | ผู้เช่ายังไม่ได้เพิ่ม OA เป็นเพื่อน — ผูกห้องแล้วไม่ได้รับการ์ดบิล | บัญชีที่ยังไม่ follow OA | สแกน QR หน้าห้อง → ผูกสำเร็จ | ผูกเสร็จขึ้นหน้า **"ผูกห้องแล้ว"** + การ์ด "ยังไม่ได้เพิ่ม DormPlus เป็นเพื่อน" + ปุ่ม **"เพิ่มเพื่อน DormPlus"** (`liff.requestFriendship()`) + ปุ่ม "ไปหน้าบิลของฉัน" · เพิ่มเพื่อนแล้วการ์ดหายเอง (อ่าน `friendFlag` ใหม่แล้วเรนเดอร์) · หน้าใบแจ้งหนี้ก็ยังมีการ์ดนี้ถ้ายังไม่เพิ่ม · ถ้า `getFriendship()` ตอบไม่ได้ (ไม่ใช่ LIFF browser / OA ไม่ได้ผูกกับ Login channel) → **ไม่ขึ้นการ์ด** และไปหน้าบิลเลย (ไม่เดา) | 🖐 ทดสอบมือกับ LINE จริง (ต้องเป็น Full-size LIFF) |
+| TC-09-20 | backend: ผู้เช่าที่เคยย้ายออกแล้วกลับมาห้องเดิม ถูกเชิญอีกครั้งไม่พัง 500 | t_203 ย้ายออกแล้ว (`moved_out` ในอดีต) และยังถือ `line_user_id` | เจ้าของออก QR/รหัสใหม่ให้บัญชีเดิมของห้องเดิม | **200** — แถวที่ย้ายออกคืน unique key (`line_user_id = null`, เก็บประวัติไว้) แล้วผูกใหม่ได้ · มีแถวที่ถือ key เดียว ไม่ซ้ำ ไม่ 500 (`IntegrityError` จาก unique `(room_id, line_user_id)`) | ✅ `backend/tests/test_line_link.py::test_the_same_person_can_come_back_to_the_same_room` |
 
 ## UC-10 ดูบิล
 
@@ -600,6 +602,7 @@ endpoint พร้อมและตรวจ signature จริง แต่ *
 | TC-19-7 | secret รายหอ (`properties.line_secret_enc`) ชนะ env | เก็บ secret ที่เข้ารหัสไว้ + ตั้ง `SECRET_ENC_KEY` + ตั้ง env เป็นค่าอื่น | POST ด้วย signature ของ secret ที่เก็บไว้ / ของ env | ตัวแรก 200 · ตัวที่สอง 401 (env เป็นแค่ fallback) | ✅ `backend/tests/test_webhook.py::test_a_stored_secret_wins_over_the_env` |
 | TC-19-8 | ถอด secret รายหอไม่ได้ → 503 ไม่ใช่ 401 | เก็บ secret ด้วยกุญแจ A แล้วสลับ `SECRET_ENC_KEY` เป็นกุญแจ B | POST ด้วย signature ที่ถูกของ secret เดิม | 503 `LINE_SECRET_UNREADABLE` · ไม่เขียน `audit_log` · LINE จะ retry (5xx) ให้แก้กุญแจ | ✅ `backend/tests/test_webhook.py::test_an_unreadable_stored_secret_is_503_not_401` |
 | TC-19-9 | มี secret รายหอแล้วไม่ต้องตั้ง env | `LINE_CHANNEL_SECRET` ว่าง + เก็บ secret รายหอไว้ | POST ด้วย signature ของ secret ที่เก็บไว้ | 200 (ไม่ใช่ 503 `LINE_NOT_CONFIGURED`) | ✅ `backend/tests/test_webhook.py::test_a_stored_secret_works_without_the_env` |
+| TC-19-10 | webhook ที่ LINE ส่งมาหลาย event ในครั้งเดียว (มี `webhookEventId` 2 ตัวขึ้นไป) | — | POST body ที่มี 2 event id | **200** และบันทึกทั้ง 2 id (ไม่ใช่ 500 จาก `ResourceClosedError`: `execute` หลายชุด parameter กลายเป็น `executemany` ที่ทิ้ง `RETURNING`) · ส่งซ้ำทั้งชุด → 200 และไม่มี audit ใหม่ · audit 1 แถวต่อการส่งครั้งแรก | ✅ `backend/tests/test_webhook.py::test_two_event_ids_in_one_delivery_are_both_recorded` |
 
 ## สรุป
 
@@ -607,13 +610,13 @@ endpoint พร้อมและตรวจ signature จริง แต่ *
 |---|---|---:|---:|---:|---:|
 | UC-01 | ตั้งค่าหอ (ค่าเช่า · อัตราน้ำไฟ) | 11 | 11 | 0 | 0 |
 | UC-02 | จดมิเตอร์น้ำ–ไฟ | 18 | 15 | 3 | 0 |
-| UC-03 | ออกบิล (คำนวณบิล · ส่งบิลทาง LINE) | 22 | 21 | 1 | 0 |
+| UC-03 | ออกบิล (คำนวณบิล · ส่งบิลทาง LINE) | 23 | 22 | 1 | 0 |
 | UC-04 | ยืนยันการชำระ (include ออกใบเสร็จ) | 16 | 15 | 1 | 0 |
 | UC-05 | ดูห้องค้างชำระ (ค้างกี่งวด · เกินกี่วัน) | 11 | 10 | 1 | 0 |
 | UC-06 | ดูรายรับ | 8 | 7 | 1 | 0 |
 | UC-07 | เพิ่ม/ถอนเจ้าของและผู้ช่วย | 16 | 15 | 1 | 0 |
 | UC-08 | เปลี่ยนผู้เช่า / หมุน QR ห้อง | 17 | 15 | 2 | 0 |
-| UC-09 | ผูกบัญชี LINE กับห้อง | 19 | 17 | 2 | 0 |
+| UC-09 | ผูกบัญชี LINE กับห้อง | 20 | 18 | 2 | 0 |
 | UC-10 | ดูบิล | 15 | 14 | 1 | 0 |
 | UC-11 | แจ้งชำระ (แนบสลิป) | 17 | 16 | 1 | 0 |
 | UC-12 | ตรวจสลิปอัตโนมัติ | 17 | 16 | 1 | 0 |
@@ -623,8 +626,8 @@ endpoint พร้อมและตรวจ signature จริง แต่ *
 | UC-16 | ทวงอัตโนมัติ (เลยกำหนด 1 / 5 / 10 วัน) | 24 | 22 | 2 | 0 |
 | UC-17 | แจ้งชำระก่อนบิลออก (โอนก่อน) | 26 | 22 | 4 | 0 |
 | UC-18 | ยกเลิกบิล (void) และออกบิลใหม่ | 13 | 12 | 1 | 0 |
-| UC-19 | รับ event จาก LINE (webhook ฝั่ง backend) | 9 | 9 | 0 | 0 |
-| **รวม** | | **285** | **259** | **26** | **0** |
+| UC-19 | รับ event จาก LINE (webhook ฝั่ง backend) | 10 | 10 | 0 | 0 |
+| **รวม** | | **288** | **262** | **26** | **0** |
 
 หมายเหตุ: คอลัมน์ ✅ รวมทั้ง test ใน `line-app/smoke-usecases.js` (177 ข้อ) และ test ที่มีอยู่แล้วใน `backend/tests/` ที่ผูกกับกรณีนั้น (บางแถวอ้างหลายฟังก์ชัน นับเป็น 1 TC) แถว ✅ ที่อ้าง pytest ไม่ได้ถูกรันโดยชุดนี้ — รันด้วย `cd backend && pytest -q`
 
