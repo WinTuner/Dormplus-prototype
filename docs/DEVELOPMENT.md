@@ -47,7 +47,17 @@ node smoke-cron.js             # /api/cron + ตัวเตือนราย�
 - ไม่มีขั้นตอน build, ไม่มี dev server, ไม่มี bundler — ทุกอย่างที่ deploy คือ `api/*.js` (CommonJS) กับไฟล์ static ไฟล์เดียว `liff/bill.html`
 - `npm test` **ยังรันแค่สามชุด** (ตาม `package.json` `scripts.test`) — ชุด use case กับ cron ต้องสั่งเองหรือปล่อยให้ CI รัน อย่าถือว่า `npm test` เขียวแล้วแปลว่าครบ
 - **smoke suite**: `smoke-handlers.js`, `smoke-usecases.js`, `smoke-cron.js` แทน `_store` ด้วย `Map` ในหน่วยความจำ (`require.cache`) และแทน `qrcode-svg` ผ่าน `Module._load` — แต่ **ทั้งห้าชุดต้องมี `node_modules`** (`npm ci`) เพราะ `smoke.js` เรียก `api/_auth` / `api/_qr` / `api/_store-r2` และตัวหลัง `require("aws4fetch")` ทันทีที่โหลด · CI รันหลัง `npm ci` เสมอ
-- ไม่มี `.env.example` — env ใส่ใน Vercel project (ดู [`docs/CONFIGURATION.md`](./CONFIGURATION.md)) · การทดสอบ endpoint จริงใช้ deployment + `x-seed-token` (เปิดได้เฉพาะ `vercel dev` หรือ preview ที่ตั้ง `ALLOW_SEED_BYPASS=true`) · cron ต้องมี `CRON_SECRET` ยาว ≥ 16 ตัวอักษร ไม่งั้น `/api/cron` ตอบ `503 NOT_CONFIGURED`
+- **e2e (Playwright)**: `line-app/e2e/` เป็น npm package แยก (`domplus-line-app-e2e`, `@playwright/test` 1.65.1) ที่ **ไม่ถูก deploy** — `line-app/.vercelignore` มี `e2e/`
+
+  ```bash
+  cd line-app/e2e
+  npm ci
+  npx playwright install --with-deps chromium   # ครั้งแรกของเครื่อง
+  npx playwright test                            # = npm test ใน package นี้
+  ```
+
+  config: project เดียว `mobile-chromium` (device Pixel 7), `workers: 1` (server เดียวในหน่วยความจำใช้ร่วมทุก test), retries 1 บน CI, `trace: retain-on-failure`, พอร์ต **4317** (`E2E_PORT`; ไม่ใช่ 4173 default ของ server เพื่อไม่ไปหยิบ dev server แปลกปลอมมาใช้), `webServer` รัน `node server.js` · `e2e/server.js` เสิร์ฟ `liff/bill.html` จริง + เรียก `api/*.js` จริง โดยแทน `_store` ด้วย `Map` ที่มี API ครบเหมือนของจริง (`get`/`set`/**`update`**/**`create`**/`keysWith`/`putFile`/`getFile`/`delFile`) แทน `qrcode-svg` และแทน `fetch` (LINE verify/push/reply/profile, SlipOK) · ตัวคุมสำหรับ test อยู่ใต้ `/__test/`: `reset`, `seed` (scenario `tenant-unpaid` / `owner-dorm` หรือ object), `slipok`, `confirm` (ยิง postback พร้อม signature เข้า `api/webhook.js` จริง), `state?key=…` · `fixtures.js` แทน LIFF SDK ด้วย stub (id token = userId ที่ขึ้นต้น `U`) และ **auto-fail test ที่มี console error/pageerror** (ยกเว้น 404 ของ `/api/bill?room=` ที่ตั้งใจ) · spec อยู่ที่ `e2e/tests/owner.spec.js` และ `e2e/tests/tenant.spec.js`
+- `line-app/.env.example` มีไว้เป็นตัวอย่าง (`.gitignore` ปลดล็อกด้วย `!.env.example`) — env จริงใส่ใน Vercel project และโหลดด้วย `node --env-file` ตอนรัน local (ดู [`docs/CONFIGURATION.md`](./CONFIGURATION.md)) · การทดสอบ endpoint จริงใช้ deployment + `x-seed-token` (เปิดได้เฉพาะ `vercel dev` หรือ preview ที่ตั้ง `ALLOW_SEED_BYPASS=true`) · cron ต้องมี `CRON_SECRET` ยาว ≥ 16 ตัวอักษร ไม่งั้น `/api/cron` ตอบ `503 NOT_CONFIGURED`
 
 ### 2.3 backend
 
@@ -73,7 +83,7 @@ TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/domplus_
 
 > ⚠️ ฐานข้อมูลใน `TEST_DATABASE_URL` **ถูกล้างทุกครั้ง** (`conftest.py` สั่ง `downgrade base` → `upgrade head` แล้ว `truncate ... restart identity cascade`) — ห้ามชี้ไปที่ Neon ตัวจริง
 
-- ชุดเต็มวันนี้คือ **167 test ใน 18 ไฟล์** (`backend/tests/test_*.py` — `pytest --collect-only` นับได้ 167) — ไฟล์ล่าสุดคือ `tests/test_owner_ui.py` (ล็อกอิน `/owner`, รหัสผิด/ไม่ตั้งรหัส, cookie ผู้เช่าเข้าไม่ได้) · ถ้าจำนวนไม่ตรง แปลว่า collection พังหรือ import ค้าง ไม่ใช่ "test หาย"
+- ชุดเต็มวันนี้คือ **186 test ใน 20 ไฟล์** (`backend/tests/test_*.py` — `pytest --collect-only` นับได้ 186) — รันแบบไม่มี DB ได้ **39 passed / 147 skipped** (test ที่ต้องใช้ DB ถูก skip) · test ฝั่ง LINE ของ backend อยู่ที่ `tests/test_webhook.py`, `tests/test_line_handlers.py`, `tests/test_line_link.py`, `tests/test_dunning.py`; หน้าเจ้าของหออยู่ที่ `tests/test_owner_ui.py` (ล็อกอิน `/owner`, รหัสผิด/ไม่ตั้งรหัส, cookie ผู้เช่าเข้าไม่ได้) · ถ้าจำนวนไม่ตรง แปลว่า collection พังหรือ import ค้าง ไม่ใช่ "test หาย"
 
 ### 2.4 หมายเหตุบน Windows / PowerShell
 
@@ -94,17 +104,19 @@ TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/domplus_
 | `node smoke-reads.js` | `line-app/` | read พร้อมกัน, ประวัติบิล, สิทธิ์ในการอ่าน | `smoke-reads.js` |
 | `node smoke-usecases.js` | `line-app/` | use case ทั้ง 177 กรณี — ชื่อ `TC-xx-n` ตรงกับตารางใน [`docs/TEST-CASES.md`](./TEST-CASES.md) | `smoke-usecases.js` |
 | `node smoke-cron.js` | `line-app/` | `/api/cron`: secret, cron-lock, หน้าต่าง 1–3 วัน/เลยกำหนด 1·5·10 วัน, dedup ตาม `rev`, push ล้ม | `smoke-cron.js` |
+| `npx playwright test` | `line-app/e2e/` | UI test ของ `liff/bill.html` บน Chromium (mobile) กับ server ปลอมใน `e2e/server.js` | `e2e/playwright.config.js` |
 | `vercel --prod` | `line-app/`, `backend/` | deploy จากเครื่อง (ปกติไม่ต้อง — push `master` แล้ว auto) | `line-app/docs/DEPLOYMENT.md`, `backend/README.md` |
 | `node scripts/prod-smoke.mjs` | root | ตรวจ deployment จริงหลัง merge (ไม่ต้องล็อกอิน) | `scripts/prod-smoke.mjs` |
-| `pytest -q` | `backend/` | test ทั้งหมด (167 test ใน 18 ไฟล์; DB test ข้ามถ้าไม่มี `TEST_DATABASE_URL`) | `pyproject.toml` `testpaths` |
+| `pytest -q` | `backend/` | test ทั้งหมด (186 test ใน 20 ไฟล์; ไม่มี `TEST_DATABASE_URL` = 39 passed / 147 skipped) | `pyproject.toml` `testpaths` |
 | `alembic upgrade head` | `backend/` | apply migration | `migrations/` |
 | `alembic revision -m "..."` | `backend/` | สร้าง migration ใหม่ (เขียน `op.execute()` เอง) | `migrations/env.py` (`target_metadata = None`) |
 | `python -m app.seed` | `backend/` | seed หอ 42 ห้อง (รันซ้ำได้ ไม่สร้างซ้ำ) | `app/seed.py` |
+| `python scripts/set_line_secret.py` | `backend/` | อ่าน channel secret จาก stdin แล้วเข้ารหัสเก็บใน `properties.line_secret_enc` (`--clear` = กลับไปใช้ env `LINE_CHANNEL_SECRET`) — ต้องมี `SECRET_ENC_KEY` ตัวเดียวกับ API | `scripts/set_line_secret.py` |
 | `python -m app.queue` | `backend/` | **ครั้งเดียวต่อฐานข้อมูล** — สร้างตารางของ Procrastinate | `app/queue.py` |
 | `procrastinate -a app.queue.app worker` | ที่มี host ค้าง | worker ทางเลือก ถ้าอยากส่งถี่กว่ารายวัน | `backend/README.md` |
 
 > `procrastinate schema --apply` **ใช้ไม่ได้** กับ app นี้ (CLI บังคับ async connector) — `python -m app.queue` ทำ migration ชุดเดียวกัน
-> `GET /v1/cron/daily` ยัง drain คิวเองใน invocation เดียว (จึงไม่ต้องมี worker ค้าง) แต่ **ไม่ได้ถูกตั้งเวลา** — `backend/vercel.json` ไม่มี `crons` แล้ว ใช้ยิงมือ/ทดสอบเท่านั้น
+> `GET /v1/cron/daily` ยัง drain คิวเองใน invocation เดียว (จึงไม่ต้องมี worker ค้าง) แต่ **ไม่ได้ถูกตั้งเวลา** — `backend/vercel.json` ไม่มี `crons` แล้ว ใช้ยิงมือ/ทดสอบเท่านั้น · ในโค้ด drain วิ่งบน **async app แยก** (`app/queue.py` `get_async_app()`, connector แบบ async) เพราะ `run_worker` สร้าง event loop เอง; app นั้น copy `tasks` จาก sync app มา (`import app.tasks` + `async_app.tasks.update(...)`) ถ้าไม่ copy ทุก job จะถูก mark เป็น `TaskNotFound` ทั้งที่ endpoint ยังตอบ 200
 > `line-app` มี cron ของตัวเอง (`GET /api/cron`, `0 2 * * *`) สำหรับทวงบิล — ตัวเตือนอยู่ใน `api/_remind.js` ไม่ใช่ handler
 
 ## 4. Code style และ convention
@@ -118,7 +130,7 @@ TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/domplus_
 รายละเอียดเต็มอยู่ใน [`line-app/docs/DEVELOPMENT.md`](../line-app/docs/DEVELOPMENT.md) ข้อ 2–9 · สรุปที่ต้องจำ:
 
 - **CommonJS เท่านั้น** — `require()` / `module.exports`; handler เป็น `async (req, res)` (ยกเว้น `api/config.js` ที่ sync)
-- helper ใช้ร่วมกันต้องขึ้นต้นด้วย `_` — วันนี้มี **15 ไฟล์**: `api/_store.js`, `api/_store-r2.js`, `api/_auth.js`, `api/_bills.js`, `api/_ledger.js`, `api/_line.js`, `api/_rooms.js`, `api/_async.js`, `api/_limit.js`, `api/_qr.js`, `api/_remind.js`, `api/_verify.js`, `api/_prepay.js`, `api/_promptpay.js`, `api/_gemini.js` · logic ใหม่ที่ไม่ได้เป็น route ต้องไปอยู่ในไฟล์กลุ่มนี้ ไม่งั้นมันจะกลายเป็น serverless function นับเข้าเพดาน 12 (ข้อ 7.1) · route ที่ไม่ขึ้นต้น `_` ยังมี **12 ไฟล์เท่าเดิม** (`bill`, `config`, `cron`, `dev`, `me`, `owner`, `qr`, `rooms`, `run`, `slip-image`, `slip`, `webhook`) — helper ใหม่จึงไม่ขยับเพดาน เว้นแต่ไปสร้าง route ใหม่
+- helper ใช้ร่วมกันต้องขึ้นต้นด้วย `_` — วันนี้มี **16 ไฟล์**: `api/_store.js`, `api/_store-r2.js`, `api/_auth.js`, `api/_bills.js`, `api/_ledger.js`, `api/_line.js`, `api/_rooms.js`, `api/_async.js`, `api/_limit.js`, `api/_qr.js`, `api/_remind.js`, `api/_verify.js`, `api/_prepay.js`, `api/_promptpay.js`, `api/_gemini.js`, `api/_pay.js` · logic ใหม่ที่ไม่ได้เป็น route ต้องไปอยู่ในไฟล์กลุ่มนี้ ไม่งั้นมันจะกลายเป็น serverless function นับเข้าเพดาน 12 (ข้อ 7.1) · route ที่ไม่ขึ้นต้น `_` ยังมี **12 ไฟล์เท่าเดิม** (`bill`, `config`, `cron`, `dev`, `me`, `owner`, `qr`, `rooms`, `run`, `slip-image`, `slip`, `webhook`) — helper ใหม่จึงไม่ขยับเพดาน เว้นแต่ไปสร้าง route ใหม่
 - 2 spaces, double quotes, semicolons, `const`; คอมเมนต์เป็น **อังกฤษและอธิบาย "ทำไม"** ไม่ใช่ทวนโค้ด (ใส่คำไทยในวงเล็บเมื่อคำนั้นคือถ้อยคำที่ผู้ใช้เห็น เช่น `(ยกเลิกบิล)`) · บรรทัดแรกของไฟล์บอก route + หน้าที่
 - `liff/bill.html` เป็น **ไฟล์เดียวจบ** — HTML + CSS + JS inline ไม่มี build/bundler และไม่มีไฟล์แยกให้ import อะไรทั้งสิ้น
 - error เป็น `{ "error": { "code": "SCREAMING_SNAKE", "message": "ข้อความไทย" } }` — `message` ไทยเสมอ (ผู้ใช้เห็น) `code` อังกฤษ · 405 ของทุก handler วันนี้ใช้รูป object (`METHOD_NOT_ALLOWED`)
@@ -129,7 +141,7 @@ TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/domplus_
 
 ### 4.3 storage adapter — ทุกการอ่าน/เขียนผ่าน `_store.js`
 
-- `line-app/api/_store.js` เป็นประตูเดียว: `get`, `set`, `keysWith`, `putFile`, `getFile`, `delFile` · โมดูลใหม่ **ห้าม `require("@vercel/blob")` เอง และห้ามคุยกับ R2 ตรง ๆ** — ต้องมี operation ใหม่ให้เพิ่มใน `_store.js` (และ `_store-r2.js` ถ้าเป็นฝั่ง R2) ไม่งั้น tests ที่แทน store ด้วย `Map` จะพังและ backend จะสลับไม่ได้อีก
+- `line-app/api/_store.js` เป็นประตูเดียว: `get`, `set`, `keysWith`, `putFile`, `getFile`, `delFile` + สองตัวที่กันการเขียนทับกัน: `update(key, apply, attempts = 3)` (read-modify-write; บน R2 ใช้ conditional PUT `ifMatch`/`ifNoneMatch` แล้ว retry ได้ 3 ครั้ง — ล้มครบ 3 ครั้งจึง throw, บน Vercel Blob ไม่มี conditional write จึงเป็น write ธรรมดาครั้งเดียว) และ `create(key, value)` (เขียนเฉพาะเมื่อ key ยังไม่มี, คืน `true` เมื่อเราสร้าง — `slip.js` ใช้จอง `slip-ref:<transRef>`) · โมดูลใหม่ **ห้าม `require("@vercel/blob")` เอง และห้ามคุยกับ R2 ตรง ๆ** — ต้องมี operation ใหม่ให้เพิ่มใน `_store.js` (และ `_store-r2.js` ถ้าเป็นฝั่ง R2) ไม่งั้น tests ที่แทน store ด้วย `Map` จะพังและ backend จะสลับไม่ได้อีก · fake store ทุกตัว (`smoke-*.js`, `e2e/server.js`) ต้องมี method ครบชุดเดียวกัน รวม `update`/`create`
 - สอง backend เลือกตอนโหลดไฟล์ครั้งเดียว: ตั้ง `R2_BUCKET` → Cloudflare R2 (S3 API) · ไม่ตั้ง → Vercel Blob (fallback ที่ทำให้ย้ายทีละ env var ได้)
 - `_store-r2.js` เซ็น S3 request ด้วย **`aws4fetch`** (ไม่กี่ kB) ไม่ใช่ `@aws-sdk/client-s3` (หลาย MB) เพราะทุก Vercel function จ่าย bundle size ตอน cold start — ที่ใช้มีแค่ GET/PUT/DELETE/LIST · **อย่าเพิ่ม AWS SDK** สำหรับงานที่ `aws4fetch` ทำได้
 - cache 10 วินาทีในหน่วยความจำของ instance เฉพาะ key ที่ขึ้นต้น `dorm`, `room:`, `bills:`, `bill-state:` (regex ยังครอบ `rooms:` ไว้ด้วย) · key ที่เกี่ยวกับเงิน (`bill:`, `slip-ref:`, `qr-code:`) **ไม่ถูก cache** และทุก `set` ล้าง entry ทันที · จะเพิ่ม prefix เข้า allow-list ต้องเป็นของที่อ่านซ้ำใน request เดียวและยอมให้เก่า 10 วินาทีได้
@@ -180,14 +192,15 @@ merge เข้า `master` ด้วย merge commit ปกติ (`Merge pull 
 
 ### 5.4 CI: workflow `ci` ([`.github/workflows/ci.yml`](../.github/workflows/ci.yml))
 
-trigger: `push` เข้า `master` และ **ทุก** `pull_request` · สอง job ขนานกัน:
+trigger: `push` เข้า `master` และ **ทุก** `pull_request` · สาม job ขนานกัน:
 
 | job | สภาพแวดล้อม | ขั้นตอน |
 |---|---|---|
 | `line-app` | `ubuntu-latest`, Node 20 | `npm ci --no-audit --no-fund` → `node --check` ทุก `api/*.js` → `node smoke.js` → `node smoke-handlers.js` → `node smoke-reads.js` → `node smoke-usecases.js` (step "Use case tests") → `node smoke-cron.js` (step "Reminder cron tests") → แยก inline `<script>` จาก `liff/bill.html` ออกมาแล้ว `node --check` |
-| `backend` | `ubuntu-latest` + service `postgres:16` (DB `domplus_test`), Python 3.12 | probe ว่า `backend/pyproject.toml` มีบน branch ไหม (ไม่มี = skip ทั้ง job) → `pip install -e "backend[dev]"` → `pytest -q` (150 test ใน 15 ไฟล์) ด้วย `TEST_DATABASE_URL` + `DEV_AUTH=true` |
+| `line-app-e2e` | `ubuntu-latest`, Node 20 (cache `line-app/package-lock.json` + `line-app/e2e/package-lock.json`) | `npm ci` ที่ `line-app/` → `npm ci` ที่ `line-app/e2e/` → `npx playwright install --with-deps chromium` → `npx playwright test` (working-directory `line-app/e2e`) → เมื่อ fail อัปโหลด `line-app/e2e/playwright-report` + `test-results` เป็น artifact `line-app-e2e-report` (เก็บ 7 วัน) |
+| `backend` | `ubuntu-latest` + service `postgres:16` (DB `domplus_test`), Python 3.12 | probe ว่า `backend/pyproject.toml` มีบน branch ไหม (ไม่มี = skip ทั้ง job) → `pip install -e "backend[dev]"` → `pytest -q` (186 test ใน 20 ไฟล์) ด้วย `TEST_DATABASE_URL` + `DEV_AUTH=true` |
 
-สิ่งที่ CI **บังคับ**ได้จริงคือ: syntax ทุก handler, พฤติกรรมที่ smoke **ทั้งห้าชุด**ครอบ (รวม use case 177 กรณีที่ id ตรงกับ [`docs/TEST-CASES.md`](./TEST-CASES.md) และ cron/ตัวเตือน), inline script ของหน้า LIFF parse ได้, และ `pytest` ผ่านบน Postgres สด
+สิ่งที่ CI **บังคับ**ได้จริงคือ: syntax ทุก handler, พฤติกรรมที่ smoke **ทั้งห้าชุด**ครอบ (รวม use case 177 กรณีที่ id ตรงกับ [`docs/TEST-CASES.md`](./TEST-CASES.md) และ cron/ตัวเตือน), UI ของหน้า LIFF บน Chromium (e2e), inline script ของหน้า LIFF parse ได้, และ `pytest` ผ่านบน Postgres สด
 
 สิ่งที่ CI **ไม่ได้**ทำ (verified จากไฟล์ workflow): lint/format, typecheck, coverage, build, deploy, ยิง production
 
@@ -196,7 +209,7 @@ trigger: `push` เข้า `master` และ **ทุก** `pull_request` · 
 ### 5.5 Review gates ที่มีจริง
 
 1. **PR template** — checklist ขอบเขต + คำสั่งที่ทดสอบ + ผลกระทบข้อมูล/สัญญา API
-2. **CI `ci`** — ควรมองให้เขียวทั้งสอง job (แต่ required check จริงมีแค่ `backend` — ดูกล่อง branch protection ด้านล่าง; job `backend` จะเขียวทันทีถ้า branch ยังไม่มี `backend/`)
+2. **CI `ci`** — ควรมองให้เขียวทั้งสาม job (แต่ required check จริงมีแค่ `backend` — ดูกล่อง branch protection ด้านล่าง; job `backend` จะเขียวทันทีถ้า branch ยังไม่มี `backend/`)
 3. **กฎ offline ก่อน deploy** — `node smoke.js`, `node smoke-handlers.js`, `node smoke-reads.js`, `node smoke-usecases.js`, `node smoke-cron.js` ต้องผ่าน (ทั้งห้าชุดคือสิ่งที่ CI รัน — ดู [`.github/workflows/ci.yml`](../.github/workflows/ci.yml))
 4. **`scripts/prod-smoke.mjs` หลัง merge** — exit code 1 ถ้ามีข้อตก ใช้เป็น gate หลัง deploy ได้ (ตรวจ LIFF 200 + build ปัจจุบัน, header, 401/404 ที่ควรเป็น, `/docs` ปิดบน production, cron ต้องมี secret)
 5. **ทดสอบใน LINE 1 ครั้ง** สำหรับ path ที่แตะ (line-app)
@@ -205,7 +218,7 @@ trigger: `push` เข้า `master` และ **ทุก** `pull_request` · 
 
 **Branch protection บน `master` (ยืนยันจาก GitHub API)** — merge ตรงเข้า `master` ไม่ได้ ต้องผ่าน PR และ required status check คือ **`backend`** เท่านั้น (`strict: true` = branch ต้อง rebase ขึ้นกับ `master` ล่าสุดก่อน merge, `enforce_admins: true` ใช้กับแอดมินด้วย, ปิด force push/ลบ branch, ต้อง resolve conversation ก่อน merge)
 
-> ⚠️ job `line-app` **ไม่ใช่** required check — เขียวหรือแดงก็ยัง merge ได้ถ้า `backend` เขียว · ความปลอดภัยของฝั่ง LINE app จึงพึ่งกฎ "รัน smoke ห้าชุดเองก่อน push" (ข้อ 3) ไม่ใช่ CI · อย่าถือว่า branch protection กัน regression ฝั่ง `line-app` ให้
+> ⚠️ job `line-app` (และ `line-app-e2e`) **ไม่ใช่** required check — เขียวหรือแดงก็ยัง merge ได้ถ้า `backend` เขียว · ความปลอดภัยของฝั่ง LINE app จึงพึ่งกฎ "รัน smoke ห้าชุดเองก่อน push" (ข้อ 3) ไม่ใช่ CI · อย่าถือว่า branch protection กัน regression ฝั่ง `line-app` ให้
 
 <!-- VERIFY: ค่า branch protection มาจาก `gh api repos/WinTuner/Dormplus-prototype/branches/master/protection` (ก.ย. 2026) — เปลี่ยนได้ใน GitHub settings นอกเรพ รีวิวซ้ำเมื่อ gate ไม่ตรงกับที่เห็น -->
 
@@ -278,9 +291,9 @@ def list_widgets(
 <!-- VERIFY: เพดาน 12 serverless functions/deployment ของ Vercel Hobby มาจาก line-app/HANDOFF.md ข้อ 5 ไม่ได้ยืนยันกับบัญชี Vercel จริง -->
 
 1. ถ้าเป็น "อีกมุมของข้อมูลเดิม" **ต่อ endpoint เดิมด้วย query param** ดีกว่าเพิ่มไฟล์ (`bill.js` รับ `?period=`/`?history=1`/`?voided=1` และ POST `{action:"void"}` แทนที่จะมี `/api/history` หรือ `/api/void`)
-2. สร้าง `api/<route>.js` — ถ้าเป็น helper ให้ขึ้นต้น `_` (ไฟล์ที่ขึ้นต้น `_` **ไม่ถูกนับ** เข้าเพดาน 12 จึงเป็นที่เดียวที่ควรใส่ logic ใหม่ได้ · ตัวอย่างล่าสุด: `_store-r2.js` (backend R2 ของ `_store.js`), `_promptpay.js` (สร้าง QR พร้อมเพย์), `_ledger.js` (ยอดค้าง/ยอดรับตามเดือน + `bill-state:`), `_prepay.js` (สลิปที่โอนมาก่อนบิล, writer สองตัวแข่งกัน), `_remind.js` (handler `cron.js` เหลือแค่ตรวจ secret/lock แล้วเรียก `runReminders()`) — ทั้งหมด 14 ไฟล์ตามข้อ 4.2)
+2. สร้าง `api/<route>.js` — ถ้าเป็น helper ให้ขึ้นต้น `_` (ไฟล์ที่ขึ้นต้น `_` **ไม่ถูกนับ** เข้าเพดาน 12 จึงเป็นที่เดียวที่ควรใส่ logic ใหม่ได้ · ตัวอย่างล่าสุด: `_store-r2.js` (backend R2 ของ `_store.js`), `_promptpay.js` (สร้าง QR พร้อมเพย์), `_ledger.js` (ยอดค้าง/ยอดรับตามเดือน + `bill-state:`), `_prepay.js` (สลิปที่โอนมาก่อนบิล, writer สองตัวแข่งกัน), `_remind.js` (handler `cron.js` เหลือแค่ตรวจ secret/lock แล้วเรียก `runReminders()`), `_pay.js` (ปิดบิลเป็น `paid` ที่เดียว: ปุ่มยืนยันของเจ้าของและ auto-confirm ของสลิปใช้ร่วมกัน) — ทั้งหมด 16 ไฟล์ตามข้อ 4.2)
 3. ลำดับใน handler (ทำตาม `bill.js` / `run.js` / `slip.js`): เช็ก `req.method` → `res.setHeader("Cache-Control","no-store")` ถ้าเป็น GET ที่คืนสถานะที่เปลี่ยนได้ → `await requireUser(req, res)` แล้ว `if (!userId) return;` → เช็กสิทธิ์ (`await isOwner(userId)`, `await canView(userId)`, หรือเทียบ `user-room:<userId>` กับห้อง) → validate → อ่าน/เขียนผ่าน `_store` (บิลผ่าน `saveBill`/`saveBills` เท่านั้น, การยกเลิกผ่าน `archiveVoid`) → side effect ที่ล้มได้ (push LINE) ครอบ `try/catch` → ตอบ JSON
-4. **test** — เพิ่ม assert ในชุดที่ตรงชนิด: พฤติกรรม handler/สิทธิ์/เงิน → `smoke-handlers.js`; การอ่านพร้อมกัน/ลำดับ/ประวัติ → `smoke-reads.js`; ฟังก์ชันบริสุทธิ์ (verify, Flex card) → `smoke.js`; **พฤติกรรมที่ผู้ใช้เห็นเป็น use case → `smoke-usecases.js` โดยใช้ id `TC-xx-n` ตรงกับแถวใน [`docs/TEST-CASES.md`](./TEST-CASES.md)** (CI รันห้าชุดนี้) · suite ต้องผ่านทั้งตอนมีและไม่มี `node_modules`
+4. **test** — เพิ่ม assert ในชุดที่ตรงชนิด: พฤติกรรม handler/สิทธิ์/เงิน → `smoke-handlers.js`; การอ่านพร้อมกัน/ลำดับ/ประวัติ → `smoke-reads.js`; ฟังก์ชันบริสุทธิ์ (verify, Flex card) → `smoke.js`; **พฤติกรรมที่ผู้ใช้เห็นเป็น use case → `smoke-usecases.js` โดยใช้ id `TC-xx-n` ตรงกับแถวใน [`docs/TEST-CASES.md`](./TEST-CASES.md)** (CI รันห้าชุดนี้) · suite ต้องผ่านทั้งตอนมีและไม่มี `node_modules` · **ถ้าเปลี่ยนสิ่งที่เห็นบนหน้า LIFF** ให้เพิ่ม/แก้ใน `line-app/e2e/tests/{owner,tenant}.spec.js` (CI job `line-app-e2e`) และถ้าเรียก `store` method ใหม่ ต้องเติม method นั้นใน fake store ของ `e2e/server.js` ด้วย
 5. **เอกสาร** — [`line-app/docs/API.md`](../line-app/docs/API.md): เพิ่มแถวในตาราง §1 + หัวข้อเลขถัดไป (§3–§12 คือ endpoint ทีละตัว) · ถ้ารูป request/response เป็นส่วนของสัญญาร่วม ให้แก้ [`docs/API.md`](./API.md) ด้วย
 6. **รัน** — `npm test` **และ** `node smoke-usecases.js` + `node smoke-cron.js` และถ้าแตะ path ที่ผู้ใช้จริงใช้ ให้ทดสอบบน deployment 1 ครั้งด้วย `x-seed-token` แล้วทดสอบใน LINE 1 ครั้ง
 
@@ -317,8 +330,9 @@ const pathOf = (key) => `kv/${String(key).replace(/[^a-zA-Z0-9._-]/g, "-")}.json
 | `bill:<room>` | บิลล่าสุด (เขียนเฉพาะเมื่อ period ไม่เก่ากว่าเดิม) | `saveBills()` |
 | `bill-void:<period>:<room>:<rev>` | สำเนาบิลที่ถูกยกเลิก (เหตุผล, `receiptNo`, สลิป) | `archiveVoid()` |
 | `bill-voids:<room>` | index `"<period>:<rev>"` — `archiveVoid()` ต่อท้ายแล้วเก็บ 200 รายการล่าสุด (เก่า→ใหม่) · `bill.js` (`?voided=1`) เรียงใหม่→เก่าเอง | `archiveVoid()` |
+| `overpaid:<room>` | index `"<period>:<rev>"` ของบิลที่จ่ายเกิน (มี `refundDue`) — `bill.js` (`?voided=1&refunds=1`) อ่านแล้วตัด tag ที่บิลไม่มีแล้ว | `tagOverpaid()` |
 | `prepay:<room>` | สลิปที่ผู้เช่าโอนมาก่อนบิลออก | `slip.js`, ล้างโดย `run.js` |
-| `slip-ref:<transRef>` | ห้องที่จอง `transRef` ของสลิปไว้ (กันสลิปใบเดียวจ่ายสองบิล) | `slip.js` (`rememberRef`) |
+| `slip-ref:<transRef>` | ห้องที่จอง `transRef` ของสลิปไว้ (กันสลิปใบเดียวจ่ายสองบิล) | `slip.js` (`rememberRef` → `store.create`) |
 | `room:<room>` | ค่าเช่า/เรตน้ำ-ไฟที่เจ้าของแก้เอง (ทับ `DEFAULTS` ใน `_rooms.js`) | `rooms.js` (`POST`, owner เท่านั้น) |
 | `prepay-old:<room>` / `prepay-old:<room>:<ISO>` | สลิป advance ของผู้เช่าก่อน (รูปยังอยู่) | `qr.js` (`endTenancy`) |
 | `tenancy:<room>` | `{ since: ISO }` เวลาที่ผู้เช่าคนก่อนออก | `qr.js` (`endTenancy`) |
@@ -329,16 +343,17 @@ const pathOf = (key) => `kv/${String(key).replace(/[^a-zA-Z0-9._-]/g, "-")}.json
 
 ### 8.2 Writer มีที่เดียว: `saveBill()` / `saveBills()` / `archiveVoid()`
 
-`line-app/api/_bills.js` เป็นที่เดียวที่เขียน `bill:*`, `bill-state:*`, `bills:*` และ `bill-void*`:
+`line-app/api/_bills.js` เป็นที่เดียวที่เขียน `bill:*`, `bill-state:*`, `bills:*`, `bill-void*` และ `overpaid:*`:
 
 - `saveBills()` เขียน `bill:<period>:<room>` ทุกงวด + `bills:<room>` + `bill-state:<room>` (ผ่าน `_ledger.indexState()`) และแตะ `bill:<room>` ครั้งเดียวด้วยงวดใหม่สุด · ผู้เรียกที่เพิ่งอ่าน `bill:<room>` ส่ง `{ latest }` เข้ามาเพื่อลด read หนึ่งครั้ง
 - `archiveVoid()` เขียน `bill-void:<period>:<room>:<rev>` + `bill-voids:<room>` (idempotent — `run.js` เรียกซ้ำได้)
+- `tagOverpaid()` เขียน `overpaid:<room>` (index `period:rev` ของบิลที่มี `refundDue`) — `_pay.js` เรียกหลังปิดบิลแบบ `paid` และ `e2e/server.js` ใช้ตอน seed
 
 > ⚠️ `bill-state:<room>` เป็น **สำเนาที่ย่อแล้ว** ของบิล (อ่านโดย `_ledger.stateBills()` ใน `bill.js` `?overdue=1`/`?income=` และ `_remind.js`) · ทางเขียนบิลใหม่ **ทุกทางต้องผ่าน `saveBills()`** ไม่งั้นคีย์นี้ค้างค่าเก่า แล้วตัวเตือน/ยอดค้าง/ยอดรับจะไม่เห็นบิลนั้น · `stateBills()` ตั้งใจ **ไม่เขียน** คีย์ตอนอ่าน (ห้องที่เขียนก่อนมีคีย์นี้จะประกอบจากบิลจริงทุกครั้ง) เพื่อไม่ให้ read แช่รายการที่เก่าไว้
 
-ผู้เขียนทุกคนเรียกผ่านมัน: `run.js` (ออกรอบบิล, `archiveVoid` บิลที่ถูก void ก่อนออกใหม่), `slip.js` (แนบสลิป → `pending`, หลายงวด → `saveBills([...])`), `webhook.js` (postback ยืนยัน → `paid`), `dev.js` (seed), `bill.js` (POST void → `saveBill(voided)` แล้ว `archiveVoid`) — **อย่าเขียน `store.set("bill:…")` ตรง ๆ**
+ผู้เขียนทุกคนเรียกผ่านมัน: `run.js` (ออกรอบบิล, `archiveVoid` บิลที่ถูก void ก่อนออกใหม่), `slip.js` (แนบสลิป → `pending`, หลายงวด → `saveBills([...])`), `_pay.js` (`closeBills()` — ปิดบิลเป็น `paid` ที่เดียว ใช้ทั้ง postback ยืนยันของเจ้าของใน `webhook.js` และ auto-confirm ของสลิปใน `slip.js`), `dev.js` (seed), `bill.js` (POST void → `saveBill(voided)` แล้ว `archiveVoid`) — **อย่าเขียน `store.set("bill:…")` ตรง ๆ**
 
-ข้อยกเว้นเดียว: `slip-ref:<transRef>` เขียนตรงใน `slip.js` (`rememberRef`) เพราะไม่ใช่ข้อมูลบิล — เป็นการจอง `transRef` ของสลิป (อ่านก่อนเขียน: ถ้ามีแล้วคืน `ok:false` "สลิปนี้ถูกใช้ไปแล้ว") · คีย์นี้ **ไม่มีวันถูกลบ** โดยตั้งใจ: transRef ของธนาคารไม่ซ้ำตลอดกาล การลบทิ้งจึงเปิดช่องให้สลิปเก่ากลับมาจ่ายบิลใหม่ได้
+ข้อยกเว้นเดียว: `slip-ref:<transRef>` เขียนตรงใน `slip.js` (`rememberRef` → `store.create` เขียนเฉพาะเมื่อคีย์ยังไม่มี) เพราะไม่ใช่ข้อมูลบิล — เป็นการจอง `transRef` ของสลิป (ถ้ามีแล้วคืน `ok:false` "สลิปนี้ถูกใช้ไปแล้ว") · คีย์นี้ **ไม่มีวันถูกลบ** โดยตั้งใจ: transRef ของธนาคารไม่ซ้ำตลอดกาล การลบทิ้งจึงเปิดช่องให้สลิปเก่ากลับมาจ่ายบิลใหม่ได้
 
 ### 8.3 Reader ที่ต้องแก้ให้ครบ (grep `bill:` ก่อนเสมอ)
 
@@ -406,6 +421,7 @@ const pathOf = (key) => `kv/${String(key).replace(/[^a-zA-Z0-9._-]/g, "-")}.json
 
 - **`TEST_DATABASE_URL` ล้างฐานทุกครั้ง** — `conftest.py` downgrade/upgrade แล้ว truncate; ห้ามชี้ Neon จริง
 - **`SESSION_SECRET` ค่า placeholder ถูกปฏิเสธ** — `app/session.py` ไม่ยอมเซ็น/ตรวจด้วย `dev-only-change-me`; test ตั้ง `SESSION_SECRET=test-secret` และ `COOKIE_SECURE=false` เองใน `conftest.py` (TestClient เป็น http)
+- **secret ของ LINE เก็บเข้ารหัสใน DB ได้** — `python scripts/set_line_secret.py` เขียน `properties.line_secret_enc` โดยใช้ `SECRET_ENC_KEY`; ถ้า API ถือคีย์คนละตัว webhook จะตอบ `503 LINE_SECRET_UNREADABLE` (คีย์ผิดแก้ได้, secret ผิดแก้ไม่ได้) · `--clear` เพื่อกลับไปใช้ env `LINE_CHANNEL_SECRET`
 - **`DEV_AUTH` ถูกเมินบน production** — `app/config.py` `dev_auth_active` เป็น false เมื่อ `VERCEL_ENV=production` แม้ตั้ง `DEV_AUTH=true`
 - **RLS ไม่ทำงานถ้า connection ไม่ได้ตั้ง `app.property_id`** — policy เทียบ `current_setting('app.property_id', true)`; ถ้า setting ว่าง predicate เป็น NULL → **ไม่เห็นแถวเลย** (อาการคือ "ตารางว่าง" ไม่ใช่ error) · `app/db.py` `attach_property()` ตั้งให้ทุก transaction (event `begin`, local) จาก env `PROPERTY_ID`; ถ้า query ด้วย client อื่น (psql, alembic) ต้อง `set_config` เอง
 - **role ที่ bypass RLS ทำให้ test หลอกผ่าน** — role ใน CI เป็น superuser; `test_rls.py` จึง `set local role` เพื่อบังคับให้ policy มีผล · ใน production ต้องใช้ role ที่ไม่มี `BYPASSRLS`
@@ -413,6 +429,7 @@ const pathOf = (key) => `kv/${String(key).replace(/[^a-zA-Z0-9._-]/g, "-")}.json
 - **ตัวเตือนเป็น at-least-once ไม่ใช่ exactly-once** — mark `reminded:…` เขียนหลัง push สำเร็จ; push ล้ม = รอบหน้าลองใหม่ (ผู้เช่าอาจได้ข้อความซ้ำถ้า mark เขียนไม่สำเร็จ)
 - **env ที่อ่านตอน module load ต้อง Redeploy** — `_line.js` / `_auth.js` จับ `LIFF_ID` ใส่ `const` ตอนโหลดไฟล์, `_rooms.js` จับ `ROOMS`/เรต, `_remind.js` อ่าน `LIFF_ID` ตอนเรียก และ `cron.js` อ่าน `CRON_SECRET` ตอน request — ค่าที่จับใส่ `const` ตอนโหลดไฟล์จะค้างจนกว่าจะมี deployment ใหม่; เปลี่ยน env แล้ว redeploy เสมอ
 - **`_verify.js` อ่าน `SLIPOK_API_KEY`/`SLIPOK_BRANCH_ID` ตอนเรียก** (ไม่ใช่ตอนโหลดไฟล์) — ตั้ง env แล้วไม่ต้อง redeploy · แต่ถ้าขาดตัวใดตัวหนึ่งผลคือ `ok:null` reason `not_configured` ไม่ใช่ error: สลิปยังถูกบันทึกเป็น `pending` และเจ้าของไม่เห็นผลตรวจ — อย่าตีความว่า "ไม่มีผลตรวจ" = "ตรวจผ่าน"
+- **fake store ของ test ต้องตาม `_store.js` ให้ทัน** — `_store.js` มี `update`/`create` แล้ว และ `slip.js` จอง `slip-ref:<transRef>` ด้วย `store.create`; ถ้า fake (`smoke-usecases.js`, `smoke-handlers.js`, `smoke-reads.js`, `smoke-cron.js`, `e2e/server.js`) ไม่มี method นั้น สลิป/prepay จะพังเฉพาะใน test ทั้งที่ของจริงผ่าน · `getFile` ของ smoke คืน `{ blob: { contentType } }` (ไม่มี stream) แต่ของ e2e คืน stream จริง เพื่อให้ `/api/slip-image` แสดงรูปได้
 - **`backend/vercel.json` ไม่รัน migration ตอน deploy** — ต้อง `alembic upgrade head` จากเครื่องเมื่อมี migration ใหม่
 - **`/docs`, `/redoc`, `/openapi.json` ปิดบน production** — `create_app()` ตรวจ `VERCEL_ENV`; ถ้าอยากดู schema บน production ต้องใช้ [`docs/API.md`](./API.md)
 - **ไฟล์ `domplus.db` / `pakdee.db` ที่ root** เป็นของเหลือจาก prototype เก่าและถูก gitignore — ไม่มีโค้ดใดอ่านแล้ว อย่าเอาไปต่อยอด

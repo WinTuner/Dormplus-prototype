@@ -23,6 +23,7 @@
 | `GET /properties/:id` | ✅ |
 | `GET /invoices/:id` (รายละเอียด + items) | ✅ |
 | `GET /v1/reports/summary` | ✅ |
+| `GET /healthz` | ✅ |
 | `POST /webhooks/line/:property_id` | ✅ (endpoint + signature + ตอบ follow/"บิล" เป็นข้อความ; **ยังไม่ผูก OA**) |
 
 ## กติกากลาง
@@ -44,7 +45,7 @@
 | `CONFLICT` | 409 | ผิดเงื่อนไข (เช่น บิลซ้ำ) |
 | `UPSTREAM` | 502 | LINE/Slip API ล่ม |
 | `SESSION_REVOKED` | 401 | cookie ยังไม่หมดอายุ แต่ผู้เช่าถูกถอด LINE หรือย้ายออกแล้ว → ล็อกอินใหม่ |
-| `TOO_MANY_ATTEMPTS` | 429 | ลองรหัสเชิญผิดเกิน 10 ครั้งใน 1 ชั่วโมง (นับต่อบัญชี LINE) |
+| `TOO_MANY_ATTEMPTS` | 429 | ลองรหัสผิดเกิน 10 ครั้งใน 1 ชั่วโมง (รหัสเชิญนับต่อบัญชี LINE · รหัสเจ้าของหอนับต่อ IP) |
 
 ---
 
@@ -70,7 +71,7 @@
 { "role": "owner", "property_id": "p_1" }
 ```
 - ⚙️ ตั้งรหัสที่ env `OWNER_ACCESS_CODE` · ไม่ตั้ง = `503 OWNER_LOGIN_OFF` (หน้า `/owner` ยังเปิดได้ แต่ล็อกอินไม่ผ่าน)
-- เทียบแบบ constant time · ผิดนับเป็น failure ในตาราง `auth_failures` (10 ครั้ง/ชั่วโมง/IP) → `429 TOO_MANY_ATTEMPTS`
+- เทียบแบบ constant time · ผิดนับเป็น failure ในตาราง `auth_failures` (10 ครั้ง/ชั่วโมง ต่อ IP — ใช้ค่าแรกของ `X-Forwarded-For`, ไม่มีก็ใช้ peer address) → `429 TOO_MANY_ATTEMPTS`
 - cookie ชื่อเดียวกับผู้เช่า (`dp_session`) แต่ `role=owner` · cookie ของผู้เช่าเรียก endpoint เจ้าของได้ `403 FORBIDDEN`
 - หนึ่ง deployment = หนึ่งหอ รหัสใช้ร่วมกัน ไม่มีบัญชีแยกคน · ออกจากระบบที่ `POST /auth/logout`
 - หน้าจอ 4 แท็บ: มิเตอร์ (`GET /rooms`, `PUT /rooms/{id}/reading`) · บิล (`POST /billing/run`, `GET /invoices`) · สลิป (`confirm`/`reject`) · รายงาน (`GET /reports/summary`)
@@ -158,7 +159,8 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
 - "ครั้งก่อน" = reading ล่าสุดของห้องนี้ที่ `period` น้อยกว่ารอบที่ส่งมา
 - `warning` = `"METER_DECREASED"` เมื่อค่าน้อยกว่าครั้งก่อน (ไม่ block, หน่วยที่ลดนับเป็น 0)
 - `warning` = `"NO_PREVIOUS_READING"` เมื่อห้องนี้ยังไม่เคยจดมาก่อน (บันทึกได้, หน่วย = 0)
-- ออกบิลรอบนั้นแล้ว → `409 CONFLICT` · ห้องของหออื่น → `403 FORBIDDEN` · เฉพาะเจ้าของหอ
+- ออกบิลรอบนั้นแล้ว → `409 CONFLICT` · ห้องของหออื่น → `403 FORBIDDEN` · ไม่พบห้อง → `404 NOT_FOUND` · เฉพาะเจ้าของหอ
+- `water_now`/`elec_now` ต้องอยู่ 0–2,147,483,647 (ขอบเขต int4 ของคอลัมน์) และ `photo_url` ยาวไม่เกิน 500 ตัวอักษร — เกิน → `422 VALIDATION`
 - ส่งซ้ำโดยไม่มี `photo_url` → เก็บรูปเดิมไว้
 
 ---
@@ -179,7 +181,7 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
 - ออกบิลเฉพาะห้องที่พร้อมและยังไม่มีบิลรอบนี้ · ห้อง `vacant` ข้าม
   - ห้องคิดตามมิเตอร์: ต้องมี reading รอบนี้ (ไม่มี → `skipped_no_reading`) และ reading รอบก่อนหน้า (ไม่มี → `skipped_no_previous_reading`)
   - ห้องเหมาจ่าย (`mode = flat`): ไม่ต้องมี reading · บิล = ค่าเช่าอย่างเดียว
-- กดซ้ำ: ออกบิลเฉพาะห้องที่เพิ่งพร้อม (เช่น จดมิเตอร์ทีหลัง) · ถ้าไม่มีห้องใหม่และรอบนี้มีบิลแล้ว → `409 CONFLICT`
+- กดซ้ำ: ออกบิลเฉพาะห้องที่เพิ่งพร้อม (เช่น จดมิเตอร์ทีหลัง) · `409 CONFLICT` เฉพาะเมื่อ **ทุกห้องที่ต้องออกบิลมีบิลรอบนี้แล้ว** — ถ้ายังมีห้องที่ขาดมิเตอร์อยู่ ตอบ `202` พร้อมตัวนับ `skipped_*` แล้วกดใหม่ได้หลังจด
 - หน่วยคิดจาก reading รอบก่อนหน้า **ณ ตอนออกบิล** (ถ้าแก้มิเตอร์เดือนก่อนหลังจดเดือนนี้แล้ว บิลจะใช้ค่าที่แก้)
 - ค่าน้ำ/ไฟ/วันครบกำหนดจาก `properties` ของหอ · ครบกำหนด = วันที่ออกบิล (เวลาไทย) + `due_days`
 - สร้าง `invoice_items` (ค่าเช่า · ค่าน้ำ · ค่าไฟ) และเขียน `audit_log` action `billing.run`
@@ -201,7 +203,7 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
 - `summary` เป็นยอดทั้งรอบของหอ ไม่ขึ้นกับ `status` ที่กรอง · `total` ไม่รวมบิล `void`
 
 ### `GET /invoices/:id`
-เจ้าของเห็นบิลทุกใบของหอ · ผู้เช่าเห็นเฉพาะบิลของห้องตัวเอง · นอกนั้น `404 NOT_FOUND` (ไม่ใช่ 403) · `payment` = แถวล่าสุดใน `payments` หรือ `null`
+เจ้าของเห็นบิลทุกใบของหอ · ผู้เช่าเห็นเฉพาะบิลของห้องตัวเอง · บิลของห้องอื่น `404 NOT_FOUND` (ไม่ใช่ 403) · ผู้เช่าที่ยังไม่ผูกห้องได้ `403 FORBIDDEN` (กันการเห็นทั้งหอ) · `payment` = แถวล่าสุดใน `payments` หรือ `null`
 ```json
 { "id": "inv_1", "period": "2026-11", "room_no": "203",
   "items": [ { "label": "ค่าเช่า", "qty": 1, "unit_price": 3220, "amount": 3220 },
@@ -267,9 +269,9 @@ idempotent ต่อ `(room_id, period)` — ส่งซ้ำทับค่�
 
 - **Auth:** `X-Line-Signature` = Base64(HMAC-SHA256 ของ **raw body** ด้วย channel secret) เทียบแบบ constant-time · ไม่ใช้ session
 - **channel secret มาจากไหน:** ถ้า `properties.line_secret_enc` ของหอนั้นมีค่า → ถอดรหัสด้วย `SECRET_ENC_KEY` (Fernet) แล้วใช้ค่านั้น (หอมี OA ของตัวเอง) · ถ้าว่าง → ใช้ env `LINE_CHANNEL_SECRET` (1 deploy = 1 หอ) · บันทึกค่าด้วย `python scripts/set_line_secret.py` (อ่านจาก stdin) และล้างด้วย `--clear`
-- **Error:** `503 LINE_NOT_CONFIGURED` (ไม่มีทั้ง column และ env) → `404 NOT_FOUND` (`:property_id` ไม่ใช่หอของ deployment — signature ผูกกับ channel เดียว) → `503 LINE_SECRET_UNREADABLE` (มีค่าใน column แต่ถอดรหัสไม่ได้ เช่น `SECRET_ENC_KEY` ถูกหมุน/หาย — **ตั้งใจให้เป็น 503 ไม่ใช่ 401** เพราะ LINE retry 5xx ให้แก้กุญแจได้ ส่วน secret ผิดจะ 401 ตลอดกาล) → `401 UNAUTHORIZED` (signature ไม่ตรง) → `400 VALIDATION` (body ไม่ใช่ JSON)
+- **Error:** `404 NOT_FOUND` (`:property_id` ไม่ใช่หอของ deployment — ตรวจก่อนอย่างอื่น เพราะ signature ผูกกับ channel เดียว) → `503 LINE_NOT_CONFIGURED` (ไม่มีทั้ง column และ env) → `503 LINE_SECRET_UNREADABLE` (มีค่าใน column แต่ถอดรหัสไม่ได้ เช่น `SECRET_ENC_KEY` ถูกหมุน/หาย — **ตั้งใจให้เป็น 503 ไม่ใช่ 401** เพราะ LINE retry 5xx ให้แก้กุญแจได้ ส่วน secret ผิดจะ 401 ตลอดกาล) → `401 UNAUTHORIZED` (signature ไม่ตรง) → `400 VALIDATION` (body ไม่ใช่ JSON)
 - **200:** `{ "ok": true }` — รวมกรณี event ซ้ำ: `webhookEventId` ถูกเก็บในตาราง `line_events` (migration `0005`) ถ้า LINE ส่ง event เดิมซ้ำจะไม่เขียน `audit_log` เพิ่ม
-- **Side effect:** เขียน `audit_log` 1 แถว action `webhook.line` payload `{ "count": <จำนวน event>, "types": ["follow", ...] }` — เฉพาะเมื่อมี event ใหม่
+- **Side effect:** เขียน `audit_log` 1 แถว action `webhook.line` payload `{ "count": <จำนวน event>, "types": ["follow", ...] }` — เขียนเมื่อมี event ใหม่ (หรือ payload ที่ไม่มี event เลย) · LINE ส่งซ้ำทั้งชุด = ไม่เขียนแถวเพิ่ม
 - **สิ่งที่ตอบ (ข้อความล้วน — อยู่ใน `app/line_handlers.py`):** `follow` → ข้อความต้อนรับ · `message` ที่ข้อความเป็น `บิล` / `bill` / `ใบเสร็จ` / `invoice` → บิลล่าสุดของผู้ใช้คนนั้น (ห้อง · รอบ · ยอด · ครบกำหนด · สถานะ) · ยังไม่ผูกห้อง → "ยังไม่ได้ผูกห้อง…" · ข้อความอื่นและ `postback` → ไม่ตอบ (บันทึกไว้เฉย ๆ) — ตอบผ่าน `replyToken` จึงไม่กินโควตา push และไม่ต้องมีคิว (การ์ด Flex ยังสร้างที่ `line-app` เท่านั้น เพื่อไม่ให้มีตัวสร้างการ์ดสองชุดที่เพี้ยนจากกัน)
 - **ตอบเฉพาะ event ใหม่:** LINE ส่งซ้ำ → ไม่ตอบซ้ำ · handler พัง (LINE ล่ม) → เขียน log แล้วยังตอบ `200` เพื่อไม่ให้ LINE ส่งทั้งชุดซ้ำ · `answer_events()` ทำงานหลัง commit และนอก event loop (`run_in_threadpool`)
 - **ยังไม่มีคิวในเส้นทางนี้** — handler ตอบด้วย `replyToken` แบบ sync (เร็วและไม่กินโควตา) และไม่แตะเงิน; คิว (Procrastinate) จะได้ใช้เมื่อมี handler ที่ต้อง push หลายข้อความหรือทำรายการเงินหลังตอบ 200
@@ -296,6 +298,7 @@ unpaid ──แนบสลิป──▶ pending ──เจ้าของ�
 |---|---|---|
 | `POST /v1/invoices/:id/slip` | `unpaid` | `409` `INVALID_STATE` (`"บิลนี้อยู่ในสถานะ {status} จึงแนบสลิปไม่ได้"`) |
 | `POST /v1/invoices/:id/confirm` | `pending` | `409` `INVALID_STATE` (`"บิลนี้อยู่ในสถานะ {status} จึงยืนยันไม่ได้"`) |
+| `POST /v1/invoices/:id/reject` | `pending` | `409` `INVALID_STATE` (`"บิลนี้อยู่ในสถานะ {status} จึงปฏิเสธไม่ได้"`) |
 
 ```json
 { "error": { "code": "INVALID_STATE",
@@ -503,3 +506,21 @@ curl -s $AUTH -X POST -H "Authorization: Bearer $CRON_SECRET" "$BASE/v1/dunning/
 ```
 
 `?token=` ถูกปฏิเสธ `401` — token ต้องมาทาง header เท่านั้น (URL ติด access log)
+
+- ไม่ได้ตั้ง `LINE_CHANNEL_ACCESS_TOKEN` → ไม่ enqueue อะไรเลย (`queued: 0`) เพราะทุกงานจะล้มเหลวและเขียน log ซ้ำทุกวัน · ยังไม่มีการบันทึกว่าส่งแล้ว จึงถูกจัดคิวใหม่เองเมื่อตั้ง token (ใช้กับ `GET /v1/cron/daily` เหมือนกัน)
+- ปุ่มบันได 1/5/10 วัน: บิลที่เลยกำหนด 1–4 วัน = ขั้น 1, 5–9 วัน = ขั้น 5, 10 วันขึ้นไป = ขั้น 10 · คิวซ้ำเฉพาะขั้นที่ยังไม่มี `message_log` ที่ `line_status = 'ok'`
+
+---
+
+## Ops
+
+### `GET /healthz`
+
+public · ไม่ใช้ session — liveness + ตรวจว่าต่อฐานข้อมูลได้ (`select 1`) สำหรับ health probe ของ Railway/Cloud Run
+
+```json
+// 200
+{ "status": "ok" }
+```
+
+- ต่อ DB ไม่ได้ → `503 DB_UNAVAILABLE`

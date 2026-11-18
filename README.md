@@ -26,7 +26,8 @@ docs/         เอกสารทั้ง repo: API · สถาปัตย�
 
 ```bash
 cd line-app
-node smoke.js && node smoke-handlers.js && node smoke-reads.js   # offline tests, ไม่ต้อง npm install
+npm ci                                                            # ทุกชุดต้องมี node_modules (smoke.js โหลด api/_store-r2 → aws4fetch)
+node smoke.js && node smoke-handlers.js && node smoke-reads.js   # offline tests (ไม่ต่อเน็ต)
 node smoke-usecases.js   # 177 use case ที่ automate ได้ (ชุดเดียวกับ docs/TEST-CASES.md)
 node smoke-cron.js       # แจ้งเตือนรายวัน /api/cron + cron-lock
 ```
@@ -65,14 +66,14 @@ pytest
 | ส่วน | สถานะ |
 |---|---|
 | `line-app/` — ส่งบิลใน LINE · LIFF แนบสลิป · เจ้าของยืนยัน/จดมิเตอร์ | ✅ ใช้งานได้ (ข้อจำกัดที่เหลือ: [`line-app/README.md`](line-app/README.md) หัวข้อ "ข้อจำกัดที่ยังเหลือ") |
-| `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · สลิป · confirm/reject + ใบเสร็จ · LINE Login ผ่าน LIFF · **หน้าจอเจ้าของหอที่ `/owner`** | 🟡 deploy แล้ว (Vercel + Neon) · 150 tests (15 ไฟล์; ไม่มี Postgres = 25 ผ่าน / 125 ข้าม · CI รันครบพร้อม Postgres) · หน้า `/owner` ล็อกอินด้วยรหัสหอ (`OWNER_ACCESS_CODE`) ไม่ใช่ LINE |
+| `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · สลิป · confirm/reject + ใบเสร็จ · LINE Login ผ่าน LIFF · **หน้าจอเจ้าของหอที่ `/owner`** | 🟡 deploy แล้ว (Vercel + Neon) · 186 tests (20 ไฟล์; ไม่มี Postgres = 39 ผ่าน / 147 ข้าม · CI รันครบพร้อม Postgres) · หน้า `/owner` ล็อกอินด้วยรหัสหอ (`OWNER_ACCESS_CODE`) ไม่ใช่ LINE |
 | สรุปรายรับรายงวด (`GET /v1/reports/summary?period=`, เจ้าของ) | ✅ billed/paid/pending/unpaid + `rooms_total`/`rooms_paid`/`rooms_overdue` · `billed` = paid + pending + unpaid (ไม่นับบิล void) · ไม่ใส่ `period` = เดือนปัจจุบัน — เป็น endpoint สุดท้ายที่ค้างในสัญญา |
 | RLS policy (กรอง `property_id` ที่ระดับ DB) | ✅ migration `0004` — `force row level security` ทุกตารางที่ผูกหอ (ยกเว้น `auth_failures`) · production ต้องต่อด้วย role ที่ไม่ `BYPASSRLS` (เช่น `dormplus_app`) ไม่งั้น policy ไม่มีผล |
-| ส่งข้อความ LINE ฝั่ง backend | ✅ `app/line_push.py` + คิว `app/tasks.py` (ทวงค่าเช่า + ส่งบิลเมื่อออกบิล) · webhook รับ event มีแล้ว (`POST /v1/webhooks/line/:property_id`, ตรวจ signature) แต่ OA ยังชี้ที่ `line-app/` |
+| ส่งข้อความ LINE ฝั่ง backend | ✅ `app/line_push.py` + คิว `app/tasks.py` (ทวงค่าเช่า + ส่งบิลเมื่อออกบิล) · webhook ตอบผู้ใช้แล้ว (`POST /v1/webhooks/line/:property_id` — ตรวจ signature · `follow` → ข้อความต้อนรับ · พิมพ์ "บิล" → บิลล่าสุดของผู้เช่าคนนั้นเป็นข้อความ) แต่ OA ยังชี้ที่ `line-app/` เพราะบิลที่ผู้เช่าเห็นอยู่ใน Blob/R2 |
 | Webhook ซ้ำ (LINE retry) | ✅ ตาราง `line_events` (migration `0005`, forced RLS, `on conflict do nothing`) — `webhookEventId` เดิมที่ส่งซ้ำเขียน `audit_log` แค่แถวเดียว · ไม่ได้ตั้ง `LINE_CHANNEL_SECRET` → `503 LINE_NOT_CONFIGURED` |
 | คิวงาน + ทวงอัตโนมัติ (Procrastinate) | ✅ `queue.py` · `dunning.py` (1/5/10 วัน) · `GET /v1/cron/daily` ให้ Vercel Cron เรียกวันละครั้งแล้ว drain คิวใน invocation เดียว |
-| ตรวจสลิปอัตโนมัติกับธนาคาร | ✅ `line-app` ต่อ SlipOK (`api/_verify.js`, เรียกจาก `api/slip.js`) — ยอดไม่ตรง (`1013`) · บัญชีผู้รับไม่ใช่ของหอ (`1014`) · สลิปซ้ำ (`1012`); ผลอยู่บน `bill.slipVerify` เป็น `ok:true|false|null` โดย `ok:null` = **ตรวจไม่ได้** ไม่ใช่ของปลอม · เปิดเมื่อตั้ง env `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` ครบทั้งคู่ · **ปิดบิลเองอัตโนมัติ**: สลิปบิลรายเดือน (เดือนเดียวหรือหลายเดือน) ที่รูปใหม่ตรวจผ่านครบ `ok === true` → `paid` + ใบเสร็จ (`autoConfirmed: true`) ไม่ต้องรอเจ้าของ **เมื่อเจ้าของเปิดสวิตช์ "ปิดบิลอัตโนมัติ" ของหอ (`dorm.autoConfirm`, ค่าเริ่มต้น = ปิด)** · สลิปโอนก่อนบิลออก/prepay, ผล `ok:null`/`false` และการแก้แค่หมายเหตุ ยังรอเจ้าของกดยืนยัน · `SLIP_AUTO_CONFIRM=0\|off\|false` = kill switch ปิดทั้ง deployment แม้หอเปิดสวิตช์ (Preview ใช้ Blob store เดียวกับ production ให้ตั้ง `=0` ตอนทดสอบ) · ฝั่ง `backend` `slip.verify` ยัง manual |
-| สลิปใบเดียวจ่ายสองบิลไม่ได้ | ✅ Blob key `slip-ref:<transRef>` จำว่า transRef นั้นถูกใช้กับห้องไหนแล้ว (ของเราเอง ไม่พึ่งหน่วยความจำของผู้ให้บริการ) |
+| ตรวจสลิปอัตโนมัติกับธนาคาร | ✅ `line-app` ต่อ SlipOK (`api/_verify.js`, เรียกจาก `api/slip.js`) — ยอดไม่ตรง (`1013`) · บัญชีผู้รับไม่ใช่ของหอ (`1014`) · สลิปซ้ำ (`1012`); ผลอยู่บน `bill.slipVerify` เป็น `ok:true|false|null` โดย `ok:null` = **ตรวจไม่ได้** ไม่ใช่ของปลอม · เปิดเมื่อตั้ง env `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` ครบทั้งคู่ · **ปิดบิลเองอัตโนมัติ**: สลิปบิลรายเดือน (เดือนเดียวหรือหลายเดือน) ที่รูปใหม่ตรวจผ่านครบ `ok === true` → `paid` + ใบเสร็จ (`autoConfirmed: true`) ไม่ต้องรอเจ้าของ **เมื่อเจ้าของเปิดสวิตช์ "ปิดบิลอัตโนมัติ" ของหอ (`dorm.autoConfirm`, ค่าเริ่มต้น = ปิด)** · สลิปโอนก่อนบิลออก/prepay, ผล `ok:null`/`false` และการแก้แค่หมายเหตุ ยังรอเจ้าของกดยืนยัน · `SLIP_AUTO_CONFIRM=0\|off\|false` = kill switch ปิดทั้ง deployment แม้หอเปิดสวิตช์ (Preview ไม่มี `R2_*` จึงเขียน store ไม่ผ่าน — ถ้าจะทดสอบบน Preview ให้ตั้ง `=0` ไว้ก่อน) · ฝั่ง `backend` `slip.verify` ยัง manual |
+| สลิปใบเดียวจ่ายสองบิลไม่ได้ | ✅ key `slip-ref:<transRef>` ใน store (R2; Blob เป็น fallback) จำว่า transRef นั้นถูกใช้กับห้องไหนแล้ว (ของเราเอง ไม่พึ่งหน่วยความจำของผู้ให้บริการ) · เขียนด้วย `store.create` (`If-None-Match`) สอง request พร้อมกันจึงไม่มีทางคิดว่าตัวเองเป็นคนแรกทั้งคู่ |
 | แก้ไขราคาห้อง | ✅ `POST /api/rooms` (เจ้าของเท่านั้น · รับ `rent` / `waterRate` / `elecRate` เป็นจำนวนเต็ม) + ปุ่ม "แก้ไขราคาห้อง" ใน LIFF · เก็บที่ `room:<room>` · ราคาใหม่มีผลกับบิลที่ออกหลังจากนั้น บิลที่ออกแล้วต้อง void แล้วออกใหม่ |
 | หน้าจอเจ้าของของ backend (Thai web UI) | ✅ `/owner` — หน้าเดียว 4 แท็บ (มิเตอร์ · บิล · สลิป · รายงาน) · ล็อกอินด้วยรหัสหอ `POST /v1/auth/owner` → cookie `dp_session` (`role=owner`) · ไม่ได้ตั้ง `OWNER_ACCESS_CODE` = `503 OWNER_LOGIN_OFF` · กันเดารหัสด้วย `app/attempts.py` (429 `TOO_MANY_ATTEMPTS`) |
 | QR ผูกผู้เช่ากับห้อง | ✅ `GET/POST /api/qr?room=` (เจ้าของสร้าง/หมุน) · ผู้เช่าสแกน → ผูกทันที |
@@ -83,7 +84,7 @@ pytest
 | ยกเลิกบิล + เงินที่ต้องคืน | ✅ `POST /api/bill` (`action: "void"`, ต้องมีเหตุผล) · บิลที่ชำระแล้วเก็บ `refundDue` ไว้ให้เจ้าของคืน · ดูย้อนหลังด้วย `GET /api/bill?voided=1` |
 | สลิปเดียวจ่ายหลายรอบ | ✅ `POST /api/slip` รับ `periods: ["2026-10","2026-11"]` — ทุกรอบต้องยังเปิดอยู่ ได้ `pending` พร้อม `slipGroup` และเจ้าของได้การ์ดเดียว |
 | ทวงอัตโนมัติใน LINE | ✅ `GET /api/cron` ให้ Vercel Cron เรียก 09:00 เวลาไทย · เตือนก่อนครบกำหนด 1–3 วัน / วันครบกำหนด / เลย 1–4 · 5–9 · 10+ วัน · กันส่งซ้ำด้วย `reminded:<room>:<period>:<kind>:<rev>` |
-| ผู้เช่าใหม่ไม่เห็นบิลคนเก่า | ✅ เปลี่ยนผู้เช่าเขียน `tenancy:<room>` · บิลที่ `issuedAt` ก่อนวันนั้นถูกซ่อนจากผู้เช่า (เจ้าของ/ผู้ช่วยยังเห็น) |
+| ผู้เช่าใหม่ไม่เห็นบิลคนเก่า | ✅ เปลี่ยนผู้เช่าเขียน `tenancy:<room>` · บิลที่ `issuedAt` ก่อนวันนั้นถูกซ่อนจากผู้เช่า (เจ้าของ/ผู้ช่วยยังเห็น) · ฝั่ง backend กรองด้วย `period >= tenants.moved_in` (`since` ใน session อ่านใหม่ทุก request) |
 | เพดาน 12 Vercel functions | ✅ ใช้ครบ 12 พอดี (`api/*.js` ที่ไม่ขึ้นต้นด้วย `_`) — ฟีเจอร์ใหม่ต้องรวมเข้าไฟล์เดิม |
 | Rich menu 2 ชุด | ✅ เจ้าของ 6 ช่อง (2500×1686) · ผู้เช่า 3 ช่อง compact (2500×843) · สลับอัตโนมัติตามสิทธิ์ |
 
@@ -136,7 +137,7 @@ backend/ ──▶ Postgres (Neon)      ← webhook ยังไม่ผูก 
 docs/API.md ← สัญญา v1 ที่ทั้งคู่ยึด (เป็นข้อตกลง ไม่ใช่การเชื่อมต่อ)
 ```
 
-- **LINE OA มี webhook ปลายทางเดียวคือ `line-app`** → `/api/webhook` · `backend/` มี endpoint รับแล้ว (`POST /v1/webhooks/line/:property_id` — ตรวจ signature, เขียน `audit_log`) แต่ยังไม่มี handler ตอบผู้ใช้ และยังไม่ผูกช่องทาง เพราะ LINE อนุญาต URL เดียวต่อ OA
+- **LINE OA มี webhook ปลายทางเดียวคือ `line-app`** → `/api/webhook` · `backend/` มี endpoint รับแล้ว (`POST /v1/webhooks/line/:property_id` — ตรวจ signature, เขียน `audit_log`) และ handler ตอบผู้ใช้มีแล้ว (`app/line_handlers.py`: `follow` → ต้อนรับ · พิมพ์ "บิล" → บิลล่าสุดของห้องที่ผู้ใช้ผูกอยู่) แต่ยังไม่ผูกช่องทาง เพราะ LINE อนุญาต URL เดียวต่อ OA และบิลที่ผู้เช่าเห็นยังอยู่ใน Blob/R2 ของ `line-app`
 - **ข้อมูลอยู่คนละที่** — ที่จดใน LIFF จะไม่โผล่ใน Postgres และกลับกัน · การย้ายไปที่เดียวเป็นงานใน [`docs/HANDOFF.md`](docs/HANDOFF.md)
 - **สัญญาเดียวคือ `docs/API.md`** — แก้ path หรือรูป JSON ต้องแก้ฝั่ง backend และหน้า LIFF ให้ตรงกัน
 
@@ -145,7 +146,7 @@ docs/API.md ← สัญญา v1 ที่ทั้งคู่ยึด (เ�
 | เก็บข้อมูล | Vercel Blob หรือ Cloudflare R2 (`api/_store.js` เลือกให้): `kv/*.json` + `slips/*` | Postgres (Neon) ตาม [`db/schema.sql`](db/schema.sql) |
 | ทางเข้า | LINE webhook · หน้า LIFF (`liff/bill.html`) | `/liff` · `/owner` (หน้าเว็บเจ้าของ) · curl · pytest |
 | auth | LINE idToken ทุก request (`api/_auth.js`) | cookie `dp_session` จาก LINE Login หรือรหัสหอ (`POST /v1/auth/owner`) หรือ `X-Dev-*` ตอน dev |
-| ส่งข้อความ LINE | reply + push (การ์ดบิล/ยืนยัน) + push เตือนรายวันจาก `/api/cron` | push เตือนผ่านคิว (`app/line_push.py`) |
+| ส่งข้อความ LINE | reply + push (การ์ดบิล/ยืนยัน) + push เตือนรายวันจาก `/api/cron` | reply (ต้อนรับ/บิล) + push เตือนผ่านคิว (`app/line_push.py`) |
 | cron / คิว | Vercel Cron → `GET /api/cron` (ทวงค่าเช่ารายวัน) | Vercel Cron → Procrastinate (หัวข้อถัดไป) |
 | dependency | `@vercel/blob`, `aws4fetch`, `qrcode-svg` | FastAPI · SQLAlchemy · Alembic · procrastinate |
 
@@ -165,7 +166,7 @@ docs/API.md ← สัญญา v1 ที่ทั้งคู่ยึด (เ�
 
 ## ทดสอบ (ไม่ต้องต่อเน็ต)
 
-**`line-app/`** — ไม่ต้อง `npm install` ก็รันได้ (ใช้ `node:assert` ล้วน):
+**`line-app/`** — ใช้ `node:assert` ล้วน ไม่ต้องต่อเน็ต แต่ทุกชุดต้องมี `node_modules` ก่อน (`npm ci` — `smoke.js` โหลด `api/_store-r2` ซึ่ง `require("aws4fetch")`):
 
 ```bash
 cd line-app
@@ -189,7 +190,7 @@ TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/domplus_
 
 ⚠️ ฐานข้อมูลใน `TEST_DATABASE_URL` **ถูกล้างทุกครั้งที่รัน** — ห้ามชี้ไปที่ Neon ตัวจริง
 
-CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml), workflow `ci`) รันทั้งสองชุดบน push เข้า `master` และทุก PR: job `line-app` ตรวจ syntax ทุก `api/*.js` + inline script ของ `liff/bill.html` แล้วรัน smoke ครบห้าไฟล์ (`smoke.js`, `smoke-handlers.js`, `smoke-reads.js`, `smoke-usecases.js`, `smoke-cron.js`) · job `backend` ยก Postgres 16 ขึ้นมาแล้ว `pytest -q`
+CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml), workflow `ci`) รันทั้งสองชุดบน push เข้า `master` และทุก PR: job `line-app` ตรวจ syntax ทุก `api/*.js` + inline script ของ `liff/bill.html` แล้วรัน smoke ครบห้าไฟล์ (`smoke.js`, `smoke-handlers.js`, `smoke-reads.js`, `smoke-usecases.js`, `smoke-cron.js`) · job `backend` ยก Postgres 16 ขึ้นมาแล้ว `pytest -q` · job `line-app-e2e` ติดตั้ง Chromium แล้วรัน Playwright UI test ของหน้า LIFF (`line-app/e2e`)
 
 ## Cron รายวัน (line-app) — ทวงค่าเช่าใน LINE
 
@@ -232,7 +233,7 @@ python -m app.queue                                  # ครั้งเดี�
 curl -H "Authorization: Bearer $CRON_SECRET" https://line-backend-ten.vercel.app/v1/cron/daily
 ```
 
-ต้องมี `LINE_CHANNEL_ACCESS_TOKEN` ด้วย ไม่งั้น task จะ log `skipped` แทนที่จะส่ง · ถ้าอยากส่งถี่กว่านี้ให้รัน `procrastinate -a app.queue.app worker` บน host ที่ค้างได้ ชี้ Postgres ตัวเดียวกัน
+ถ้าไม่ได้ตั้ง `LINE_CHANNEL_ACCESS_TOKEN` จะไม่ enqueue อะไรเลย (`queued: 0`) — ไม่มี job ที่ล้มเปล่า ๆ วันละครั้งต่อบิล · ตั้ง token แล้วกลับมาทำงานเอง · ถ้าอยากส่งถี่กว่านี้ให้รัน `procrastinate -a app.queue.app worker` บน host ที่ค้างได้ ชี้ Postgres ตัวเดียวกัน
 
 > หมายเหตุ: คิว/ทวงอัตโนมัติทำงานแล้ว (ดูหัวข้อนี้และแถว "คิวงาน + ทวงอัตโนมัติ" ในตารางสถานะด้านบน)
 

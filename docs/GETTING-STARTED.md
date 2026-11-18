@@ -88,7 +88,7 @@ curl.exe -s -H "X-Dev-Property: p_1" "http://127.0.0.1:8000/v1/rooms?period=2026
 ```bash
 cd line-app
 npm ci                     # ครั้งเดียวหลังโคลน (เว้นได้ก็ต่อเมื่อ node_modules พร้อมแล้ว)
-node smoke.js              # signature + Flex card + auth guards + QR (ต้องมี qrcode-svg)
+node smoke.js              # signature + Flex card + auth guards + QR + R2 adapter (QR ถูกข้ามถ้าไม่มี qrcode-svg)
 node smoke-handlers.js     # dev gate, QR binding, rate limit, payment, bill issuing, roles
 node smoke-reads.js        # bounded concurrency, ordering, legacy history
 node smoke-cron.js         # งานเตือนบิลค้างรายวัน (api/cron.js + api/_remind.js)
@@ -102,7 +102,8 @@ node smoke-usecases.js     # 177 use case ตั้งแต่ต้นจน�
 ```text
 smoke OK — QR renders and scales
 smoke OK — signature + flex card + confirm card + auth guards
-handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings, PromptPay QR, slip rejection
+smoke OK — R2 adapter: get/404, put, delete, list pagination, conditional put
+handlers OK — dev gate, QR binding + move confirm, rate limit, payment confirm, bill issuing, idToken cache, roles + revoke, slip limits, transfer before the bill, a new tenant does not see the previous tenant's bills, receipts, void + re-issue, one slip for several periods, void archive, no-due card, missing units, spent invite codes, seed token, slip verification (SlipOK), room pricing, room members, dorm settings, PromptPay QR, slip rejection, meter photo, audit fixes
 reads OK — bounded concurrency, ordering, legacy history, binding, auth, overdue and income
 cron OK — auth, 6 reminder windows, dedup, catch-up, skips, tenancy, retry, owner summary, one push per room
 177/177 use case tests passed
@@ -184,7 +185,7 @@ $env:TEST_DATABASE_URL="postgresql+psycopg://postgres:postgres@localhost:5432/do
 | อาการ | สาเหตุ | ทางแก้ |
 |---|---|---|
 | `docker compose up -d` → `failed to connect to the docker API ... dockerDesktopLinuxEngine` | Docker Desktop ยังไม่เปิด (เจอจริงตอนเขียนเอกสารนี้) | เปิด Docker Desktop แล้วรอจนขึ้น Running |
-| `pytest` ได้ `34 passed, 133 skipped` | ไม่ได้ตั้ง `TEST_DATABASE_URL` — เป็นพฤติกรรมปกติ (collect ได้ 167 test แต่ **133 ตัวต้องมี Postgres**; อีก 34 ตัวรันได้เปล่า ๆ) | ตั้ง `TEST_DATABASE_URL` ชี้ `domplus_test` ตามข้อ 3.3 |
+| `pytest` ได้ `39 passed, 147 skipped` | ไม่ได้ตั้ง `TEST_DATABASE_URL` — เป็นพฤติกรรมปกติ (collect ได้ 186 test แต่ **147 ตัวต้องมี Postgres**; อีก 39 ตัวรันได้เปล่า ๆ) | ตั้ง `TEST_DATABASE_URL` ชี้ `domplus_test` ตามข้อ 3.3 |
 | `node smoke.js` → `Cannot find module '@vercel/blob'` หรือ `'aws4fetch'` | ยังไม่ได้ลง dependency (หา `node_modules` ไม่เจอ) | `cd line-app && npm ci` แล้วรันใหม่ |
 | หน้า `/owner` ล็อกอินไม่ได้ ตอบ `503 OWNER_LOGIN_OFF` | `OWNER_ACCESS_CODE` ว่าง (ค่า default ใน `.env.example`) | ใส่รหัสหอใน `.env` แล้วรีสตาร์ต uvicorn (บน Vercel: ใส่ env แล้ว Redeploy) |
 | ล็อกอิน `/owner` ผิดรหัสหลายครั้งแล้วได้ `429 TOO_MANY_ATTEMPTS` | กันเดารหัส: ผิดเกิน 10 ครั้ง/ชั่วโมงต่อ IP (`app/attempts.py`) | รอให้พ้นหน้าต่าง 1 ชั่วโมง แล้วใช้รหัสให้ถูก |

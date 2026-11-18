@@ -8,10 +8,12 @@
 `backend/migrations/versions/`, `line-app/api/_verify.js`, `scripts/prod-smoke.mjs`, `Dockerfile`,
 `line-app/scripts/setup-richmenu.js`, `.github/workflows/ci.yml` และ `.vercel/project.json` ของทั้งสองโฟลเดอร์
 · หน้า owner: `backend/app/main.py`, `backend/app/routes/auth.py`, `backend/owner/index.html`
-· storage/R2: `line-app/api/_store.js`, `line-app/api/_store-r2.js`, `line-app/scripts/migrate-blob-to-r2.js`
+· secret รายหอ: `backend/app/secrets.py`, `backend/scripts/set_line_secret.py`, `backend/app/routes/webhooks.py`
+· storage/R2: `line-app/api/_store.js`, `line-app/api/_store-r2.js`, `line-app/scripts/migrate-blob-to-r2.js`,
+  `line-app/scripts/backup-r2.js`, `line-app/scripts/check-r2-copy.js`
 · index บิล: `line-app/api/_bills.js`, `line-app/api/_ledger.js`
 
-รายละเอียดเชิงลึกของครึ่ง LINE app (Blob store, rich menu, LINE Console, ตาราง error string) อยู่ใน
+รายละเอียดเชิงลึกของครึ่ง LINE app (storage adapter, rich menu, LINE Console, ตาราง error string) อยู่ใน
 [`line-app/docs/DEPLOYMENT.md`](../line-app/docs/DEPLOYMENT.md) — เอกสารนี้ไม่เขียนซ้ำ
 ส่วนรายการ env ทั้งหมดพร้อมค่า default อยู่ที่ [`CONFIGURATION.md`](./CONFIGURATION.md)
 
@@ -24,17 +26,21 @@
 
 | stack | โปรเจกต์ Vercel | Root Directory | production URL | ไฟล์ config ในเรพ |
 |---|---|---|---|---|
-| LINE app | `line-app` (`.vercel/project.json` → `projectName: "line-app"`) | `line-app/` | https://line-app-iota.vercel.app | `line-app/vercel.json` |
-| backend (FastAPI) | `line-backend` (`.vercel/project.json` → `projectName: "line-backend"`) | `backend/` | https://line-backend-ten.vercel.app | `backend/vercel.json` |
+| LINE app | `line-app` (`.vercel/project.json` → `projectName: "line-app"`) | `line-app` | https://line-app-iota.vercel.app | `line-app/vercel.json` |
+| backend (FastAPI) | `line-backend` (`.vercel/project.json` → `projectName: "line-backend"`) | `backend` | https://line-backend-ten.vercel.app | `backend/vercel.json` |
 
+- **Root Directory ของ `line-app` = `line-app`** (โฟลเดอร์ย่อยของ repo ไม่ใช่ root) — คำสั่ง `vercel --prod`
+  ต้องรันจาก **root ของ repo** หรือใช้ `vercel redeploy <deployment-url>` · ถ้ารันใน `line-app/` CLI จะไปหา
+  `line-app/line-app` แล้วล้มด้วย `The specified Root Directory 'line-app' does not exist` (ข้อ 10)
+  <!-- VERIFY: Root Directory ของโปรเจกต์ `line-backend` = `backend` ตาม `backend/README.md` — ค่าจริงอยู่ใน Project → Settings → Build & Development Settings และไม่มีในฟิลด์ใดของ `vercel.json`; ถ้า CLI จาก `backend/` เจอ error Root Directory เดียวกัน ให้รันจาก root ของ repo -->
 - ทั้งสองโปรเจกต์ผูก GitHub repo เดียวกัน และ **push เข้า `master` = deploy production อัตโนมัติ**
-  <!-- VERIFY: การผูก Git integration, Branch Tracking = `master` และ Root Directory (`line-app/` / `backend/`) — ทั้งสามค่าอยู่ใน settings ของโปรเจกต์ ไม่มีฟิลด์ใดใน `vercel.json` ระบุไว้ (ข้อความนี้มาจาก README/docs/HANDOFF) -->
+  <!-- VERIFY: การผูก Git integration, Branch Tracking = `master` และ Root Directory (`line-app` / `backend`) — ทั้งสามค่าอยู่ใน settings ของโปรเจกต์ ไม่มีฟิลด์ใดใน `vercel.json` ระบุไว้ (ข้อความนี้มาจาก README/docs/HANDOFF) -->
 - **1 deploy = 1 หอ** — ทั้งสองโปรเจกต์เป็น single-tenant ต่อ deployment: `line-app` ผูกหอด้วย `ROOMS`/`OWNER_USER_ID`,
   `backend` ผูกหอด้วย `PROPERTY_ID` (ค่าเริ่มต้น `p_1`) ซึ่งถูกตั้งเป็น `app.property_id` ทุก connection และ RLS
   กรองทุกตารางให้เห็นเฉพาะหอนั้น · เปิดหอที่สอง = สร้าง deployment/โปรเจกต์ชุดใหม่ ไม่ใช่เพิ่ม env ในชุดเดิม
   (ดู [`CONFIGURATION.md`](./CONFIGURATION.md) §1.6)
 - **ฐานข้อมูล: มีเฉพาะฝั่ง `backend`** — Neon Postgres + RLS (`backend/app/db.py`, migrations `0004`/`0005`)
-  ส่วน `line-app` **ไม่มีฐานข้อมูล** เก็บ state ลง Vercel Blob (`kv/*.json`, `slips/*`) ทั้งสองจึงไม่แชร์ข้อมูลกัน
+  ส่วน `line-app` **ไม่มีฐานข้อมูล** เก็บ state ลง Cloudflare R2 (`kv/*.json`, `slips/*`; เดิมเป็น Vercel Blob — ข้อ 3.2.1) ทั้งสองจึงไม่แชร์ข้อมูลกัน
   และไม่แชร์ connection string
 - `line-app/` ไม่มีขั้นตอน build — ทั้งระบบคือ static 1 หน้า (`liff/bill.html`) + serverless function ใน `api/*.js`
   `package.json` มีแค่ `test` (รัน smoke 3 ชุด) ไม่มี `build`
@@ -59,6 +65,7 @@ CI (`.github/workflows/ci.yml`, workflow `ci`) **ไม่ได้ deploy** —
 | job | รันเมื่อ | ทำอะไร |
 |---|---|---|
 | `line-app` | push `master` · ทุก PR | `npm ci` → `node --check` ทุก `api/*.js` → `smoke.js` → `smoke-handlers.js` → `smoke-reads.js` → `smoke-usecases.js` → `smoke-cron.js` → ตรวจ inline script ของ `liff/bill.html` |
+| `line-app-e2e` | push `master` · ทุก PR | `npm ci` สองที่ (`line-app` + `line-app/e2e`) → `playwright install chromium` → `npx playwright test` (UI test ของหน้า LIFF · `line-app/e2e` เป็น npm package แยก ไม่ถูก deploy) |
 | `backend` | push `master` · ทุก PR (ข้ามตัวเองถ้ากิ่งนั้นยังไม่มี `backend/pyproject.toml`) | ยก Postgres 16 ขึ้นมา → `pip install -e "backend[dev]"` → `pytest -q` |
 
 deploy มาจาก **Vercel Git integration** ไม่ใช่จาก Actions ทั้งสอง `vercel.json` ตั้งกฎไว้เหมือนกัน:
@@ -89,17 +96,24 @@ deploy มาจาก **Vercel Git integration** ไม่ใช่จาก Ac
 
 <!-- VERIFY: branch protection ของ repo `WinTuner/Dormplus-prototype` (required PR + required check `backend` + enforce admins) ตั้งอยู่บน GitHub org ไม่ใช่ไฟล์ในเรพ — ดูได้ที่ Settings → Branches เท่านั้น -->
 
-deploy ด้วยมือ (ใช้เมื่อไม่ได้มาจาก git):
+deploy ด้วยมือ (ใช้เมื่อไม่ได้มาจาก git) — **`line-app` ต้องสั่งจาก root ของ repo เพราะ Root Directory = `line-app`**:
 
 ```bash
-cd line-app
+# line-app: redeploy deployment เดิม (Root Directory ถูกใช้ตามที่ตั้งไว้)
+vercel redeploy <deployment-url>
+
+# หรือ deploy ใหม่จาก root ของ repo หลัง `vercel link` เลือกโปรเจกต์ line-app
 vercel --prod
 ```
 
 ```bash
-cd backend
-vercel --prod
+# backend: CLI ในโฟลเดอร์ backend (ตาม backend/README.md)
+cd backend && vercel --prod
 ```
+
+> ❌ **อย่ารัน `cd line-app && vercel --prod`** — ได้ `The specified Root Directory 'line-app' does not exist`
+> เพราะ CLI หาโฟลเดอร์ `line-app` ซ้อนใน `line-app/` อีกชั้น · ถ้าเจอ error นี้ ให้เปลี่ยนไปสั่งจาก root ของ repo
+> หรือใช้ `vercel redeploy` กับ URL ของ deployment ที่ต้องการ
 
 > **อ้างอิง:** `line-app/vercel.json` มี `crons` (`/api/cron`, ข้อ 6), `rewrites` (`/` → `/liff/bill.html`) และ
 > `headers` (`X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy` ทั้ง site ·
@@ -114,8 +128,8 @@ vercel --prod
 
 | โปรเจกต์ | env ที่ต้องมีบน Vercel | หมายเหตุ |
 |---|---|---|
-| `line-app` | `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`, `LIFF_ID`, `OWNER_USER_ID`, `CRON_SECRET` (≥ 16 ตัว) (+ `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` ถ้าเปิดตรวจสลิป · `RICHMENU_OWNER_ID` / `RICHMENU_TENANT_ID` ถ้าใช้ rich menu · `PUBLIC_BASE_URL` ไม่บังคับ — ถ้าไม่ตั้ง โค้ดใช้ `https://${req.headers.host}`) | `BLOB_STORE_ID` มาจาก `vercel storage connect` ไม่ต้องตั้งเอง · `SEED_TOKEN` / `ALLOW_SEED_BYPASS` **ปิดบน production เสมอ** · ไม่มี `CRON_SECRET` = ไม่มีการทวงบิลอัตโนมัติเลย · `ROOMS` / `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` ควรตั้งให้ตรงหอ (ค่าในแอปทับ env ได้ — §2.1 ของ `CONFIGURATION.md`) |
-| `line-backend` | `DATABASE_URL` (pooled + `?sslmode=require`, **role ที่ไม่มี `BYPASSRLS`**), `SESSION_SECRET`, `LINE_CHANNEL_ID`, `LIFF_ID`, `COOKIE_SECURE=true`, `DEV_AUTH=false`, `PROPERTY_ID`, `OWNER_ACCESS_CODE` (ถ้าใช้หน้า `/owner`) · `CRON_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` เฉพาะเมื่อจะยิง cron/dunning ของฝั่งนี้ด้วยมือ (ไม่มี token = ขั้น `queue_reminders` คืน 0 และไม่เขียน `message_log` ทิ้งไว้ — ใส่ token ทีหลังแล้วทำงานเอง) | `DEV_AUTH=true` ถูกเพิกเฉยเมื่อ `VERCEL_ENV=production` · backend ไม่มี cron ที่ลงทะเบียนแล้ว จึงไม่ต้องมี `CRON_SECRET` เพื่อให้ระบบทำงานปกติ · ไม่ตั้ง `OWNER_ACCESS_CODE` = หน้า `/owner` ล็อกอินไม่ได้ (`503 OWNER_LOGIN_OFF`) |
+| `line-app` | `LINE_CHANNEL_SECRET`, `LINE_CHANNEL_ACCESS_TOKEN`, `LIFF_ID`, `OWNER_USER_ID`, `CRON_SECRET` (≥ 16 ตัว), `R2_BUCKET` + `R2_ACCOUNT_ID` + `R2_ACCESS_KEY_ID` + `R2_SECRET_ACCESS_KEY` (Production — ข้อ 3.2.1) (+ `SLIPOK_API_KEY` + `SLIPOK_BRANCH_ID` ถ้าเปิดตรวจสลิป · `RICHMENU_OWNER_ID` / `RICHMENU_TENANT_ID` ถ้าใช้ rich menu · `PUBLIC_BASE_URL` ไม่บังคับ — ถ้าไม่ตั้ง โค้ดใช้ `https://${req.headers.host}`) | `BLOB_STORE_ID` มาจาก `vercel storage connect` ไม่ต้องตั้งเอง (ใช้เฉพาะตอนถอยไป Blob ซึ่งตอนนี้ทำไม่ได้) · `SEED_TOKEN` / `ALLOW_SEED_BYPASS` **ปิดบน production เสมอ** · ไม่มี `CRON_SECRET` = ไม่มีการทวงบิลอัตโนมัติเลย · `ROOMS` / `DEFAULT_RENT` / `WATER_RATE` / `ELEC_RATE` ควรตั้งให้ตรงหอ (ค่าในแอปทับ env ได้ — §2.1 ของ `CONFIGURATION.md`) |
+| `line-backend` | `DATABASE_URL` (pooled + `?sslmode=require`, **role ที่ไม่มี `BYPASSRLS`**), `SESSION_SECRET`, `LINE_CHANNEL_ID`, `LIFF_ID`, `COOKIE_SECURE=true`, `DEV_AUTH=false`, `PROPERTY_ID`, `OWNER_ACCESS_CODE` (ถ้าใช้หน้า `/owner`), `SECRET_ENC_KEY` (ถ้าจะเก็บ channel secret รายหอ — ข้อ 3.5) · `CRON_SECRET` / `LINE_CHANNEL_ACCESS_TOKEN` เฉพาะเมื่อจะยิง cron/dunning ของฝั่งนี้ด้วยมือ (ไม่มี token = ขั้น `queue_reminders` คืน 0 และไม่เขียน `message_log` ทิ้งไว้ — ใส่ token ทีหลังแล้วทำงานเอง) | `DEV_AUTH=true` ถูกเพิกเฉยเมื่อ `VERCEL_ENV=production` · backend ไม่มี cron ที่ลงทะเบียนแล้ว จึงไม่ต้องมี `CRON_SECRET` เพื่อให้ระบบทำงานปกติ · ไม่ตั้ง `OWNER_ACCESS_CODE` = หน้า `/owner` ล็อกอินไม่ได้ (`503 OWNER_LOGIN_OFF`) · ไม่ตั้ง `SECRET_ENC_KEY` = `scripts/set_line_secret.py` ใช้ไม่ได้ และถ้า `properties.line_secret_enc` มีค่าอยู่ webhook จะตอบ `503 LINE_SECRET_UNREADABLE` (fallback `LINE_CHANNEL_SECRET` ยังใช้ได้เมื่อคอลัมน์ว่าง) |
 
 - **`DATABASE_URL` ของ runtime ต้องเป็น role อย่าง `dormplus_app`** — DML บนทุกตาราง + sequences แต่ **ไม่มี
   `BYPASSRLS`** ไม่งั้น policy ของ migration `0004` ถูกข้ามทั้งหมด · alembic ใช้ role ที่มีสิทธิ์ DDL (owner) แยกกัน
@@ -134,7 +148,9 @@ vercel --prod
   (`vercel storage connect` ใส่ `BLOB_STORE_ID` ไว้ให้แล้ว) · **`BLOB_READ_WRITE_TOKEN` ไม่ถูกอ่านโดยโค้ด**
   เพราะทุก call ใช้ `access: "private"` — ถ้าเห็นตัวแปรนี้ค้างอยู่ ลบได้ ไม่มีผล
   <!-- VERIFY: Blob store ที่ผูกกับโปรเจกต์ `line-app` (ชื่อ/region) — ดูที่ Project → Storage -->
-- **ย้ายที่เก็บไป Cloudflare R2 (`line-app`) — ทางเลือกเมื่อโควตา Blob ไม่พอ** — Vercel Blob free tier ให้
+- **Cloudflare R2 คือที่เก็บจริงของ `line-app` บน production (ตั้งแต่ 18 พ.ย. 2026)** — Blob ใช้โควต้าฟรีครบ
+  และถูก pause 30 วัน (ข้อ 3.2.1) · ขั้นตอนย้ายในข้อ 3.2 เก็บไว้สำหรับย้ายซ้ำ/กู้คืน และเป็นบันทึกว่าครั้งแรกทำอะไร
+  — Vercel Blob free tier ให้
   **10,000 simple operations/เดือน** <!-- VERIFY: โควตา Blob free tier = 10,000 operations/เดือน เป็นข้อจำกัดของแพลตฟอร์ม อ้างจากคอมเมนต์ใน `line-app/api/_store.js` / `_store-r2.js` ไม่ใช่ค่าที่ตรวจได้จากเรพ --> และหนึ่งรอบของ
   หน้าจอเจ้าของ (`?overdue=1`, `?income=`) หรือ cron รายวัน **เคยอ่าน ~168 คีย์** — `ROOMS` เริ่มต้น 12 ห้อง ×
   (`bill:<room>` + `bills:<room>` + 12 รอบล่าสุดจาก `_ledger.OLDER_PERIODS`) — หลังมี `bill-state:<room>`
@@ -155,7 +171,8 @@ vercel --prod
 จนกว่าจะมี deployment ใหม่ (ไม่ใช่เพราะทุกไฟล์อ่านตอน module load — `cron.js` อ่าน `CRON_SECRET` ต่อ request,
 `_line.js`/`_auth.js` จับ `LIFF_ID` ใส่ `const` ตอนโหลด, `backend/app/config.py` ใช้ `@lru_cache`)
 
-- CLI: `vercel --prod` หรือ dashboard → Deployments → ⋯ → **Redeploy**
+- CLI: `vercel redeploy <deployment-url>` (ปลอดภัยกับ Root Directory = `line-app`) หรือ `vercel --prod`
+  จาก root ของ repo (ข้อ 2) · dashboard → Deployments → ⋯ → **Redeploy**
 - หรือแก้จาก CLI: `vercel env rm <NAME> production --yes` แล้ว `"<value>" | vercel env add <NAME> production`
   (รูปแบบนี้ทีมใช้อยู่ตอนสลับ rich menu — ดู [`line-app/docs/DEPLOYMENT.md`](../line-app/docs/DEPLOYMENT.md))
 
@@ -176,6 +193,10 @@ vercel --prod
 
 ### 3.2 ย้าย Blob → Cloudflare R2 (`line-app`) — runbook
 
+> ⚠️ **สถานะ 18 พ.ย. 2026: ขั้นตอนนี้ทำไปแล้ว และ Blob ถูก pause** (โควต้าครบ 30 วัน — ข้อ 3.2.1)
+> ขั้นที่ 3-4 (อ่านจาก Blob) จึงใช้ไม่ได้จนกว่า Blob จะกลับมา · ใช้ runbook นี้เฉพาะเมื่อต้องย้ายซ้ำ
+> หรือกู้คืน และเริ่มจากข้อ 1-2 + 5-6
+
 ทำตามลำดับนี้เท่านั้น ลำดับผิด = โค้ดชี้ R2 ที่ยังไม่มีข้อมูล (อ่านได้ `null` ทุก key)
 
 1. **Cloudflare:** สร้าง bucket + S3 API token (สิทธิ์ Object Read & Write เฉพาะ bucket นั้น) → ได้
@@ -189,6 +210,8 @@ vercel --prod
    BLOB_READ_WRITE_TOKEN=vercel_blob_rw_… node scripts/migrate-blob-to-r2.js --dry
    ```
    ดูจำนวนไฟล์/ขนาดของ `kv/` และ `slips/` แล้วเทียบกับที่คาด (`--only=kv` / `--only=slips` แยกได้)
+   - เทียบราย path ก่อนสลับได้ด้วย `node --env-file=.env scripts/check-r2-copy.js` (ต้องมี `BLOB_READ_WRITE_TOKEN`
+     + `R2_*` ครบ) — exit 0 = Blob กับ R2 มี path ชุดเดียวกัน และไม่มีไฟล์ว่างใน R2 · **ตอนนี้ใช้ไม่ได้เพราะ Blob ถูก pause**
 4. **รันจริง** ด้วย env ครบห้าตัว (Blob token + R2 ทั้งสี่):
    ```bash
    cd line-app
@@ -219,7 +242,11 @@ vercel --prod
 - **Preview ไม่มี `R2_*`** — token ของ R2 จำกัดสิทธิ์ที่ bucket เดียว (สร้าง bucket ใหม่ได้ `403 AccessDenied`)
   preview ที่ต้องอ่าน storage จะ error ซึ่งเป็นพฤติกรรมที่ต้องการ: preview ต้องไม่เขียนทับข้อมูลจริง
 - **สำรองข้อมูล:** `node scripts/backup-r2.js <โฟลเดอร์ว่าง>` คัด `kv/` + `slips/` ทั้งหมดลงเครื่อง
-  (126 ไฟล์ / 1.81 MB ณ วันนั้น) — เก็บ **นอกเรพ** เพราะ `slips/` เป็นรูปสลิปของผู้เช่า
+  (126 ไฟล์ / 1.81 MB ณ วันนั้น) — เก็บ **นอกเรพ** เพราะ `slips/` เป็นรูปสลิปของผู้เช่า · สคริปต์อ่าน `R2_*`
+  จาก `line-app/.env` หรือ environment และโฟลเดอร์ปลายทางต้องว่างหรือยังไม่มี · **ไม่มี schedule ให้** ต้องรันเอง
+  (เช่นก่อน deploy ใหญ่) · กู้คืน = upload โฟลเดอร์นั้นกลับเข้า bucket ตรง ๆ เพราะ path เดิมถูกเก็บไว้ (`kv/`, `slips/`)
+- `scripts/check-r2-copy.js` มีไว้เทียบ Blob ↔ R2 **ตอนก่อนสลับ** เท่านั้น — ตอนนี้ Blob ถูก pause จึงใช้ไม่ได้
+  และไม่ใช่เครื่องมือตรวจ backup (ใช้ `backup-r2.js` แล้วเทียบจำนวนไฟล์เอา)
 - **ระวังการรันในเครื่อง:** `line-app/.env` ชี้ R2 ของ production → `POST /api/dev?do=seed` จากเครื่อง
   เขียนทับบิล/ค่าตั้งของหอจริง ไม่ใช่ข้อมูลจำลอง และ `npm run smoke` ที่แตะ store adapter จะอ่าน bucket จริงด้วย
 
@@ -252,7 +279,8 @@ backend รับ event ของ Messaging API ได้แล้ว (`POST /v1
 
 1. บิลทั้งหมดย้ายมาอยู่ใน Postgres (หรือ backend อ่าน Blob/R2 ของ `line-app` ได้) — ยังไม่มีเส้นทางนี้
 2. handler ครบ: `follow`, `message` ("บิล"), `postback action=confirm` (ปิดบิล + ใบเสร็จ), สลิป
-3. `LINE_CHANNEL_ACCESS_TOKEN` **บน backend** (ตอนนี้ยังไม่มี — dunning จะ queue 0) และ channel secret ตรงช่องทางจริง
+3. `LINE_CHANNEL_ACCESS_TOKEN` **บน backend** (ตอนนี้ยังไม่มี — dunning จะ queue 0) และ channel secret ตรงช่องทางจริง —
+   ใช้ `LINE_CHANNEL_SECRET` ตัวเดียว หรือเก็บรายหอด้วย `SECRET_ENC_KEY` + `python scripts/set_line_secret.py` (ข้อ 3.5)
 4. ซ้อมด้วย OA ทดสอบ (`@223mmwot`) ก่อน แล้วสลับ OA จริงในช่วงที่ไม่มีคนใช้
 
 ขั้นตอนเมื่อครบ: LINE console → Messaging API ของช่องทางนั้น → Webhook URL = `https://line-backend-ten.vercel.app/v1/webhooks/line/p_1` → Verify → เปิด "Use webhook" · ถอยกลับได้ทันทีด้วยการชี้ URL เดิมของ `line-app`
@@ -260,6 +288,32 @@ backend รับ event ของ Messaging API ได้แล้ว (`POST /v1
 **ข้อควรระวัง:** อย่ากด "Issue" ที่ช่อง Channel secret ระหว่างทดสอบ — การหมุน secret ทำให้ webhook ที่ยังชี้ `line-app` (หรือ backend) ปฏิเสธทุก event (401) จนกว่าจะอัปเดตสองที่
 
 <!-- VERIFY: env ถูกตั้งแยก Production/Preview หรือใช้ค่าร่วมกัน — ต้องดู Project → Settings → Environment Variables · preview ของ line-app ใช้ Blob store เดียวกับ production หรือไม่ก็ยืนยันจากเรพไม่ได้ -->
+
+### 3.5 `SECRET_ENC_KEY` และ channel secret รายหอ (backend)
+
+`properties.line_secret_enc` เก็บ channel secret ของ OA แบบเข้ารหัส (Fernet) — มีไว้เมื่อ deployment ต้องรับ
+webhook ของหอที่เราไม่ได้ถือ channel secret เอง · ถ้าคอลัมน์ว่าง backend ใช้ `LINE_CHANNEL_SECRET` แบบเดิม
+
+- **`SECRET_ENC_KEY`** = กุญแจ Fernet ตัวเดียวทั้ง deployment (`backend/app/config.py`, `backend/app/secrets.py`)
+  สร้างด้วย:
+  ```bash
+  python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+  ```
+  ตั้งบนโปรเจกต์ `line-backend` (Production) แล้ว redeploy · **ทุก deployment ที่อ่านฐานเดียวกันต้องมีค่าเดียวกัน**
+  ไม่งั้นค่าที่เข้ารหัสไว้จะถอดไม่ได้
+- **เขียนค่าลงฐาน** (อ่าน secret จาก stdin ไม่ลง shell history):
+  ```bash
+  cd backend
+  python scripts/set_line_secret.py            # paste secret + Enter
+  python scripts/set_line_secret.py --clear    # กลับไปใช้ LINE_CHANNEL_SECRET
+  ```
+  สคริปต์เขียน `properties.line_secret_enc` ของ `PROPERTY_ID` ปัจจุบัน และต้องมีสิทธิ์ DML บนตารางนั้น
+- **พฤติกรรมเมื่อถอดไม่ได้** — `backend/app/routes/webhooks.py` ตอบ `503 LINE_SECRET_UNREADABLE`
+  (ไม่ใช่ 401) เพื่อให้ LINE retry และให้คนแก้กุญแจได้ · สาเหตุ: ไม่ได้ตั้ง `SECRET_ENC_KEY`, ค่าไม่ใช่ Fernet key
+  หรือเปลี่ยนกุญแจแล้วไม่รัน `set_line_secret.py` ใหม่
+- **ห้ามหมุน `SECRET_ENC_KEY` โดยไม่เตรียมการ** — เปลี่ยนแล้วต้องรัน `set_line_secret.py` ใหม่ทุกหอทันที
+  ระหว่างนั้น webhook ตอบ 503 (ไม่ใช่ 401) · ถ้าไม่ได้ใช้ secret รายหอ ไม่ต้องตั้ง env นี้เลย
+  <!-- VERIFY: `line-backend` บน production ตั้ง `SECRET_ENC_KEY` ไว้หรือยัง และ `properties.line_secret_enc` มีค่าไหม — ดูจาก Vercel env + psql เท่านั้น -->
 
 ---
 
@@ -444,7 +498,8 @@ endpoint ฝั่ง backend (`GET /v1/cron/daily`) ยังอยู่แล
 - `CRON_SECRET` ต้องยาว **≥ 16 ตัว** ไม่งั้น `503 NOT_CONFIGURED` (แยกจาก 401 เพื่อบอกว่า "ยังไม่ได้ตั้ง")
 - เทียบ secret ด้วย `sameSecret` (`crypto.timingSafeEqual` ใน `api/_auth.js`) — ไม่ตรง → `401 UNAUTHORIZED`
   (secret ใน query string ไม่ถูกอ่าน)
-- กันรอบซ้อนด้วย lock key `cron-lock` ใน Vercel Blob อายุ 15 นาที — ถ้ามี lock อยู่จะตอบ `200` พร้อม `skipped`
+- กันรอบซ้อนด้วย lock key `cron-lock` ผ่าน store adapter (`line-app/api/cron.js` → `_store.js`) อายุ 15 นาที —
+  บน production ตอนนี้คือ R2 (ข้อ 3.2.1) ไม่ใช่ Blob แล้ว · ถ้ามี lock อยู่จะตอบ `200` พร้อม `skipped`
   แทนการส่งซ้ำ
 - วันที่คิดด้วย `Asia/Bangkok` ไม่ใช่ UTC ของ server
 - ส่งเตือนก่อนครบกำหนด / วันครบกำหนด / เลย 1-5-10 วัน + สรุปให้เจ้าของ ผ่าน LINE push ของ line-app เอง
@@ -596,8 +651,10 @@ DATABASE_URL="postgresql+psycopg://…unpooled…" alembic current          # �
 
 ### 8.4 ย้อนข้อมูล — ไม่มีให้ย้อน
 
-- **line-app:** state อยู่ใน Vercel Blob แบบ key-value เขียนทับทันที (`allowOverwrite: true`) ไม่มี versioning ในโค้ด
+- **line-app:** state อยู่ใน Cloudflare R2 (Blob ถูก pause — ข้อ 3.2.1) แบบ key-value เขียนทับทันที
+  (`_store.js`; conditional PUT ใช้เฉพาะ `update()`/`create()` — `set()` เขียนทับตรง ๆ จึงยังกัน lost update ไม่ได้ · ไม่มี versioning/ย้อนอดีต) —
   บิลผิด = ออกรอบใหม่ด้วยมิเตอร์ที่ถูก · ห้ามรัน `POST /api/dev?do=seed` บนหอจริง (เขียนทับทุกห้อง)
+  · สำเนาเดียวที่กู้ได้คือโฟลเดอร์จาก `scripts/backup-r2.js` (ต้องรันเอง ไม่มี schedule)
 - **backend:** คืนข้อมูลได้เฉพาะที่มี backup ของ Neon — ไม่มีสคริปต์ backup ในเรพ
   <!-- VERIFY: Neon เปิด point-in-time restore / branch อะไรไว้ และเก็บกี่วัน — ต้องดูที่ Neon console -->
 
@@ -636,7 +693,8 @@ DATABASE_URL="postgresql+psycopg://…unpooled…" alembic current          # �
 | กิ่ง `chore/foo` ยัง deploy อยู่ทั้งที่ตั้งกฎแล้ว | มีแค่ `"*": false` ซึ่งไม่ match ชื่อกิ่งที่มี `/` | ใส่ `"**": false` ด้วย (มีแล้วในทั้งสอง `vercel.json`) |
 | deploy ล้มด้วย `exceeded_serverless_functions_per_deployment` | เพดาน Hobby 12 serverless functions ต่อ deployment · `line-app` ใช้ **ครบ 12** (`api/*.js` ที่ไม่ขึ้นต้นด้วย `_` — รวม `cron.js`) | รวม endpoint เดิมก่อนเพิ่มใหม่ (helper ที่ขึ้นต้นด้วย `_` ไม่นับ) |
 | deploy จาก Git ถูกปฏิเสธ / ไม่ขึ้นในรายการ | Vercel ผูก deployment กับ **author ของ commit** — ถ้า author ไม่ใช่สมาชิกทีม จะไม่ถูกนับเป็น deployment ของทีม | ตั้ง `git config user.email` ให้ตรงกับบัญชีที่อยู่ในทีม Vercel และอย่าใช้ email ปลอม/`noreply` ของคนอื่น |
-| `vercel --prod` จาก `line-app/` หรือ `backend/` ขึ้นผิดโปรเจกต์ / ได้ 404 ทั้ง site | CLI ใช้โปรเจกต์ที่ผูกไว้ใน `.vercel/project.json` ของโฟลเดอร์นั้น — ถ้าโฟลเดอร์ยังไม่ผูก หรือผูกโปรเจกต์ที่ Root Directory ไม่ตรงกับโฟลเดอร์นี้ CLI จะสร้าง/ใช้โปรเจกต์ที่ root ต่างจาก Git integration | เช็ก `.vercel/project.json` ว่า `projectName` ตรง (`line-app` / `line-backend`) ก่อนสั่ง · ถ้าไม่แน่ใจให้ใช้ dashboard หรือให้ Git integration deploy |
+| **`The specified Root Directory 'line-app' does not exist` ตอน `vercel --prod`** | โปรเจกต์ `line-app` มี Root Directory = `line-app` แต่สั่ง CLI จากใน `line-app/` → Vercel หา `line-app/line-app` | สั่งจาก **root ของ repo** (หลัง `vercel link` เลือก `line-app`) หรือ `vercel redeploy <deployment-url>` · อย่าใช้ `cd line-app && vercel --prod` |
+| `vercel --prod` ขึ้นผิดโปรเจกต์ / ได้ 404 ทั้ง site | CLI ใช้โปรเจกต์ที่ผูกไว้ใน `.vercel/project.json` ของโฟลเดอร์ที่สั่ง | เช็ก `.vercel/project.json` ว่า `projectName` ตรง (`line-app` / `line-backend`) · ถ้าไม่แน่ใจให้ใช้ dashboard หรือ Git integration · Root Directory ต้องตรงกับโปรเจกต์ (ข้อ 1) |
 | **หน้า owner/tenant ว่างเปล่า, `/v1/rooms` ตอบ 200 แต่ `[]`, บิล/ผู้เช่าไม่ขึ้น** | apply `0004` ก่อน deploy โค้ดที่มี `attach_property()` → connection ไม่มี `app.property_id` → policy fail closed อ่าน 0 แถว (ข้อ 4.4) | rollback deployment หรือ `alembic downgrade 0003` แล้วทำตามลำดับในข้อ 4.4 · เช็คด้วย `select current_setting('app.property_id', true);` |
 | `PROPERTY_ID` ไม่ตรงกับ `properties.id` ในฐานข้อมูล | policy เทียบกับค่านี้ตรง ๆ (default `p_1`) — ค่าผิด = อ่าน 0 แถวเหมือนกัน | ตั้ง `PROPERTY_ID` ให้ตรง แล้ว redeploy · `select id from properties;` |
 | เห็นข้อมูลข้ามหอ / policy ดูไม่มีผล | `DATABASE_URL` ของ runtime ใช้ role ที่มี `BYPASSRLS` (`neondb_owner`) จึงข้าม policy ทั้งหมด | เปลี่ยน runtime ไปใช้ `dormplus_app` · ตรวจ `select rolbypassrls from pg_roles where rolname = current_user` |
@@ -644,17 +702,19 @@ DATABASE_URL="postgresql+psycopg://…unpooled…" alembic current          # �
 | สลิปขึ้น **"ตรวจไม่ได้"** (`slipVerify.ok = null`, reason `not_configured`) | ไม่ได้ตั้ง `SLIPOK_API_KEY` / `SLIPOK_BRANCH_ID` ครบทั้งคู่ → `_verify.js` ไม่เรียกผู้ให้บริการเลย (ไม่ได้ล้มเหลว แค่ไม่ได้ตรวจ) | ตั้งทั้งคู่บนโปรเจกต์ `line-app` แล้ว redeploy (ข้อ 3) · สลิปยังถูกบันทึกครบ ไม่ต้องให้ผู้เช่าส่งใหม่ |
 | สลิปขึ้น "ตรวจไม่ได้" ทั้งที่ตั้งครบ | ผู้ให้บริการไม่ตอบ/อ่านรูปไม่ได้/สลิปใหม่เกินไป — โค้ดคืน `ok: null` พร้อม reason ไทย เช่น `ธนาคารขัดข้องชั่วคราว — ลองอีกครั้งใน 15 นาที`, `สลิปใหม่เกินไป` ตั้งใจไม่เรียกว่า "ปลอม" | ตรวจ log `slip verify failed ...` แล้วตรวจซ้ำภายหลัง · อย่าลบบิล/หาว่าผู้เช่าโกงจากผลนี้ (`ok: false` เท่านั้นที่หมายถึงสลิปมีปัญหา: `1012` ซ้ำ, `1013` ยอดไม่ตรง, `1014` บัญชีผู้รับ) |
 | **สลิปทุกใบได้ `1014` "บัญชีผู้รับไม่ใช่บัญชีของหอ"** | branch ใน `SLIPOK_BRANCH_ID` ยังไม่ผูกบัญชีรับเงินของหอ (หรือสลิปโอนเข้าบัญชีคนละใบจริง ๆ) | ผูกบัญชีรับเงินของหอใน branch นั้นที่ SlipOK dashboard — **ไม่ต้อง redeploy** (env ไม่เปลี่ยน) · ตรวจว่า `SLIPOK_BRANCH_ID` ชี้ branch ของหอนี้ ไม่ใช่ของหออื่น |
-| LINE webhook ของ backend ตอบ `503 LINE_NOT_CONFIGURED` | ไม่ได้ตั้ง `LINE_CHANNEL_SECRET` บนโปรเจกต์ `line-backend` (ชื่อ code นี้ใช้ทั้ง `/v1/auth/line` และ webhook) | ตั้งค่าแล้ว redeploy · OA ที่ใช้งานจริงยังชี้ webhook ที่ `line-app` จึงไม่กระทบการทวงบิล |
+| LINE webhook ของ backend ตอบ `503 LINE_NOT_CONFIGURED` | ไม่ได้ตั้ง `LINE_CHANNEL_SECRET` บนโปรเจกต์ `line-backend` **และ** `properties.line_secret_enc` ว่าง (ชื่อ code นี้ใช้ทั้ง `/v1/auth/line` และ webhook) | ตั้งค่าแล้ว redeploy หรือเก็บ secret รายหอด้วย `scripts/set_line_secret.py` (ข้อ 3.5) · OA ที่ใช้งานจริงยังชี้ webhook ที่ `line-app` จึงไม่กระทบการทวงบิล |
+| LINE webhook ของ backend ตอบ `503 LINE_SECRET_UNREADABLE` | มีค่าใน `properties.line_secret_enc` แต่ถอดด้วย `SECRET_ENC_KEY` ไม่ได้ — ไม่ได้ตั้งคีย์, ค่าไม่ใช่ Fernet key, หรือเปลี่ยนคีย์แล้ว | ตั้ง/แก้ `SECRET_ENC_KEY` ให้เป็นค่าที่ใช้ตอนเข้ารหัส แล้ว redeploy · ถ้าไม่รู้คีย์เดิม ให้ `python scripts/set_line_secret.py` เขียนใหม่ (หรือ `--clear` เพื่อกลับไปใช้ `LINE_CHANNEL_SECRET`) |
 | line-app cron ตอบ `503 NOT_CONFIGURED` | ไม่ได้ตั้ง `CRON_SECRET` หรือสั้นกว่า 16 ตัว | ตั้งค่า ≥ 16 ตัวบนโปรเจกต์ `line-app` แล้ว redeploy (ข้อ 6) |
 | ตั้ง `CRON_SECRET` แล้ว cron ยัง 401 | ค่าที่ตั้งไม่ตรงกับที่ deployment เห็น (ตั้งแล้วยังไม่ redeploy) หรือตั้งที่โปรเจกต์ผิด (คนละโปรเจกต์) — `cron.js` อ่าน env ต่อ request แต่ Vercel ผูก env กับ deployment | redeploy หลังตั้ง env บนโปรเจกต์ที่ถูก (ข้อ 3, 6.1) |
 | cron ทวงซ้อนสองรอบ / ส่งข้อความซ้ำ | เปิด `crons` ทั้ง `line-app` และ backend | ให้ `line-app/vercel.json` เป็นที่เดียว · backend ต้องไม่มี `crons` (ข้อ 6) |
 | cron ของ backend ตอบ 503 `QUEUE_UNAVAILABLE` | ยังไม่รัน `python -m app.queue` บนฐานข้อมูลนั้น | รันด้วย unpooled URL (ข้อ 5) — หรือไม่ต้องใช้ endpoint นี้เลยถ้าทวงที่ line-app |
 | หน้า LIFF ยังเป็น build เก่า / `qr-ph` หาย | deploy ไม่ขึ้น (กิ่งไม่ใช่ `master`/`preview-*`) หรือ alias ยังชี้ deployment เก่า | ดู Deployments ล่าสุด + `node scripts/prod-smoke.mjs` |
 | **`/owner` เปิดได้แต่ล็อกอินไม่ผ่าน — `503 OWNER_LOGIN_OFF`** | ไม่ได้ตั้ง `OWNER_ACCESS_CODE` บนโปรเจกต์ `line-backend` (หรือตั้งแล้วยังไม่ redeploy) | ตั้งรหัสแล้ว redeploy (ข้อ 3.1) — ตัวหน้าเว็บยัง serve ปกติ ไม่ใช่ deploy ล้ม |
-| หลังย้าย R2 แล้วบิล/สลิปหายทั้งหมด | ตั้ง `R2_BUCKET` ก่อนคัดลอกข้อมูล หรือ bucket ว่าง/credential ไม่ครบ (`createStore()` throw ทุก request และไม่ fallback Blob) | คัดลอกด้วย `scripts/migrate-blob-to-r2.js` ตามข้อ 3.2 · ถอยกลับชั่วคราว: ลบ `R2_BUCKET` แล้ว redeploy (ข้อมูลช่วง R2 ไม่กลับเอง) |
+| หลังย้าย R2 แล้วบิล/สลิปหายทั้งหมด | ตั้ง `R2_BUCKET` ก่อนคัดลอกข้อมูล หรือ bucket ว่าง/credential ไม่ครบ (`createStore()` throw ทุก request และไม่ fallback Blob) | คัดลอกด้วย `scripts/migrate-blob-to-r2.js` ตามข้อ 3.2 · **ถอยกลับ Blob ไม่ได้แล้ว** (Blob ถูก pause — ข้อ 3.2.1) ทางกู้คือ upload จาก backup ของ `scripts/backup-r2.js` หรือคัดลอกจาก bucket ให้ครบ |
+| อยากถอย R2 → Blob หลังเกิดปัญหา | `_store.js` เลือก Blob เมื่อไม่มี `R2_BUCKET` — แต่ Blob store ถูก pause เพราะโควต้าครบ | ทำไม่ได้จนกว่า Blob จะกลับมา · อย่าลบ `R2_*` ออกโดยไม่มีแผนกู้ เพราะจะทำให้ทุก request ที่แตะ storage error |
 
 <!-- VERIFY: ข้อ "Git author ต้องเป็นสมาชิกทีม" เป็นพฤติกรรมฝั่ง Vercel account ไม่ใช่สิ่งที่เรพพิสูจน์ได้ — ถ้า deploy จาก Git ไม่ขึ้น ให้ดูที่ Project → Settings → Git ว่า author ของ commit ถูกมองเป็นสมาชิกทีมหรือไม่ -->
-<!-- VERIFY: อาการ "Root Directory ไม่ตรง" ขึ้นกับสถานะการผูก `.vercel/project.json` ในเครื่องที่สั่ง — ตัวไฟล์ถูก gitignore จึงยืนยันจากเรพไม่ได้ว่าค่าปัจจุบันถูกต้อง -->
+<!-- VERIFY: Root Directory ของ `line-backend` (ระบุ `backend` ใน backend/README.md) และสถานะ `.vercel/project.json` ในเครื่องที่สั่ง — ไฟล์ถูก gitignore จึงยืนยันจากเรพไม่ได้ · อาการ Root Directory ของ `line-app` เป็นข้อเท็จจริงที่เจอมาแล้ว -->
 
 ---
 
@@ -664,6 +724,6 @@ DATABASE_URL="postgresql+psycopg://…unpooled…" alembic current          # �
 |---|---|
 | [`CONFIGURATION.md`](./CONFIGURATION.md) | env ทุกตัวของทั้งสองโปรเจกต์, default, required vs optional, pooled vs unpooled, role ของ DB |
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | โครงระบบ, RLS, และเหตุผลที่ cron อยู่ที่ line-app |
-| [`../line-app/docs/DEPLOYMENT.md`](../line-app/docs/DEPLOYMENT.md) | Blob store, LINE Console (webhook/LIFF), rich menu, ตาราง error string ของ line-app |
+| [`../line-app/docs/DEPLOYMENT.md`](../line-app/docs/DEPLOYMENT.md) | storage (R2/Blob), LINE Console (webhook/LIFF), rich menu, ตาราง error string ของ line-app |
 | [`../backend/README.md`](../backend/README.md) | endpoint, session, migration, RLS + role, queue, deploy บน Vercel |
 | [`HANDOFF.md`](./HANDOFF.md) | งานที่เหลือและเกณฑ์ "เสร็จ" |
