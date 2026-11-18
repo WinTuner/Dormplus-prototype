@@ -7,6 +7,7 @@ import functools
 from app.config import get_settings
 
 PUSH_URL = "https://api.line.me/v2/bot/message/push"
+REPLY_URL = "https://api.line.me/v2/bot/message/reply"
 
 
 @functools.lru_cache(maxsize=1)
@@ -25,6 +26,16 @@ def client():
 
 def push_text(to_user_id: str, text: str) -> str:
     """Send one text message. Returns the LINE status we can log ('ok' or 'error:…')."""
+    return _send(PUSH_URL, {"to": to_user_id, "messages": [{"type": "text", "text": text}]})
+
+
+def reply_text(reply_token: str, text: str) -> str:
+    """Answer the event that just arrived. Free, but the token dies about a minute after the event."""
+    return _send(REPLY_URL, {"replyToken": reply_token,
+                             "messages": [{"type": "text", "text": text}]})
+
+
+def _send(url: str, body: dict) -> str:
     token = get_settings().line_channel_access_token
     if not token:
         return "skipped: no LINE_CHANNEL_ACCESS_TOKEN"
@@ -32,11 +43,7 @@ def push_text(to_user_id: str, text: str) -> str:
     import httpx
 
     try:
-        response = client().post(
-            PUSH_URL,
-            json={"to": to_user_id, "messages": [{"type": "text", "text": text}]},
-            headers={"Authorization": f"Bearer {token}"},
-        )
+        response = client().post(url, json=body, headers={"Authorization": f"Bearer {token}"})
     except (httpx.HTTPError, OSError) as err:
         return f"error: {err}"
     if response.status_code == 200:

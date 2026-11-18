@@ -237,6 +237,28 @@ key ใหม่นี้ **ถูกสร้างเองแบบ lazy** �
   เส้นทาง overdue/income/cron ของห้องนั้นเหลือ **1 read**
 - ถ้าจะย้ายข้อมูลไป R2 (ข้อ 3.2) `kv/bill-state-*.json` ถูกคัดลอกไปเหมือน key อื่น — ไม่มีขั้นตอนพิเศษ
 
+### 3.4 สลับ webhook มาที่ backend — **ยังไม่ทำ และยังไม่ควรทำ**
+
+backend รับ event ของ Messaging API ได้แล้ว (`POST /v1/webhooks/line/:property_id`) และตอบ 2 อย่างด้วย
+ข้อความ: `follow` → ทักทาย, พิมพ์ `บิล` → บิลล่าสุดของผู้เช่าจาก Postgres (`backend/app/line_handlers.py`)
+
+**แต่การชี้ webhook ของ OA มาที่ backend ตอนนี้จะทำให้บอทที่ใช้งานจริงตอบผิด** เพราะ:
+
+- บิลที่ผู้เช่าเห็นอยู่จริงอยู่ใน Blob/R2 ของ `line-app` (`bill:<period>:<room>`) ไม่ใช่ Postgres —
+  backend จะตอบ "ยังไม่มีบิล" ให้ทุกคนที่ยังไม่ผูกในตาราง `tenants` (production มี 0 คนผูก)
+- ฟีเจอร์ที่ผู้เช่าใช้ทุกวันยังมีแต่ใน `line-app`: การ์ดบิล Flex, ปุ่มยืนยันการชำระ (postback), ใบเสร็จ, สลิป
+
+เงื่อนไขก่อนสลับ (ต้องครบทุกข้อ ไม่งั้นบอทเงียบ/ตอบผิด):
+
+1. บิลทั้งหมดย้ายมาอยู่ใน Postgres (หรือ backend อ่าน Blob/R2 ของ `line-app` ได้) — ยังไม่มีเส้นทางนี้
+2. handler ครบ: `follow`, `message` ("บิล"), `postback action=confirm` (ปิดบิล + ใบเสร็จ), สลิป
+3. `LINE_CHANNEL_ACCESS_TOKEN` **บน backend** (ตอนนี้ยังไม่มี — dunning จะ queue 0) และ channel secret ตรงช่องทางจริง
+4. ซ้อมด้วย OA ทดสอบ (`@223mmwot`) ก่อน แล้วสลับ OA จริงในช่วงที่ไม่มีคนใช้
+
+ขั้นตอนเมื่อครบ: LINE console → Messaging API ของช่องทางนั้น → Webhook URL = `https://line-backend-ten.vercel.app/v1/webhooks/line/p_1` → Verify → เปิด "Use webhook" · ถอยกลับได้ทันทีด้วยการชี้ URL เดิมของ `line-app`
+
+**ข้อควรระวัง:** อย่ากด "Issue" ที่ช่อง Channel secret ระหว่างทดสอบ — การหมุน secret ทำให้ webhook ที่ยังชี้ `line-app` (หรือ backend) ปฏิเสธทุก event (401) จนกว่าจะอัปเดตสองที่
+
 <!-- VERIFY: env ถูกตั้งแยก Production/Preview หรือใช้ค่าร่วมกัน — ต้องดู Project → Settings → Environment Variables · preview ของ line-app ใช้ Blob store เดียวกับ production หรือไม่ก็ยืนยันจากเรพไม่ได้ -->
 
 ---
