@@ -204,10 +204,23 @@ vercel --prod
 6. **redeploy** แล้วตรวจ `/api/config` + 1 บิล + 1 สลิป (รูปสลิปต้องเปิดได้) + `bill-state:` ของห้องที่เพิ่งบันทึกบิล
 
 **Rollback:** ลบ `R2_BUCKET` (และ credential R2) แล้ว redeploy — `_store.js` กลับไปใช้ Blob ทันที
+⚠️ **ตั้งแต่ 18 พ.ย. 2026 วิธีนี้ใช้ไม่ได้แล้ว** เพราะ Blob ใช้โควต้าฟรีครบและถูก pause 30 วัน (ดู 3.2.1)
 ⚠️ **ข้อมูลที่เขียนลง R2 ในช่วงนั้นจะไม่ย้ายกลับเอง** — Blob จะยังเป็นสำเนาก่อนการย้าย ถ้าต้องการข้อมูลช่วงนั้นคืน
 ต้องคัดลอกกลับเองก่อน (ยังไม่มีสคริปต์ทิศทางย้อนกลับในเรพ)
 
 <!-- VERIFY: ชื่อ bucket, region, สถานะ R2 และว่า token ที่สร้างเป็น read/write ของ bucket เดียว — ดูได้ที่ Cloudflare dashboard เท่านั้น -->
+
+### 3.2.1 สถานะจริง (18 พ.ย. 2026): R2 ใช้งานอยู่ · Blob ถูก pause
+
+- **Production `line-app` รันบน R2** (`R2_BUCKET=domplus-pcat` + credential ครบสี่ตัวบน Production) —
+  พิสูจน์ด้วยการเขียน key ผ่าน adapter ที่ deploy อยู่จริง แล้วพบ object นั้นใน bucket (ไม่ใช่แค่การอ่าน env)
+- **Vercel Blob ใช้ 10,000 simple operations ครบ** → store ถูก pause 30 วัน ดังนั้น **ถอยกลับ Blob ไม่ได้ในช่วงนี้**
+  และ R2 คือสำเนาเดียวของข้อมูลจริง
+- **Preview ไม่มี `R2_*`** — token ของ R2 จำกัดสิทธิ์ที่ bucket เดียว (สร้าง bucket ใหม่ได้ `403 AccessDenied`)
+  preview ที่ต้องอ่าน storage จะ error ซึ่งเป็นพฤติกรรมที่ต้องการ: preview ต้องไม่เขียนทับข้อมูลจริง
+- **สำรองข้อมูล:** `node scripts/backup-r2.js <โฟลเดอร์ว่าง>` คัด `kv/` + `slips/` ทั้งหมดลงเครื่อง
+  (126 ไฟล์ / 1.81 MB ณ วันนั้น) — เก็บ **นอกเรพ** เพราะ `slips/` เป็นรูปสลิปของผู้เช่า
+
 
 ### 3.3 `bill-state:<room>` — ไม่มี migration และไม่ต้อง block deploy
 
