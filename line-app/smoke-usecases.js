@@ -37,6 +37,7 @@ const store = {
     const next = await apply(await store.get(k));
     if (next !== undefined) await store.set(k, next);
   },
+  remove: async (k) => { if (gate) await gate("remove", k); data.delete(k); },
   create: async (k, v) => {
     if (await store.get(k) !== null) return false;
     await store.set(k, v);

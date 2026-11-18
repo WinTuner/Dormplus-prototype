@@ -500,7 +500,7 @@ def test_all_42_bills_reach_the_tenant_and_the_message_log(client_for, seeded, m
     assert (body["rooms_to_bill"], body["queued"], body["drained"]) == (42, 42, True)
 
     # Run each queued job the way the worker would, with LINE answering 200.
-    monkeypatch.setattr(tasks.line_push, "push_text", lambda to, text: "ok")
+    monkeypatch.setattr(tasks.line_push, "push_text", lambda to, text, retry_key=None: "ok")
     monkeypatch.setattr(tasks, "get_engine", lambda: seeded)
     for call in calls:
         tasks.push_text(**call)

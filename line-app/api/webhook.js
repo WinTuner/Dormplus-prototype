@@ -24,6 +24,11 @@ async function confirmGroup(event, room, rawPeriods, userId, baseUrl) {
   }
 
   const paid = await closeBills(room, open, { latest, userId }); // one write per key, not one saveBill per period
+  if (!paid.length) {
+    return reply(event.replyToken, [
+      { type: "text", text: `ห้อง ${room} รอบ ${periods.join(", ")} เปลี่ยนสถานะไปแล้ว (ยืนยันหรือยกเลิกที่อื่น) — ไม่ได้ปิดบิลครับ` },
+    ]);
+  }
   // The card was minted with the old total; now that a period may have been voided, say what was
   // actually settled so the owner knows if a refund is owed.
   const settled = paid.reduce((n, b) => n + Number(b.total || 0), 0);
@@ -156,6 +161,13 @@ async function handleEvent(event, baseUrl) {
       }
 
       const [paid] = await closeBills(room, [bill], { latest, userId });
+      // The bill moved between the read above and the write (a void, or another confirm): no receipt,
+      // and the owner has to know the tap did nothing.
+      if (!paid) {
+        return reply(event.replyToken, [
+          { type: "text", text: `ห้อง ${room} รอบ ${bill.period} เปลี่ยนสถานะไปแล้ว (ยืนยันหรือยกเลิกที่อื่น) — ไม่ได้ปิดบิลครับ` },
+        ]);
+      }
       await Promise.all([
         sendReceipts(room, [paid], userId, baseUrl),
         reply(event.replyToken, [{ type: "text", text: `ยืนยันห้อง ${room} แล้ว ✅${refundNote([paid])}` }]),

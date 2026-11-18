@@ -26,9 +26,23 @@ const paidCopy = (bill, userId, { auto = false, closing = null } = {}) => {
   };
 };
 
-// Save the paid bills (one write per key) and tag any overpayment so the owner can find the refund.
+// Save the paid bills and tag any overpayment so the owner can find the refund. Each write checks the
+// status it read first: a void (or a second confirm) may land while the owner is tapping, and a blind
+// write would turn a cancelled bill into income and a receipt. A bill that lost the race is left out
+// of the returned list, so nobody is sent a receipt for it.
 async function closeBills(room, bills, { latest, userId, auto } = {}) {
-  const paid = bills.map((b) => paidCopy(b, userId, { auto, closing: bills }));
+  const paid = [];
+  for (const bill of bills) {
+    const copy = paidCopy(bill, userId, { auto, closing: bills });
+    let applied = false;
+    await store.update(`bill:${bill.period}:${room}`, (current) => {
+      if (current && current.status !== "pending" && current.status !== "unpaid") return undefined;
+      applied = true;
+      return copy;
+    });
+    if (applied) paid.push(copy);
+  }
+  if (!paid.length) return paid;
   await saveBills(paid, { latest });
   await tagOverpaid(room, paid.filter((b) => b.refundReason === "overpaid"));
   return paid;

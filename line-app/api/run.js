@@ -198,6 +198,13 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl, base) {
   if (now && now.status !== "unpaid" && !sameVoid) {
     return { room, error: `บิลรอบนี้${now.status === "paid" ? "ชำระแล้ว" : now.status === "void" ? "ถูกยกเลิกไปแล้ว" : "แจ้งชำระแล้ว"} แก้ไม่ได้` };
   }
+  // A second tap (or a timeout and resubmit) works from a stale copy of an unpaid bill: it would
+  // rewrite the same period with the same rev and send the tenant a second card for one receipt
+  // number. If the stored bill moved since the read, this request is the duplicate.
+  if (existing && existing.status !== "void" && now &&
+      ((now.rev || 1) !== (existing.rev || 1) || now.issuedAt !== existing.issuedAt)) {
+    return { room, error: "บิลรอบนี้เพิ่งถูกออกไปแล้ว — เปิดหน้าออกบิลใหม่แล้วตรวจอีกครั้ง" };
+  }
 
   await Promise.all([
     store.set(`meter:${room}`, { water: waterUnits, elec: elecUnits, at: new Date().toISOString(), ...(dial && { dial }) }),

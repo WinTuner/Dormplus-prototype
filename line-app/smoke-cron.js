@@ -20,6 +20,7 @@ const store = {
     const next = await apply(data.has(k) ? data.get(k) : null);
     if (next !== undefined) data.set(k, next);
   },
+  remove: async (k) => { data.delete(k); },
   create: async (k, v) => {
     if (data.has(k)) return false;
     data.set(k, v);
