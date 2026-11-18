@@ -170,16 +170,30 @@ async function voidBill(req, res, userId) {
     // Money the dorm is holding for a cancelled payment: a paid bill, or a pending one whose slip the
     // provider verified (the transfer is real; only the owner's tap was missing). The system does not
     // move money; this is the number the owner has to refund, kept on the record so it is not lost.
-    ...((bill.status === "paid" || (bill.status === "pending" && bill.slipVerify?.ok === true)) && bill.total
+    ...((bill.status === "paid" ||
+      (bill.status === "pending" && (bill.slipVerify?.ok === true || bill.slipAmount != null))) && bill.total
       ? { refundDue: bill.total + extraOwed }
       : {}),
     // The extra was already paid back before the void: keep it for the history only.
     ...(overpaidExtra && oldRefundedAt ? { priorRefund: { reason: "overpaid", amount: overpaidExtra, refundedAt: oldRefundedAt } } : {}),
   };
+  // Written against the status that was read: the owner may confirm the slip (paid) in the chat at
+  // the same moment, and a blind void write would erase paidAt/receiptNo and the refund that money owes.
+  let applied = false;
+  await store.update(`bill:${period}:${room}`, (current) => {
+    const seen = current || (latest && latest.period === period ? latest : null);
+    if (!seen || seen.status !== bill.status) return undefined;
+    applied = true;
+    return voided;
+  });
+  if (!applied) {
+    return fail(res, 409, "INVALID_STATE", `บิลห้อง ${room} รอบ ${period} เพิ่งเปลี่ยนสถานะ — เปิดบิลใหม่แล้วลองอีกครั้ง`);
+  }
+
   const [, tenant, tenancy] = await Promise.all([
     // Archive at once, not only when run.js re-issues it: a bill cancelled and never re-issued must
     // still show up in `?voided=1`. archiveVoid is idempotent, so run.js archiving again is harmless.
-    saveBill(voided, { latest }).then(() => archiveVoid(voided)),
+    saveBill(voided, { latest: voided }).then(() => archiveVoid(voided)),
     store.get(`room-user:${room}`),
     tenancyOf(room),
   ]);
@@ -382,7 +396,12 @@ async function pendingList(res) {
   const perRoom = await mapLimit(ROOMS, ROOMS_AT_ONCE, async (room) => {
     const pending = (await ledger.stateBills(room)).filter((b) => b.status === "pending");
     if (!pending.length) return [];
-    const bills = await Promise.all(pending.map((b) => store.get(`bill:${b.period}:${room}`)));
+    // A bill written before the per-period key existed lives only as `bill:<room>`; without the
+    // fallback its slip would be invisible here and its photo a 404.
+    const latest = await store.get(`bill:${room}`);
+    const bills = await Promise.all(
+      pending.map(async (b) => (await store.get(`bill:${b.period}:${room}`)) || (latest && latest.period === b.period ? latest : null))
+    );
     return bills
       .filter((b) => b && b.status === "pending")
       .map((b) => ({

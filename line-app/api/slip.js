@@ -205,8 +205,14 @@ async function rememberRef(verify, room) {
   return { ...verify, ok: false, reason: `สลิปนี้ถูกใช้ไปแล้ว (ห้อง ${(seen && seen.room) || "?"})` };
 }
 
-// The advance path: one `prepay:<room>` record per room, replaced by each new slip.
+// The advance path: one `prepay:<room>` record per room. Only one slip can be waiting there, so a
+// second one from a different account is refused instead of silently replacing the first (its money
+// would exist only in the owner's chat).
 async function saveAdvance({ res, room, userId, owner, latest, note, slipPath, sent, verify }) {
+  const waiting = await store.get(`prepay:${room}`);
+  if (!owner && waiting && waiting.slipPath && waiting.by && waiting.by !== userId) {
+    return fail(res, 409, "INVALID_STATE", "ห้องนี้มีสลิปโอนล่วงหน้าของอีกบัญชีรออยู่แล้ว — ให้เจ้าของหอตรวจก่อน");
+  }
   // `byStaff`: the owner recorded it, so it is about the room, not about one tenant (see _prepay.usable).
   const prepay = {
     room, slipPath, slipNote: note || null, slipAt: new Date().toISOString(), slipCount: sent + 1, by: userId,

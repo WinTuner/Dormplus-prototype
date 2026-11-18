@@ -61,6 +61,7 @@ UC-07 และ UC-08 เพิ่มเข้ามาหลังแผนภ�
 | TC-01-9 | backend: เจ้าของอ่านค่าตั้งของหอตัวเอง | seed demo dorm | `GET /v1/properties/p_1` | 200 · `billing_mode`, เรตน้ำ/ไฟ, `due_days`, `rooms` = ทุกห้องรวมห้องว่าง | ✅ `backend/tests/test_properties.py::test_owner_reads_own_property` |
 | TC-01-10 | backend: หออื่นตอบ 404 (ไม่ใช่ 403) · ผู้เช่า 403 · ไม่ล็อกอิน 401 | มีหอ p_2 ในฐานข้อมูล | `GET /v1/properties/*` ด้วย session ต่าง ๆ | p_2 → 404 · ผู้เช่า → 403 · ไม่ล็อกอิน → 401 | ✅ `backend/tests/test_properties.py` (3 เทสต์) |
 | TC-01-11 | line-app: เจ้าของตั้งค่าหอ (ชื่อ · ค่าเช่า/น้ำ/ไฟเริ่มต้น · วันครบกำหนด) | ยังไม่มีค่าตั้ง (`dorm` ว่าง) | `GET /api/rooms?settings=1` → `POST {dorm:{name, rent, dueDay:5}}` → `POST /api/run` | `defaults` เปลี่ยนตาม · ห้องที่ไม่ได้ตั้งราคาใช้ค่าใหม่ · **บิลมี `due` = วันที่ 5 ของเดือนนั้น** · `null` ล้างค่ากลับเป็น env · dueDay 31/ชื่อยาว/ค่าว่าง → 400 · viewer → 403 | ✅ `line-app/smoke-handlers.js` (dorm settings) |
+| TC-01-12 | ราคารายห้องไม่แช่ค่าตั้งของหอไว้ | ห้อง 202 ตั้ง `rent` อย่างเดียว | เปลี่ยน `dorm.waterRate` 25→22 แล้วอ่าน `GET /api/rooms` | `room:<room>` เก็บ **เฉพาะฟิลด์ที่ส่ง** · ห้องนั้นได้ค่าน้ำใหม่ 22 (ไม่ใช่ 25 ที่แช่ไว้) · ห้องที่ตั้งทับเองยังใช้ค่าของตัวเอง | ✅ `line-app/smoke-handlers.js` (room pricing) |
 
 ## UC-02 จดมิเตอร์น้ำ–ไฟ
 
@@ -133,6 +134,7 @@ UC-07 และ UC-08 เพิ่มเข้ามาหลังแผนภ�
 | TC-03-23 | backend: ห้องที่มีรูมเมทได้ข้อความครั้งเดียวถึงคนล่าสุด | ห้อง 201 มีผู้เช่า 2 คนผูก LINE ต่างกัน | ออกบิล | `room 201` ปรากฏครั้งเดียวในงานที่เข้าคิว และเป็น `line_user_id` ของคนที่ `moved_in` ใหม่สุด | ✅ `backend/tests/test_billing.py::test_two_tenants_in_one_room_get_one_message` |
 | TC-03-24 | backend: ออกบิลซ้ำเมื่อยังมีห้องที่ไม่มีมิเตอร์ — ยังตอบ 202 ไม่ใช่ 409 | ออกบิลแล้ว 12 ห้อง เหลือ 30 ห้องยังไม่มีมิเตอร์ | เรียก `/v1/billing/run` ซ้ำ | **202** `rooms_to_bill:0, skipped_no_reading:30` (409 เฉพาะเมื่อ **ทุก** ห้องออกบิลแล้ว) — รอบที่ออกครบทั้ง 42 ห้องแล้วจึงได้ 409 | ✅ `backend/tests/test_billing.py::test_running_again_with_rooms_still_unread_is_202`<br>`backend/tests/test_billing.py::test_running_again_after_every_room_is_billed_is_409` |
 | TC-03-25 | ดัชนีบิล (`bill-state:<ห้อง>` / `bills:<ห้อง>`) รวมการเขียนพร้อมกันได้ ไม่ทิ้งงวดหาย | R2 (มี ETag) | สองคำขอเขียนดัชนีห้องเดียวกันพร้อมกัน | `store.update(key, apply)` อ่าน ETag แล้วเขียนแบบ **If-Match** · คนที่แพ้ 412 อ่านใหม่แล้วรวมซ้ำ (สูงสุด 3 ครั้ง) ไม่เขียนทับรายการของอีกฝ่าย · ครบ 3 ครั้งยังแพ้ → throw ไม่เขียนเงียบ ๆ · บน Vercel Blob ถอยเป็นเขียนครั้งเดียว (ไม่มี ETag — ช่องที่ยอมรับ) | ✅ `line-app/smoke.js › conditional put` (412 + `If-Match` + `If-None-Match: *`) |
+| TC-03-26 | บันทึกงวดเก่าไม่ดึงสำเนา `bill:<room>` ย้อนหลัง | มีบิล 2027-08 เป็นตัวล่าสุด | บันทึกบิล 2027-07 (สลิปงวดเก่ามาช้า) | ตัวชี้ `bill:<room>` ยังเป็น 2027-08 (เขียนแบบเทียบ period) · บิล 2027-07 ถูกเขียนตามปกติ | ✅ `line-app/smoke-handlers.js` (races) |
 
 ## UC-04 ยืนยันการชำระ (include ออกใบเสร็จ)
 
@@ -164,6 +166,8 @@ UC-07 และ UC-08 เพิ่มเข้ามาหลังแผนภ�
 | TC-04-14 | backend: เลขใบเสร็จไม่ซ้ำ · ยืนยันพร้อมกันรอล็อกของหอ | ยืนยันหลายใบ | ยืนยันต่อเนื่อง/พร้อมกัน | เลขเรียงไม่ซ้ำ | ✅ `backend/tests/test_slip_confirm_reject.py::test_receipt_numbers_do_not_repeat`<br>`backend/tests/test_slip_confirm_reject.py::test_confirm_waits_for_the_dorm_lock` |
 | TC-04-15 | backend: ยืนยันต้องมีสลิปก่อน · หอพักอื่นยืนยันไม่ได้ | — | confirm ใบที่ unpaid / ข้ามหอ | ถูกปฏิเสธ | ✅ `backend/tests/test_slip_confirm_reject.py::test_confirm_needs_a_slip_first`<br>`backend/tests/test_slip_confirm_reject.py::test_other_dorm_cannot_confirm` |
 | TC-04-16 | backend: ตีสลิปกลับ → unpaid · ต้องมีสลิป pending | invoice pending | `POST …/reject` | unpaid / ปฏิเสธถ้าไม่ pending | ✅ `backend/tests/test_slip_confirm_reject.py::test_reject_sends_the_invoice_back_to_unpaid`<br>`backend/tests/test_slip_confirm_reject.py::test_reject_needs_a_pending_slip` |
+| TC-04-17 | ยกเลิกบิลที่แพ้การยืนยัน (สถานะเปลี่ยนระหว่างทาง) | บิล pending ที่เจ้าของจะกดยืนยันในแชทพร้อมกัน | ยิง `POST /api/bill {action:"void"}` | เขียนแบบเทียบสถานะเดิม: ไม่ผ่าน → `409 INVALID_STATE` · บิลไม่ถูกเขียนทับ (paidAt/receiptNo ไม่หาย) | ✅ `line-app/smoke-handlers.js` (races) |
+| TC-04-18 | บิลเก่าที่มีเฉพาะ `bill:<room>` (ก่อนมีคีย์รายงวด) ยังขึ้นในหน้ารอตรวจ | `bill:<room>` pending มี slipPath | `GET /api/bill?pending=1` แล้วเปิด `GET /api/slip-image?period=` | ขึ้นในรายการ · กดดูสลิปได้ 200 (fallback ไป `bill:<room>`) | ✅ `line-app/smoke-handlers.js` (races) |
 
 ## UC-05 ดูห้องค้างชำระ (ค้างกี่งวด · เกินกี่วัน)
 
@@ -561,6 +565,7 @@ UC-07 และ UC-08 เพิ่มเข้ามาหลังแผนภ�
 | TC-17-23 | การ์ดใน LINE จริง: ข้อความ "แจ้งโอนก่อนบิลออก" ถึงเจ้าของ และการ์ดยืนยันหลังออกบิล | LINE OA จริง | ผู้เช่าแนบสลิปก่อนบิล แล้วเจ้าของออกบิล | เจ้าของได้ข้อความแล้วได้การ์ดยืนยันที่กดได้ | 🖐 ทดสอบมือกับ LINE จริง |
 | TC-17-25 | บิลล่าสุดถูกยกเลิก (void) → สลิปที่แนบเป็นโอนล่วงหน้า บิล void ไม่ถูกแตะ | บิลล่าสุดสถานะ void | ผู้เช่าแนบสลิป | `status:"advance"` · บิล void เหมือนเดิม · มี `prepay` — รายละเอียดที่ UC-18 | ✅ `line-app/smoke-usecases.js › TC-18-5` |
 | TC-17-26 | ออกบิลใหม่ทับบิล void ที่มี prepay รออยู่ | บิล void · มี prepay | เจ้าของออกบิลห้องนั้นใหม่ | บิลใหม่ `pending` พร้อมสลิป (`prepaid`, rev 2) · prepay ถูกล้าง · เจ้าของได้การ์ดยืนยัน — รายละเอียดที่ UC-18 | ✅ `line-app/smoke-usecases.js › TC-18-9` |
+| TC-17-27 | สลิปโอนล่วงหน้าของอีกบัญชีรออยู่แล้ว | `prepay:<room>` ของผู้เช่าคนหนึ่ง | ผู้เช่าร่วมอีกคนส่งสลิปโอนล่วงหน้า | `409 INVALID_STATE` (ไม่เขียนทับสลิปเดิม) · เจ้าของ/ผู้ช่วยยังบันทึกแทนได้ | ✅ `line-app/smoke-handlers.js` (races) |
 
 ## UC-18 ยกเลิกบิล (void) และออกบิลใหม่
 
@@ -615,10 +620,10 @@ endpoint พร้อม ตรวจ signature จริง และ **ตอ�
 
 | UC | ชื่อ | TC ทั้งหมด | ✅ automated | 🖐 manual | ⏳ ยังไม่สร้าง |
 |---|---|---:|---:|---:|---:|
-| UC-01 | ตั้งค่าหอ (ค่าเช่า · อัตราน้ำไฟ) | 11 | 11 | 0 | 0 |
+| UC-01 | ตั้งค่าหอ (ค่าเช่า · อัตราน้ำไฟ) | 12 | 12 | 0 | 0 |
 | UC-02 | จดมิเตอร์น้ำ–ไฟ | 18 | 15 | 3 | 0 |
-| UC-03 | ออกบิล (คำนวณบิล · ส่งบิลทาง LINE) | 24 | 23 | 1 | 0 |
-| UC-04 | ยืนยันการชำระ (include ออกใบเสร็จ) | 16 | 15 | 1 | 0 |
+| UC-03 | ออกบิล (คำนวณบิล · ส่งบิลทาง LINE) | 25 | 24 | 1 | 0 |
+| UC-04 | ยืนยันการชำระ (include ออกใบเสร็จ) | 18 | 17 | 1 | 0 |
 | UC-05 | ดูห้องค้างชำระ (ค้างกี่งวด · เกินกี่วัน) | 11 | 10 | 1 | 0 |
 | UC-06 | ดูรายรับ | 8 | 7 | 1 | 0 |
 | UC-07 | เพิ่ม/ถอนเจ้าของและผู้ช่วย | 16 | 15 | 1 | 0 |
@@ -631,10 +636,10 @@ endpoint พร้อม ตรวจ signature จริง และ **ตอ�
 | UC-14 | ดูยอดค้างชำระ | 4 | 3 | 1 | 0 |
 | UC-15 | ดูใบเสร็จ | 10 | 8 | 2 | 0 |
 | UC-16 | ทวงอัตโนมัติ (เลยกำหนด 1 / 5 / 10 วัน) | 25 | 23 | 2 | 0 |
-| UC-17 | แจ้งชำระก่อนบิลออก (โอนก่อน) | 26 | 22 | 4 | 0 |
+| UC-17 | แจ้งชำระก่อนบิลออก (โอนก่อน) | 27 | 23 | 4 | 0 |
 | UC-18 | ยกเลิกบิล (void) และออกบิลใหม่ | 13 | 12 | 1 | 0 |
 | UC-19 | รับ event จาก LINE (webhook ฝั่ง backend) | 13 | 13 | 0 | 0 |
-| **รวม** | | **295** | **269** | **26** | **0** |
+| **รวม** | | **300** | **274** | **26** | **0** |
 
 หมายเหตุ: คอลัมน์ ✅ รวมทั้ง test ใน `line-app/smoke-usecases.js` (177 ข้อ) และ test ที่มีอยู่แล้วใน `backend/tests/` ที่ผูกกับกรณีนั้น (บางแถวอ้างหลายฟังก์ชัน นับเป็น 1 TC) แถว ✅ ที่อ้าง pytest ไม่ได้ถูกรันโดยชุดนี้ — รันด้วย `cd backend && pytest -q`
 

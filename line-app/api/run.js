@@ -187,6 +187,18 @@ async function issueBill(r, room, billPeriod, billDue, baseUrl, base) {
   // The dial the owner confirmed with this reading: next month it turns a new dial into "used".
   const dial = dialOf(r.dial);
 
+  // The guard above read the bill a moment ago; a tenant can pay in that window. Re-read the
+  // period's own key right before the write so a paid bill is never pushed back to unpaid (that
+  // would drop paidAt/receiptNo and contradict the receipt already in the chat).
+  const now = await store.get(`bill:${billPeriod}:${room}`);
+  // `void` is only allowed when it is the same cancelled revision read above (the re-issue path).
+  // A void that landed after that read already told the tenant the bill was cancelled and archived
+  // rev N: re-issuing from the stale copy would hand out the same receipt number again.
+  const sameVoid = existing && existing.status === "void" && now && now.status === "void" && (now.rev || 1) === (existing.rev || 1);
+  if (now && now.status !== "unpaid" && !sameVoid) {
+    return { room, error: `บิลรอบนี้${now.status === "paid" ? "ชำระแล้ว" : now.status === "void" ? "ถูกยกเลิกไปแล้ว" : "แจ้งชำระแล้ว"} แก้ไม่ได้` };
+  }
+
   await Promise.all([
     store.set(`meter:${room}`, { water: waterUnits, elec: elecUnits, at: new Date().toISOString(), ...(dial && { dial }) }),
     saveBill(first, { latest }), // `latest` was read above: no second read inside

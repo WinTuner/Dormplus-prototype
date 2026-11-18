@@ -202,10 +202,13 @@ async function bind(req, res, userId, code) {
   await store.set(`user-room:${userId}`, room);
   if (!holder) await store.set(`room-user:${room}`, userId); // first arrival is the primary
   // The name is what lets the owner answer "who is in 203?" without opening LINE for each room.
+  // Merged through the store so two people joining at once do not overwrite each other's name.
   const name = await displayName(userId);
-  const joined = members.filter((m) => idOf(m) !== userId);
-  joined.push({ id: userId, name, at: new Date().toISOString() });
-  await store.set(`room-users:${room}`, joined);
+  await store.update(`room-users:${room}`, (current) => {
+    const list = (Array.isArray(current) ? current : []).filter((m) => idOf(m) !== userId);
+    list.push({ id: userId, name, at: new Date().toISOString() });
+    return list;
+  });
 
   // Two people can scan the same sticker at the same moment (Blob has no compare-and-set): both read
   // an empty room and both would think they are the first arrival. Whoever the room ended up with
