@@ -320,7 +320,7 @@ function confirmBubble(bill) {
                   type: "button",
                   style: "link",
                   color: CARD.muted,
-                  action: { type: "uri", label: "ดูสลิป", uri: `https://liff.line.me/${LIFF_ID}` },
+                  action: { type: "uri", label: "ดูสลิป", uri: `https://liff.line.me/${LIFF_ID}?tab=slips` },
                 },
               ]
             : []),
@@ -361,7 +361,7 @@ function autoPaidBubble(bills) {
               type: "box",
               layout: "vertical",
               contents: [
-                { type: "button", style: "secondary", action: { type: "uri", label: "ดูสลิป", uri: `https://liff.line.me/${LIFF_ID}` } },
+                { type: "button", style: "secondary", action: { type: "uri", label: "ดูสลิป", uri: `https://liff.line.me/${LIFF_ID}?tab=slips` } },
               ],
             },
           }

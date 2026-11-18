@@ -18,8 +18,9 @@ module.exports = async (req, res) => {
   if (!userId) return;
 
   const room = String(req.query.room || "").trim();
-  const bound = await store.get(`user-room:${userId}`);
-  const staff = await canView(userId);
+  // One round trip: the review screen asks for one image per pending card, so the two auth reads
+  // should not stack up in front of the bill read.
+  const [bound, staff] = await Promise.all([store.get(`user-room:${userId}`), canView(userId)]);
   if (!staff && bound !== room) {
     return res.status(403).json({ error: { code: "FORBIDDEN", message: "เข้าถึงสลิปห้องนี้ไม่ได้" } });
   }
@@ -30,6 +31,7 @@ module.exports = async (req, res) => {
 
   // `period` picks one bill of an older round: the review screen lists every pending bill, and each
   // card has to open its own slip rather than the room's newest one.
+  const tenancy = staff || req.query.advance ? null : tenancyOf(room); // fetched while the bill loads
   const period = String(req.query.period || "").trim();
   const bill = req.query.archived
     ? await archivedSlip(room)
@@ -43,7 +45,7 @@ module.exports = async (req, res) => {
       : await store.get(req.query.advance ? `prepay:${room}` : `bill:${room}`);
   // The previous tenant's bill (and its slip) is not the new tenant's to see. An advance slip needs
   // no check: the previous tenant's one is archived when they leave.
-  const hidden = !staff && !req.query.advance && !visibleToTenant(bill, await tenancyOf(room));
+  const hidden = !staff && !req.query.advance && !visibleToTenant(bill, tenancy ? await tenancy : null);
   if (hidden || !bill?.slipPath) return res.status(404).json({ error: { code: "NOT_FOUND", message: "ยังไม่มีสลิป" } });
 
   const blob = await store.getFile(bill.slipPath);

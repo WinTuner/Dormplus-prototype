@@ -178,7 +178,7 @@ node smoke-cron.js      # /api/cron: ชนิดการเตือน, dedup
 npm test                # รันสามตัวแรกตามลำดับ (usecases/cron ไม่อยู่ใน npm test แต่ CI รัน)
 ```
 
-`node smoke-usecases.js` คือชุดเดียวกับ [`docs/TEST-CASES.md`](docs/TEST-CASES.md) (300 เคสใน 19 use case: 274 automate ✅ / 26 manual 🖐 / 0 ยังไม่สร้าง ⏳ — เคสที่ automate ได้ใน `line-app` มี 177 เคส ที่เหลือเป็น manual/LINE e2e หรือ pytest ฝั่ง backend) และ CI รันทั้งห้าไฟล์
+`node smoke-usecases.js` คือชุดเดียวกับ [`docs/TEST-CASES.md`](docs/TEST-CASES.md) (302 เคสใน 19 use case: 274 automate ✅ / 28 manual 🖐 / 0 ยังไม่สร้าง ⏳ — เคสที่ automate ได้ใน `line-app` มี 177 เคส ที่เหลือเป็น manual/LINE e2e หรือ pytest ฝั่ง backend) และ CI รันทั้งห้าไฟล์
 
 **`backend/`** — ต้องมี Postgres ก่อน (test ที่ต้องใช้ DB จะถูกข้ามถ้าไม่ได้ตั้ง `TEST_DATABASE_URL`):
 
@@ -270,7 +270,7 @@ exit code 1 ถ้ามีข้อไหนตก — ใช้เป็น ga
 | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | env ของทั้งสองฝั่ง + ค่า default |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | deploy ทั้งสองโปรเจกต์ Vercel · Neon · cron · rollback |
 | [`docs/TESTING.md`](docs/TESTING.md) | ชุดทดสอบ offline, pytest, manual matrix, CI |
-| [`docs/TEST-CASES.md`](docs/TEST-CASES.md) | 300 test case ใน 19 use case (274 automate / 26 manual / 0 ยังไม่สร้าง) |
+| [`docs/TEST-CASES.md`](docs/TEST-CASES.md) | 302 test case ใน 19 use case (274 automate / 28 manual / 0 ยังไม่สร้าง) |
 | [`docs/HANDOFF.md`](docs/HANDOFF.md) | งานที่เหลือ + เกณฑ์ "เสร็จ" |
 | [`backend/README.md`](backend/README.md) | endpoint · session · migration · test ของ backend |
 

@@ -159,16 +159,19 @@ const TH_MONTHS = ["ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.�
 const periodTh = (p) => (p && /^\d{4}-\d{2}$/.test(p) ? `${TH_MONTHS[Number(p.slice(5, 7)) - 1]} ${Number(p.slice(0, 4)) + 543}` : "—");
 const monthTh = (p) => (p && /^\d{4}-\d{2}$/.test(p) ? TH_MONTHS[Number(p.slice(5, 7)) - 1] : "");
 const dateTh = (d) => (d && /^\d{4}-\d{2}-\d{2}/.test(d) ? `${Number(d.slice(8, 10))} ${TH_MONTHS[Number(d.slice(5, 7)) - 1]} ${Number(d.slice(0, 4)) + 543}` : "—");
+// Bangkok wall clock, not the phone's: a tenant abroad (or an owner travelling) must still see the
+// day the dorm billed on. `en-CA` prints YYYY-MM-DD, which is what the bill's `due` strings use.
+const bangkokDay = (d) => new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
 const timeTh = (iso) => {
   if (!iso) return "";
   const t = new Date(iso);
   if (isNaN(t)) return "";
-  return `${t.getDate()} ${TH_MONTHS[t.getMonth()]} ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+  const p = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Bangkok", day: "numeric", month: "numeric", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(t).reduce((all, part) => ((all[part.type] = part.value), all), {});
+  return `${Number(p.day)} ${TH_MONTHS[Number(p.month) - 1]} ${p.hour}:${p.minute}`;
 };
-const todayISO = () => {
-  const t = new Date();
-  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
-};
+const todayISO = () => bangkokDay(new Date());
 
 // Top bar: title, kicker and an optional back target (a hash route).
 function header(kick, title, backTo) {
@@ -690,7 +693,7 @@ async function receiptScreen(room, period, back) {
     return;
   }
   const d = b.paidAt ? new Date(b.paidAt) : null;
-  const paidOn = d && !isNaN(d) ? `${dateTh(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`)} ${timeTh(b.paidAt).slice(-5)}` : "—";
+  const paidOn = d && !isNaN(d) ? `${dateTh(bangkokDay(d))} ${timeTh(b.paidAt).slice(-5)}` : "—";
   view.innerHTML = `
     <div class="receipt">
       <div class="row"><span class="brand">DormPlus</span>${b.status === "void" ? `<span class="pill">ยกเลิกแล้ว</span>` : `<span class="pill ok">ชำระแล้ว</span>`}</div>
@@ -1214,6 +1217,13 @@ async function acceptBind(code, me) {
   bottom("");
   view.innerHTML = `<div class="card"><div class="m">กำลังตรวจ QR…</div></div>`;
   const staff = me.role === "owner" || me.role === "viewer";
+  // A printed sticker is easy to scan while testing it. Binding it as staff would take the room from
+  // the tenant who is about to scan the same sticker (409 ROOM_TAKEN, and the fix rotates the code),
+  // so staff are asked first — the owner may legitimately live in their own dorm.
+  if (staff && !confirm("บัญชีนี้เป็นเจ้าของหอ/ผู้ช่วย\nผูกเป็นผู้เช่าห้องนี้จริงหรือไม่? ถ้าแค่ทดสอบ QR ให้กดยกเลิก")) {
+    history.replaceState(null, "", location.pathname);
+    return startOwner("home");
+  }
   const bind = (confirmMove) => api("/api/qr", { method: "POST", body: JSON.stringify({ code, confirmMove }) });
   try {
     let r;
@@ -1526,8 +1536,8 @@ function ownerBill() {
   $("applyRound").onclick = () => {
     const p = $("period").value.trim();
     const d = $("due").value.trim();
-    if (!/^\d{4}-\d{2}$/.test(p)) return toast("รอบบิลต้องเป็นรูปแบบ 2026-12", true);
-    if (d && !/^\d{4}-\d{2}-\d{2}$/.test(d)) return toast("วันครบกำหนดต้องเป็นรูปแบบ 2026-12-16", true);
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(p)) return toast("รอบบิลต้องเป็นรูปแบบ 2026-12", true);
+    if (d && !/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(d)) return toast("วันครบกำหนดต้องเป็นรูปแบบ 2026-12-16", true);
     // The due day travels with the new period: keeping the old string would issue December's bill with
     // November's date (already past, so it starts overdue).
     const day = Number((d || O.due).slice(8, 10)) || O.dueDay || DUE_DAY;
