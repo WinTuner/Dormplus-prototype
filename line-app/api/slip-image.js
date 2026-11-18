@@ -1,4 +1,5 @@
-// GET /api/slip-image?room=203[&advance=1][&archived=1] — streams a private slip photo.
+// GET /api/slip-image?room=203[&period=YYYY-MM][&advance=1][&archived=1] — streams a private slip photo.
+// period: that round's bill instead of the room's newest one.
 // advance=1: the slip sent before the bill existed (`prepay:<room>`).
 // archived=1: the previous tenant's advance slip, kept as `prepay-old:<room>:<ISO>` (staff only).
 const store = require("./_store");
@@ -27,9 +28,14 @@ module.exports = async (req, res) => {
     return res.status(403).json({ error: { code: "FORBIDDEN", message: "เฉพาะเจ้าของหอ" } });
   }
 
+  // `period` picks one bill of an older round: the review screen lists every pending bill, and each
+  // card has to open its own slip rather than the room's newest one.
+  const period = String(req.query.period || "").trim();
   const bill = req.query.archived
     ? await archivedSlip(room)
-    : await store.get(req.query.advance ? `prepay:${room}` : `bill:${room}`);
+    : period && !req.query.advance
+      ? await store.get(`bill:${period}:${room}`)
+      : await store.get(req.query.advance ? `prepay:${room}` : `bill:${room}`);
   // The previous tenant's bill (and its slip) is not the new tenant's to see. An advance slip needs
   // no check: the previous tenant's one is archived when they leave.
   const hidden = !staff && !req.query.advance && !visibleToTenant(bill, await tenancyOf(room));

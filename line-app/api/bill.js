@@ -7,6 +7,8 @@
 // `voided=1&refunds=1` (owner and helper) lists the refunds still owed, across all rooms unless
 // `room=` narrows. Two kinds, each item carries `kind`: "void" (a cancelled paid bill) and "overpaid"
 // (a paid bill whose confirmed slip was larger than the bill; `refundDue` is the extra).
+// `pending=1` (owner and helper): every bill with a slip waiting for an answer, from every period of
+// each room (read via `bill-state:<room>`), not only the newest bill.
 // `overdue=1`: unpaid bills past their due date, counted on the server (Bangkok date). A tenant gets
 // their own room; the owner and helpers get every room that has any (`room=` narrows).
 // `income=YYYY-MM` (owner and helper): money received in that Bangkok month by `paidAt`, whatever the
@@ -61,6 +63,10 @@ module.exports = async (req, res) => {
     return income(res, String(req.query.income).trim());
   }
   if (req.query.overdue) return overdue(res, { staff, bound, asked: String(req.query.room || "").trim() });
+  if (req.query.pending) {
+    if (!staff) return fail(res, 403, "FORBIDDEN", "เฉพาะเจ้าของหอ");
+    return pendingList(res);
+  }
   if (req.query.voided && req.query.refunds) {
     if (!staff) return fail(res, 403, "FORBIDDEN", "เฉพาะเจ้าของหอ");
     return outstandingRefunds(res, String(req.query.room || "").trim());
@@ -366,6 +372,34 @@ async function markOverpaidRefunded(res, userId, { room, period, rev, note }) {
   const mark = { refundedAt: new Date().toISOString(), refundedBy: userId, refundNote: note };
   await saveBill({ ...bill, ...mark }, { latest });
   return res.status(200).json({ ok: true, kind: "overpaid", room, period, rev, refundedAt: mark.refundedAt, refundDue: bill.refundDue });
+}
+
+// Bills waiting for the owner's answer — from every period, not only each room's newest bill. A
+// tenant can pay an older period (POST /api/slip takes `periods`), and the card pushes to chat; if
+// the review screen only looked at the newest bill, that slip would have no place to be confirmed.
+// One index read per room, then the real bill only for the rooms that actually have one pending.
+async function pendingList(res) {
+  const perRoom = await mapLimit(ROOMS, ROOMS_AT_ONCE, async (room) => {
+    const pending = (await ledger.stateBills(room)).filter((b) => b.status === "pending");
+    if (!pending.length) return [];
+    const bills = await Promise.all(pending.map((b) => store.get(`bill:${b.period}:${room}`)));
+    return bills
+      .filter((b) => b && b.status === "pending")
+      .map((b) => ({
+        room,
+        period: b.period,
+        total: b.total,
+        due: b.due,
+        slipAt: b.slipAt || null,
+        slipCount: b.slipCount || 0,
+        slipPath: b.slipPath || null,
+        slipVerify: b.slipVerify || null,
+      }));
+  });
+  const items = perRoom
+    .flat()
+    .sort((a, b) => String(a.period).localeCompare(String(b.period)) || a.room.localeCompare(b.room));
+  return res.status(200).json({ count: items.length, total: items.reduce((s, i) => s + Number(i.total || 0), 0), items });
 }
 
 // Unpaid bills past their due date, from the server's Bangkok date. A tenant sees only their own
