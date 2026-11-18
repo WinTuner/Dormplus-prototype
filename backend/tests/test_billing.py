@@ -466,6 +466,11 @@ def test_two_tenants_in_one_room_get_one_message(client_for, seeded, monkeypatch
 
 def test_all_42_bills_reach_the_tenant_and_the_message_log(client_for, seeded, monkeypatch):
     from app import notify as notify_module, tasks
+    from app.config import get_settings
+
+    # notify_invoices refuses to queue without a token (nothing could be sent).
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "test-token")
+    get_settings.cache_clear()
 
     read_all_rooms_for_november(seeded)
     with seeded.begin() as conn:

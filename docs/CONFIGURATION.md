@@ -109,7 +109,7 @@
 |---|---|---|
 | `LINE_CHANNEL_ID` | `app/routes/auth.py` | LINE Login channel ที่ออก idToken; ว่าง → 503 |
 | `LIFF_ID` | `app/main.py` | `GET /v1/liff-config` คืนให้หน้า LIFF (public โดยตั้งใจ) |
-| `LINE_CHANNEL_ACCESS_TOKEN` | `app/line_push.py`, `app/dunning.py` | Messaging API push; ว่าง → คืน `skipped:` ไม่ throw · `queue_reminders` เช็กก่อน: ไม่มี token = คืน 0 ไม่เขียนคิว/`message_log` (เดิมเขียน `skipped` ทุกใบทุกวัน) |
+| `LINE_CHANNEL_ACCESS_TOKEN` | `app/line_push.py`, `app/notify.py`, `app/dunning.py` | Messaging API push; ว่าง → คืน `skipped:` ไม่ throw · `queue_reminders` เช็กก่อน: ไม่มี token = คืน 0 ไม่เขียนคิว/`message_log` (เดิมเขียน `skipped` ทุกใบทุกวัน) |
 | `LINE_CHANNEL_SECRET` | `app/routes/webhooks.py` | ตรวจ `X-Line-Signature` (HMAC-SHA256 ของ raw body แบบ base64) **เมื่อ `properties.line_secret_enc` ว่าง**; ไม่มีทั้งสองที่ → `503 LINE_NOT_CONFIGURED` · `property_id` ใน path ต้องเท่ากับ `PROPERTY_ID` ไม่งั้น `404 NOT_FOUND` · signature ผิด → `401 UNAUTHORIZED` |
 | `SECRET_ENC_KEY` | `app/secrets.py` | กุญแจ Fernet (urlsafe base64 32 ไบต์) สำหรับถอด `properties.line_secret_enc` / `line_token_enc` · ไม่ตั้งหรือผิดรูป → เขียน/อ่านไม่ได้ · ถอดค่าเดิมไม่ได้ → webhook ตอบ `503 LINE_SECRET_UNREADABLE` (ไม่ใช่ 401 เพื่อให้ LINE retry) · หมุนกุญแจแล้วต้องรัน `scripts/set_line_secret.py` ใหม่ |
 

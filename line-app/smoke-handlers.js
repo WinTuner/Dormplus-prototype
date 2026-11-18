@@ -325,6 +325,9 @@ const { saveBill } = require("./api/_bills");
   r = await call(run, { user: "Uowner", body: { period: "2026-13", readings: [{ room: "209", water: 1, elec: 1 }] } });
   assert.strictEqual(r.status, 400, "a period that is not YYYY-MM is refused");
 
+  r = await call(run, { user: "Uowner", body: { period: "2026-02", due: "2026-02-31", readings: [{ room: "209", water: 1, elec: 1 }] } });
+  assert.deepStrictEqual([r.status, r.body.error?.code], [400, "VALIDATION"], "a due date that does not exist is refused");
+
   // ---------------------------------------------------------------- reading a meter from a photo
   const img = "data:image/jpeg;base64," + Buffer.from("jpeg-bytes").toString("base64");
   const geminiAnswer = (obj) => ({ status: 200, body: { candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] } }] } });

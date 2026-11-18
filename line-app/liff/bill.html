@@ -1538,6 +1538,12 @@ function ownerBill() {
     const d = $("due").value.trim();
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(p)) return toast("รอบบิลต้องเป็นรูปแบบ 2026-12", true);
     if (d && !/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(d)) return toast("วันครบกำหนดต้องเป็นรูปแบบ 2026-12-16", true);
+    // Days 29–31 do not exist in every month: 2026-02-31 would be stored and normalise to 3 March.
+    if (d) {
+      const [y, m, dd] = d.split("-").map(Number);
+      const real = new Date(Date.UTC(y, m - 1, dd));
+      if (real.getUTCMonth() !== m - 1 || real.getUTCDate() !== dd) return toast("วันครบกำหนดนี้ไม่มีในปฏิทิน", true);
+    }
     // The due day travels with the new period: keeping the old string would issue December's bill with
     // November's date (already past, so it starts overdue).
     const day = Number((d || O.due).slice(8, 10)) || O.dueDay || DUE_DAY;

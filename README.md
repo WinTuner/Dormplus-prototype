@@ -66,7 +66,7 @@ pytest
 | ส่วน | สถานะ |
 |---|---|
 | `line-app/` — ส่งบิลใน LINE · LIFF แนบสลิป · เจ้าของยืนยัน/จดมิเตอร์ | ✅ ใช้งานได้ (ข้อจำกัดที่เหลือ: [`line-app/README.md`](line-app/README.md) หัวข้อ "ข้อจำกัดที่ยังเหลือ") |
-| `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · สลิป · confirm/reject + ใบเสร็จ · LINE Login ผ่าน LIFF · **หน้าจอเจ้าของหอที่ `/owner`** | 🟡 deploy แล้ว (Vercel + Neon) · 189 tests (21 ไฟล์; ไม่มี Postgres = 39 ผ่าน / 147 ข้าม · CI รันครบพร้อม Postgres) · หน้า `/owner` ล็อกอินด้วยรหัสหอ (`OWNER_ACCESS_CODE`) ไม่ใช่ LINE |
+| `backend/` — ห้อง · มิเตอร์ · ออกบิล · รายการบิล · สลิป · confirm/reject + ใบเสร็จ · LINE Login ผ่าน LIFF · **หน้าจอเจ้าของหอที่ `/owner`** | 🟡 deploy แล้ว (Vercel + Neon) · 190 tests (21 ไฟล์; ไม่มี Postgres = 42 ผ่าน / 148 ข้าม · CI รันครบพร้อม Postgres) · หน้า `/owner` ล็อกอินด้วยรหัสหอ (`OWNER_ACCESS_CODE`) ไม่ใช่ LINE |
 | สรุปรายรับรายงวด (`GET /v1/reports/summary?period=`, เจ้าของ) | ✅ billed/paid/pending/unpaid + `rooms_total`/`rooms_paid`/`rooms_overdue` · `billed` = paid + pending + unpaid (ไม่นับบิล void) · ไม่ใส่ `period` = เดือนปัจจุบัน — เป็น endpoint สุดท้ายที่ค้างในสัญญา |
 | RLS policy (กรอง `property_id` ที่ระดับ DB) | ✅ migration `0004` — `force row level security` ทุกตารางที่ผูกหอ (ยกเว้น `auth_failures`) · production ต้องต่อด้วย role ที่ไม่ `BYPASSRLS` (เช่น `dormplus_app`) ไม่งั้น policy ไม่มีผล |
 | ส่งข้อความ LINE ฝั่ง backend | ✅ `app/line_push.py` + คิว `app/tasks.py` (ทวงค่าเช่า + ส่งบิลเมื่อออกบิล) · webhook ตอบผู้ใช้แล้ว (`POST /v1/webhooks/line/:property_id` — ตรวจ signature · `follow` → ข้อความต้อนรับ · พิมพ์ "บิล" → บิลล่าสุดของผู้เช่าคนนั้นเป็นข้อความ) แต่ OA ยังชี้ที่ `line-app/` เพราะบิลที่ผู้เช่าเห็นอยู่ใน Blob/R2 |
@@ -178,7 +178,7 @@ node smoke-cron.js      # /api/cron: ชนิดการเตือน, dedup
 npm test                # รันสามตัวแรกตามลำดับ (usecases/cron ไม่อยู่ใน npm test แต่ CI รัน)
 ```
 
-`node smoke-usecases.js` คือชุดเดียวกับ [`docs/TEST-CASES.md`](docs/TEST-CASES.md) (308 เคสใน 19 use case: 280 automate ✅ / 28 manual 🖐 / 0 ยังไม่สร้าง ⏳ — เคสที่ automate ได้ใน `line-app` มี 177 เคส ที่เหลือเป็น manual/LINE e2e หรือ pytest ฝั่ง backend) และ CI รันทั้งห้าไฟล์
+`node smoke-usecases.js` คือชุดเดียวกับ [`docs/TEST-CASES.md`](docs/TEST-CASES.md) (310 เคสใน 19 use case: 282 automate ✅ / 28 manual 🖐 / 0 ยังไม่สร้าง ⏳ — เคสที่ automate ได้ใน `line-app` มี 177 เคส ที่เหลือเป็น manual/LINE e2e หรือ pytest ฝั่ง backend) และ CI รันทั้งห้าไฟล์
 
 **`backend/`** — ต้องมี Postgres ก่อน (test ที่ต้องใช้ DB จะถูกข้ามถ้าไม่ได้ตั้ง `TEST_DATABASE_URL`):
 
@@ -270,7 +270,7 @@ exit code 1 ถ้ามีข้อไหนตก — ใช้เป็น ga
 | [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | env ของทั้งสองฝั่ง + ค่า default |
 | [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | deploy ทั้งสองโปรเจกต์ Vercel · Neon · cron · rollback |
 | [`docs/TESTING.md`](docs/TESTING.md) | ชุดทดสอบ offline, pytest, manual matrix, CI |
-| [`docs/TEST-CASES.md`](docs/TEST-CASES.md) | 308 test case ใน 19 use case (280 automate / 28 manual / 0 ยังไม่สร้าง) |
+| [`docs/TEST-CASES.md`](docs/TEST-CASES.md) | 310 test case ใน 19 use case (282 automate / 28 manual / 0 ยังไม่สร้าง) |
 | [`docs/HANDOFF.md`](docs/HANDOFF.md) | งานที่เหลือ + เกณฑ์ "เสร็จ" |
 | [`backend/README.md`](backend/README.md) | endpoint · session · migration · test ของ backend |
 
