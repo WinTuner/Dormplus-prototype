@@ -14,7 +14,7 @@
 | LINE OA / LIFF / auth (backend) | บางส่วน | LIFF login + session cookie เสร็จ · **ส่งข้อความ LINE ได้แล้ว** (`app/line_push.py` + คิว `app/tasks.py`) · **webhook รับ event มีแล้ว** (`POST /v1/webhooks/line/:property_id` ตรวจ signature → `audit_log`) แต่ OA ยังชี้ที่ `line-app/` และยังไม่มี handler ตอบผู้ใช้ · หน้า LIFF ของ backend อยู่ที่ `backend/liff/` |
 | Deploy: `line-app` | ✅ | Vercel · auto จาก `master` · https://line-app-iota.vercel.app |
 | Deploy: `backend` | ✅ | Vercel (serverless) · auto จาก `master` · https://line-backend-ten.vercel.app |
-| Database จริง | ✅ | Neon Postgres (Vercel Marketplace) · schema `0004` + seed 42 ห้อง · app ต่อด้วย role `dormplus_app` (ไม่มี BYPASSRLS, ต้องมีเพื่อให้ RLS ทำงาน) · `backend/.env` (ไม่อยู่ใน git) |
+| Database จริง | ✅ | Neon Postgres (Vercel Marketplace) · schema `0004` + seed 42 ห้อง · แอปต่อด้วย role เฉพาะของแอป (ไม่มี BYPASSRLS — ต้องเป็นแบบนั้น RLS จึงทำงาน) · ค่าเชื่อมต่ออยู่ใน `backend/.env` (ไม่อยู่ใน git) |
 
 **สถานะ infra:** ทั้งสองโปรเจกต์ Vercel ผูก repo `WinTuner/Dormplus-prototype` และ deploy อัตโนมัติเมื่อ push `master`
 (Root Directory: `line-app` / `backend`, Branch Tracking: `master`) · CI ที่ GitHub มี 2 job: `backend` (pytest + Postgres service) และ `line-app` (syntax + smoke 5 ชุด: `smoke.js`, `smoke-handlers.js`, `smoke-reads.js`, `smoke-usecases.js`, `smoke-cron.js` + ตรวจ script ในหน้า LIFF)
