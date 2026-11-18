@@ -40,7 +40,7 @@ git clone https://github.com/WinTuner/Dormplus-prototype.git
 cd Dormplus-prototype/line-app
 npm install                    # ให้ @vercel/blob, aws4fetch, qrcode-svg
 npm test                       # = node smoke.js && node smoke-handlers.js && node smoke-reads.js
-node smoke-usecases.js         # 177 use case (docs/TEST-CASES.md มี 308 แถว: ✅ 280 · 🖐 28 · ⏳ 0)
+node smoke-usecases.js         # 177 use case (docs/TEST-CASES.md มี 310 แถว: ✅ 282 · 🖐 28 · ⏳ 0)
 node smoke-cron.js             # /api/cron + ตัวเตือนรายวัน + cron-lock
 ```
 
@@ -83,7 +83,7 @@ TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/domplus_
 
 > ⚠️ ฐานข้อมูลใน `TEST_DATABASE_URL` **ถูกล้างทุกครั้ง** (`conftest.py` สั่ง `downgrade base` → `upgrade head` แล้ว `truncate ... restart identity cascade`) — ห้ามชี้ไปที่ Neon ตัวจริง
 
-- ชุดเต็มวันนี้คือ **189 test ใน 21 ไฟล์** (`backend/tests/test_*.py` — `pytest --collect-only` นับได้ 189) — รันแบบไม่มี DB ได้ **41 passed / 148 skipped** (test ที่ต้องใช้ DB ถูก skip) · test ฝั่ง LINE ของ backend อยู่ที่ `tests/test_webhook.py`, `tests/test_line_handlers.py`, `tests/test_line_link.py`, `tests/test_dunning.py`; หน้าเจ้าของหออยู่ที่ `tests/test_owner_ui.py` (ล็อกอิน `/owner`, รหัสผิด/ไม่ตั้งรหัส, cookie ผู้เช่าเข้าไม่ได้) · ถ้าจำนวนไม่ตรง แปลว่า collection พังหรือ import ค้าง ไม่ใช่ "test หาย"
+- ชุดเต็มวันนี้คือ **190 test ใน 21 ไฟล์** (`backend/tests/test_*.py` — `pytest --collect-only` นับได้ 190) — รันแบบไม่มี DB ได้ **42 passed / 148 skipped** (test ที่ต้องใช้ DB ถูก skip) · test ฝั่ง LINE ของ backend อยู่ที่ `tests/test_webhook.py`, `tests/test_line_handlers.py`, `tests/test_line_link.py`, `tests/test_dunning.py`; หน้าเจ้าของหออยู่ที่ `tests/test_owner_ui.py` (ล็อกอิน `/owner`, รหัสผิด/ไม่ตั้งรหัส, cookie ผู้เช่าเข้าไม่ได้) · ถ้าจำนวนไม่ตรง แปลว่า collection พังหรือ import ค้าง ไม่ใช่ "test หาย"
 
 ### 2.4 หมายเหตุบน Windows / PowerShell
 
@@ -107,7 +107,7 @@ TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/domplus_
 | `npx playwright test` | `line-app/e2e/` | UI test ของ `liff/bill.html` บน Chromium (mobile) กับ server ปลอมใน `e2e/server.js` | `e2e/playwright.config.js` |
 | `vercel --prod` | `line-app/`, `backend/` | deploy จากเครื่อง (ปกติไม่ต้อง — push `master` แล้ว auto) | `line-app/docs/DEPLOYMENT.md`, `backend/README.md` |
 | `node scripts/prod-smoke.mjs` | root | ตรวจ deployment จริงหลัง merge (ไม่ต้องล็อกอิน) | `scripts/prod-smoke.mjs` |
-| `pytest -q` | `backend/` | test ทั้งหมด (189 test ใน 21 ไฟล์; ไม่มี `TEST_DATABASE_URL` = 41 passed / 148 skipped) | `pyproject.toml` `testpaths` |
+| `pytest -q` | `backend/` | test ทั้งหมด (190 test ใน 21 ไฟล์; ไม่มี `TEST_DATABASE_URL` = 42 passed / 148 skipped) | `pyproject.toml` `testpaths` |
 | `alembic upgrade head` | `backend/` | apply migration | `migrations/` |
 | `alembic revision -m "..."` | `backend/` | สร้าง migration ใหม่ (เขียน `op.execute()` เอง) | `migrations/env.py` (`target_metadata = None`) |
 | `python -m app.seed` | `backend/` | seed หอ 42 ห้อง (รันซ้ำได้ ไม่สร้างซ้ำ) | `app/seed.py` |
@@ -198,7 +198,7 @@ trigger: `push` เข้า `master` และ **ทุก** `pull_request` · 
 |---|---|---|
 | `line-app` | `ubuntu-latest`, Node 20 | `npm ci --no-audit --no-fund` → `node --check` ทุก `api/*.js` → `node smoke.js` → `node smoke-handlers.js` → `node smoke-reads.js` → `node smoke-usecases.js` (step "Use case tests") → `node smoke-cron.js` (step "Reminder cron tests") → แยก inline `<script>` จาก `liff/bill.html` ออกมาแล้ว `node --check` |
 | `line-app-e2e` | `ubuntu-latest`, Node 20 (cache `line-app/package-lock.json` + `line-app/e2e/package-lock.json`) | `npm ci` ที่ `line-app/` → `npm ci` ที่ `line-app/e2e/` → `npx playwright install --with-deps chromium` → `npx playwright test` (working-directory `line-app/e2e`) → เมื่อ fail อัปโหลด `line-app/e2e/playwright-report` + `test-results` เป็น artifact `line-app-e2e-report` (เก็บ 7 วัน) |
-| `backend` | `ubuntu-latest` + service `postgres:16` (DB `domplus_test`), Python 3.12 | probe ว่า `backend/pyproject.toml` มีบน branch ไหม (ไม่มี = skip ทั้ง job) → `pip install -e "backend[dev]"` → `pytest -q` (189 test ใน 21 ไฟล์) ด้วย `TEST_DATABASE_URL` + `DEV_AUTH=true` |
+| `backend` | `ubuntu-latest` + service `postgres:16` (DB `domplus_test`), Python 3.12 | probe ว่า `backend/pyproject.toml` มีบน branch ไหม (ไม่มี = skip ทั้ง job) → `pip install -e "backend[dev]"` → `pytest -q` (190 test ใน 21 ไฟล์) ด้วย `TEST_DATABASE_URL` + `DEV_AUTH=true` |
 
 สิ่งที่ CI **บังคับ**ได้จริงคือ: syntax ทุก handler, พฤติกรรมที่ smoke **ทั้งห้าชุด**ครอบ (รวม use case 177 กรณีที่ id ตรงกับ [`docs/TEST-CASES.md`](./TEST-CASES.md) และ cron/ตัวเตือน), UI ของหน้า LIFF บน Chromium (e2e), inline script ของหน้า LIFF parse ได้, และ `pytest` ผ่านบน Postgres สด
 

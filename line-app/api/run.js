@@ -74,6 +74,14 @@ module.exports = async (req, res) => {
   if (billDue && !DATE.test(billDue)) {
     return res.status(400).json({ error: { code: "VALIDATION", message: "due ต้องเป็น YYYY-MM-DD" } });
   }
+  if (billDue) {
+    // 2026-02-31 passes the shape check but Date normalises it to 3 March, which shifts daysOverdue.
+    const [y, m, d] = billDue.split("-").map(Number);
+    const real = new Date(Date.UTC(y, m - 1, d));
+    if (real.getUTCMonth() !== m - 1 || real.getUTCDate() !== d) {
+      return res.status(400).json({ error: { code: "VALIDATION", message: "due ไม่มีอยู่ในปฏิทิน" } });
+    }
+  }
 
   const baseUrl = process.env.PUBLIC_BASE_URL || `https://${req.headers.host}`;
 

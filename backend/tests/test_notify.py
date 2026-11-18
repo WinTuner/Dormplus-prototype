@@ -1,7 +1,19 @@
 """notify_invoices — one queued LINE message per bill that has a tenant to send it to."""
 from datetime import date
 
+import pytest
+
 from app import notify
+from app.config import get_settings
+
+
+@pytest.fixture
+def line_token(monkeypatch):
+    """A queued push needs a token: without one notify_invoices refuses to enqueue anything."""
+    monkeypatch.setenv("LINE_CHANNEL_ACCESS_TOKEN", "test-token")
+    get_settings.cache_clear()
+    yield "test-token"
+    get_settings.cache_clear()
 
 
 class Recorder:
@@ -51,7 +63,7 @@ def row(invoice_id="inv_201_2026-11", line_user_id="U_201", room_no="201"):
             "room_no": room_no, "line_user_id": line_user_id}
 
 
-def test_one_job_per_invoice(monkeypatch):
+def test_one_job_per_invoice(monkeypatch, line_token):
     recorder = Recorder()
     monkeypatch.setattr(notify, "app", recorder)
 
@@ -68,7 +80,7 @@ def test_one_job_per_invoice(monkeypatch):
     assert "201" in recorder.calls[0]["body"] and "3,562" in recorder.calls[0]["body"]
 
 
-def test_a_room_without_a_tenant_is_skipped(monkeypatch):
+def test_a_room_without_a_tenant_is_skipped(monkeypatch, line_token):
     recorder = Recorder()
     monkeypatch.setattr(notify, "app", recorder)
 
@@ -79,3 +91,13 @@ def test_a_room_without_a_tenant_is_skipped(monkeypatch):
 def test_nothing_to_send_does_not_open_the_queue(monkeypatch):
     monkeypatch.setattr(notify, "app", Unopened())
     assert notify.notify_invoices([]) == (0, None)
+
+
+def test_without_a_line_token_nothing_is_queued(monkeypatch):
+    monkeypatch.delenv("LINE_CHANNEL_ACCESS_TOKEN", raising=False)
+    get_settings.cache_clear()
+    monkeypatch.setattr(notify, "app", Unopened())
+
+    # The bill is real; there is just no way to announce it yet.
+    assert notify.notify_invoices([row()]) == (0, None)
+    get_settings.cache_clear()

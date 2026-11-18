@@ -3,10 +3,13 @@
 Kept out of `app.tasks` on purpose: the task is what the worker runs, this is the API deciding how
 many messages to enqueue. Same shape as `app.dunning.queue_reminders`.
 """
+import logging
 
 # Set only by tests (a fake queue). Left as None, the real one is imported on first use: procrastinate
 # is slow to import and must not be paid for by requests that never queue a message.
 app = None
+
+logger = logging.getLogger(__name__)
 
 
 def notify_invoices(rows: list[dict]) -> tuple[int, str | None]:
@@ -17,6 +20,13 @@ def notify_invoices(rows: list[dict]) -> tuple[int, str | None]:
     """
     sendable = [row for row in rows if row.get("line_user_id")]
     if not sendable:
+        return 0, None
+    from app.config import get_settings
+
+    if not get_settings().line_channel_access_token:
+        # No token, no send. Queuing anyway finishes every job as "skipped" and the invoice is never
+        # announced; the bill is still real and the tenant can pull it from the chat.
+        logger.warning("invoice notify skipped: LINE_CHANNEL_ACCESS_TOKEN is not set")
         return 0, None
     from app.tasks import invoice_text
 
