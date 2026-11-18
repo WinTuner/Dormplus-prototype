@@ -218,6 +218,24 @@ def test_one_line_account_cannot_hold_two_rooms(owner, client_for, seeded, line_
     assert linked == 1
 
 
+def test_the_same_person_can_come_back_to_the_same_room(owner, client_for, seeded, line_ready):
+    """A move-out keeps the tenant row, so the unique (room_id, line_user_id) index still holds the
+    key. Inviting the same account back must free it instead of failing with a 500."""
+    client = client_for(seeded)
+    assert link(client, invite(owner)["code"]).status_code == 200
+    with seeded.begin() as conn:
+        conn.execute(text("update tenants set moved_out = current_date - 1 where id = 't_203'"))
+
+    res = link(client, invite(owner)["code"])
+    assert res.status_code == 200, res.json()
+    with seeded.connect() as conn:
+        rows = conn.execute(text(
+            "select id, moved_out from tenants where room_id = 'r_203' and line_user_id = 'U_somchai'"
+        )).all()
+    assert len(rows) == 1, "one row holds the key, the old one keeps only its history"
+    assert rows[0].moved_out is None
+
+
 def test_an_invite_needs_no_request_body(owner, seeded):
     res = owner.post("/v1/rooms/r_203/invite")
     assert res.status_code == 201, res.json()

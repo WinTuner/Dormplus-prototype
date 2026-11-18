@@ -46,10 +46,17 @@ def get_app() -> "procrastinate.App":
 def get_async_app() -> "procrastinate.App":
     import procrastinate
 
-    return procrastinate.App(
+    async_app = procrastinate.App(
         connector=procrastinate.PsycopgConnector(conninfo=_conninfo()),
         import_paths=["app.tasks"],
     )
+    # Tasks register themselves on the *sync* app (app/tasks.py imports `app` from this module), and
+    # each App keeps its own `tasks` dict. Without this copy the drain would find no tasks and mark
+    # every job failed with TaskNotFound while still answering 200.
+    import app.tasks  # noqa: F401 - import_paths only record the module, they do not load it
+
+    async_app.tasks.update(get_app().tasks)
+    return async_app
 
 
 def __getattr__(name: str):

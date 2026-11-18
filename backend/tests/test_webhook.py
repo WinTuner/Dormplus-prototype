@@ -105,6 +105,25 @@ def test_a_redelivered_event_is_ignored(seeded, client_for, line_secret):
     assert len(audit_rows(seeded)) == 2, "a different event is still recorded"
 
 
+def test_two_event_ids_in_one_delivery_are_both_recorded(seeded, client_for, line_secret):
+    """LINE batches events. Two parameter sets in one `execute` become psycopg's executemany, which
+    drops RETURNING — the batch must still answer 200, keep both ids, and write one audit row."""
+    body = json.dumps({"events": [
+        {"type": "message", "webhookEventId": "01HBATCH1"},
+        {"type": "message", "webhookEventId": "01HBATCH2"},
+    ]}).encode()
+    client = client_for(seeded)
+    assert post(client, body, sign(body)).status_code == 200
+
+    with seeded.connect() as conn:
+        ids = conn.execute(text("select event_id from line_events order by event_id")).scalars().all()
+    assert list(ids) == ["01HBATCH1", "01HBATCH2"]
+    assert len(audit_rows(seeded)) == 1
+
+    assert post(client, body, sign(body)).status_code == 200
+    assert len(audit_rows(seeded)) == 1, "the redelivered batch adds nothing"
+
+
 # ------------------------------------------------------- the dorm's own secret (properties.line_secret_enc)
 STORED = "stored-secret-for-p_1"
 

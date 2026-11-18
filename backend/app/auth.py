@@ -32,7 +32,7 @@ class Session:
 STILL_LINKED_SQL = text("""
     select 1 from tenants t join rooms r on r.id = t.room_id
     where t.line_user_id = :uid and t.room_id = :room and r.property_id = :property_id
-      and (t.moved_out is null or t.moved_out > current_date)
+      and (t.moved_out is null or t.moved_out > (now() at time zone 'Asia/Bangkok')::date)
 """)
 
 

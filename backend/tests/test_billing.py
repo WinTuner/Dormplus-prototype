@@ -104,13 +104,27 @@ def test_all_42_rooms_in_one_request(client_for, seeded):
                           "where v.period = '2026-11'") == 126
 
 
-def test_running_again_is_409_and_creates_nothing(client_for, seeded):
+def test_running_again_with_rooms_still_unread_is_202(client_for, seeded):
+    """Only a period with nothing left to bill is a conflict. A room that merely lacks a reading
+    keeps the run answerable, so the owner sees what is left instead of a bare 409."""
+    client = client_for(seeded, OWNER_P1, BILL_DAY)
+    run(client)
+    res = run(client)
+    assert res.status_code == 202
+    assert res.json()["rooms_to_bill"] == 0
+    assert res.json()["skipped_no_reading"] == 30
+    assert scalar(seeded, "select count(*) from invoices where period = '2026-11'") == 12
+    assert scalar(seeded, "select count(*) from audit_log where action = 'billing.run'") == 1
+
+
+def test_running_again_after_every_room_is_billed_is_409(client_for, seeded):
+    read_all_rooms_for_november(seeded)
     client = client_for(seeded, OWNER_P1, BILL_DAY)
     run(client)
     res = run(client)
     assert res.status_code == 409
     assert res.json()["error"]["code"] == "CONFLICT"
-    assert scalar(seeded, "select count(*) from invoices where period = '2026-11'") == 12
+    assert scalar(seeded, "select count(*) from invoices where period = '2026-11'") == 42
     assert scalar(seeded, "select count(*) from audit_log where action = 'billing.run'") == 1
 
 

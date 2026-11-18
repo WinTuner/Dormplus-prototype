@@ -48,10 +48,15 @@ class Settings(BaseSettings):
 
     # Set by Vercel on every deployment: "production", "preview" or "development" (`vercel dev`).
     vercel_env: str = ""
+    # The same signal on the other hosts main.py names: Railway and Cloud Run set these themselves.
+    railway_env: str = ""
+    cloud_run_service: str = Field("", validation_alias=AliasChoices("K_SERVICE", "CLOUD_RUN_SERVICE"))
 
     @property
     def is_production(self) -> bool:
-        return self.vercel_env == "production"
+        """Any hosted platform counts, not only Vercel: DEV_AUTH must not survive a copy of the
+        local env onto Railway or Cloud Run (the deployment targets named in app/main.py)."""
+        return bool(self.vercel_env == "production" or self.railway_env or self.cloud_run_service)
 
     @property
     def dev_auth_active(self) -> bool:
