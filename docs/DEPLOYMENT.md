@@ -220,6 +220,9 @@ vercel --prod
   preview ที่ต้องอ่าน storage จะ error ซึ่งเป็นพฤติกรรมที่ต้องการ: preview ต้องไม่เขียนทับข้อมูลจริง
 - **สำรองข้อมูล:** `node scripts/backup-r2.js <โฟลเดอร์ว่าง>` คัด `kv/` + `slips/` ทั้งหมดลงเครื่อง
   (126 ไฟล์ / 1.81 MB ณ วันนั้น) — เก็บ **นอกเรพ** เพราะ `slips/` เป็นรูปสลิปของผู้เช่า
+- **ระวังการรันในเครื่อง:** `line-app/.env` ชี้ R2 ของ production → `POST /api/dev?do=seed` จากเครื่อง
+  เขียนทับบิล/ค่าตั้งของหอจริง ไม่ใช่ข้อมูลจำลอง และ `npm run smoke` ที่แตะ store adapter จะอ่าน bucket จริงด้วย
+
 
 
 ### 3.3 `bill-state:<room>` — ไม่มี migration และไม่ต้อง block deploy
