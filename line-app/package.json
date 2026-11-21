@@ -11,6 +11,9 @@
     "aws4fetch": "^1.0.20",
     "qrcode-svg": "^1.1.0"
   },
+  "overrides": {
+    "zod": "^4.6.6"
+  },
   "scripts": {
     "test": "node smoke.js && node smoke-handlers.js && node smoke-reads.js"
   }
