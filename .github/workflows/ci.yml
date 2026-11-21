@@ -128,7 +128,7 @@ jobs:
             echo "backend/ not on this branch yet — skipping"
           fi
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         if: steps.probe.outputs.present == 'yes'
         with:
           python-version: "3.12"
